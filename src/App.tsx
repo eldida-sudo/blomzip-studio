@@ -76,8 +76,8 @@ function App() {
       <section className="content">
         <header className="toolbar">
           <div>
-            <p className="eyebrow">v0.4</p>
-            <h2>Story-ready image fields</h2>
+            <p className="eyebrow">v0.5</p>
+            <h2>Real image previews</h2>
           </div>
 
           <div className="controls">
@@ -103,7 +103,11 @@ function App() {
         <section className="image-grid">
           {filteredImages.map((image) => (
             <article className="image-card" key={image.id}>
-              <div className="image-preview" style={{ background: image.color }}>
+              <div
+                className="image-preview"
+                style={{ background: image.src ? undefined : image.color }}
+              >
+                {image.src && <img src={image.src} alt={image.alt} />}
                 {image.hero && <span className="hero-badge">Hero</span>}
                 {image.favorite && <span className="favorite-badge">★</span>}
               </div>
