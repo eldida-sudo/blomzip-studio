@@ -13,7 +13,7 @@ function App() {
 
   const filteredImages = images.filter((image) => {
     const searchText =
-      `${image.title} ${image.collection} ${image.tags.join(" ")} ${image.notes}`.toLowerCase();
+      `${image.title} ${image.collection} ${image.tags.join(" ")} ${image.notes} ${image.storyRole} ${image.season} ${image.location}`.toLowerCase();
 
     const matchesSearch = searchText.includes(search.toLowerCase());
     const matchesCollection =
@@ -76,15 +76,15 @@ function App() {
       <section className="content">
         <header className="toolbar">
           <div>
-            <p className="eyebrow">v0.3</p>
-            <h2>Favorite / Hero / Collections / Notes</h2>
+            <p className="eyebrow">v0.4</p>
+            <h2>Story-ready image fields</h2>
           </div>
 
           <div className="controls">
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search images, tags or notes..."
+              placeholder="Search images, tags, notes or places..."
             />
 
             <select
@@ -115,6 +115,18 @@ function App() {
                     <h3>{image.title}</h3>
                   </div>
                   <span className="date">{image.date}</span>
+                </div>
+
+                <div className="meta-list">
+                  <p>
+                    <strong>Role:</strong> {image.storyRole}
+                  </p>
+                  <p>
+                    <strong>Season:</strong> {image.season}
+                  </p>
+                  <p>
+                    <strong>Location:</strong> {image.location}
+                  </p>
                 </div>
 
                 <div className="tag-row">

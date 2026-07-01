@@ -8,6 +8,11 @@ export type ImageItem = {
   hero: boolean;
   notes: string;
   color: string;
+  src: string;
+  alt: string;
+  storyRole: string;
+  season: string;
+  location: string;
 };
 
 export const initialImages: ImageItem[] = [
@@ -22,6 +27,11 @@ export const initialImages: ImageItem[] = [
     notes:
       "Stark färgkoppling till fasaden. Bra kandidat för berättelsen om kontrast.",
     color: "linear-gradient(135deg, #9f2f35, #d8a36f)",
+    src: "",
+    alt: "Röd stockros framför en varm husvägg på innergården.",
+    storyRole: "Färg, höjd och kontrast mot fasaden.",
+    season: "Försommar",
+    location: "Rabatt vid husvägg",
   },
   {
     id: 2,
@@ -33,6 +43,11 @@ export const initialImages: ImageItem[] = [
     hero: false,
     notes: "Visar hur platsen börjar bli ett rum snarare än bara gård.",
     color: "linear-gradient(135deg, #42583c, #d8d1b8)",
+    src: "",
+    alt: "En sittplats på innergården med bord, stolar och växter runt omkring.",
+    storyRole: "Visar hur gården blir en plats att stanna i.",
+    season: "Sommar",
+    location: "Sittplatsen vid häcken",
   },
   {
     id: 3,
@@ -45,5 +60,10 @@ export const initialImages: ImageItem[] = [
     notes:
       "Bra exempel på kontraster: strävt, lent, rött, grönt, luftigt.",
     color: "linear-gradient(135deg, #c8596b, #e7d8a5)",
+    src: "",
+    alt: "En blandad bukett med trädgårdsblommor i olika färger och former.",
+    storyRole: "Visar skörd, materialkänsla och fotografiskt urval.",
+    season: "Sommar",
+    location: "Bukett från innergården",
   },
 ];

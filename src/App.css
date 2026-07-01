@@ -177,6 +177,26 @@ textarea {
   white-space: nowrap;
 }
 
+.meta-list {
+  margin: 14px 0 0;
+  padding: 12px;
+  border-radius: 16px;
+  background: #f2eadc;
+  display: grid;
+  gap: 6px;
+}
+
+.meta-list p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: #4f5f48;
+}
+
+.meta-list strong {
+  color: #243126;
+}
+
 .tag-row {
   display: flex;
   flex-wrap: wrap;
