@@ -16,7 +16,7 @@ function App() {
 
   const filteredImages = images.filter((image) => {
     const searchText =
-      `${image.title} ${image.collection} ${image.tags.join(" ")} ${image.notes} ${image.storyRole} ${image.season} ${image.location}`.toLowerCase();
+      `${image.title} ${image.collection} ${image.tags.join(" ")} ${image.notes} ${image.storyRole} ${image.season} ${image.location} ${image.mood} ${image.material} ${image.light} ${image.composition} ${image.importSource}`.toLowerCase();
 
     const matchesSearch = searchText.includes(search.toLowerCase());
     const matchesCollection =
@@ -84,15 +84,15 @@ function App() {
       <section className="content">
         <header className="toolbar">
           <div>
-            <p className="eyebrow">v0.6</p>
-            <h2>Bigger previews and curation filters</h2>
+            <p className="eyebrow">v0.7</p>
+            <h2>Richer metadata for image storytelling</h2>
           </div>
 
           <div className="controls">
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search images, tags, notes or places..."
+              placeholder="Search images, tags, notes, light or mood..."
             />
 
             <select
@@ -153,15 +153,17 @@ function App() {
                 </div>
 
                 <div className="meta-list">
-                  <p>
-                    <strong>Role:</strong> {image.storyRole}
-                  </p>
-                  <p>
-                    <strong>Season:</strong> {image.season}
-                  </p>
-                  <p>
-                    <strong>Location:</strong> {image.location}
-                  </p>
+                  <p><strong>Role:</strong> {image.storyRole}</p>
+                  <p><strong>Season:</strong> {image.season}</p>
+                  <p><strong>Location:</strong> {image.location}</p>
+                  <p><strong>Mood:</strong> {image.mood}</p>
+                  <p><strong>Light:</strong> {image.light}</p>
+                </div>
+
+                <div className="detail-list">
+                  <p><strong>Material:</strong> {image.material}</p>
+                  <p><strong>Composition:</strong> {image.composition}</p>
+                  <p><strong>Import:</strong> {image.importSource}</p>
                 </div>
 
                 <div className="tag-row">
