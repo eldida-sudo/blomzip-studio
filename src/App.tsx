@@ -2,10 +2,13 @@ import { useMemo, useState } from "react";
 import { initialImages, type ImageItem } from "./data/demoImages";
 import "./App.css";
 
+type ViewFilter = "all" | "favorites" | "hero";
+
 function App() {
   const [images, setImages] = useState<ImageItem[]>(initialImages);
   const [search, setSearch] = useState("");
   const [collectionFilter, setCollectionFilter] = useState("All");
+  const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
 
   const collections = useMemo(() => {
     return ["All", ...Array.from(new Set(images.map((image) => image.collection)))];
@@ -19,7 +22,12 @@ function App() {
     const matchesCollection =
       collectionFilter === "All" || image.collection === collectionFilter;
 
-    return matchesSearch && matchesCollection;
+    const matchesViewFilter =
+      viewFilter === "all" ||
+      (viewFilter === "favorites" && image.favorite) ||
+      (viewFilter === "hero" && image.hero);
+
+    return matchesSearch && matchesCollection && matchesViewFilter;
   });
 
   const favoriteCount = images.filter((image) => image.favorite).length;
@@ -76,8 +84,8 @@ function App() {
       <section className="content">
         <header className="toolbar">
           <div>
-            <p className="eyebrow">v0.5</p>
-            <h2>Real image previews</h2>
+            <p className="eyebrow">v0.6</p>
+            <h2>Bigger previews and curation filters</h2>
           </div>
 
           <div className="controls">
@@ -99,6 +107,29 @@ function App() {
             </select>
           </div>
         </header>
+
+        <div className="filter-row" aria-label="Image view filters">
+          <button
+            className={viewFilter === "all" ? "active" : ""}
+            onClick={() => setViewFilter("all")}
+          >
+            All
+          </button>
+
+          <button
+            className={viewFilter === "favorites" ? "active" : ""}
+            onClick={() => setViewFilter("favorites")}
+          >
+            Favorites
+          </button>
+
+          <button
+            className={viewFilter === "hero" ? "active" : ""}
+            onClick={() => setViewFilter("hero")}
+          >
+            Hero
+          </button>
+        </div>
 
         <section className="image-grid">
           {filteredImages.map((image) => (

@@ -82,7 +82,7 @@ textarea {
   justify-content: space-between;
   gap: 24px;
   align-items: flex-end;
-  margin-bottom: 28px;
+  margin-bottom: 18px;
 }
 
 .toolbar h2 {
@@ -90,6 +90,7 @@ textarea {
   font-size: 34px;
   margin: 0;
   color: #243126;
+  max-width: 520px;
 }
 
 .controls {
@@ -107,23 +108,35 @@ textarea {
   color: #243126;
 }
 
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 24px;
+}
+
+.filter-row button {
+  flex: 0 0 auto;
+  min-width: 100px;
+}
+
 .image-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 22px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 26px;
 }
 
 .image-card {
   background: #fffaf0;
   border: 1px solid #ded5c3;
-  border-radius: 24px;
+  border-radius: 28px;
   overflow: hidden;
   box-shadow: 0 18px 40px rgba(36, 49, 38, 0.08);
   min-width: 0;
 }
 
 .image-preview {
-  height: 190px;
+  height: 270px;
   position: relative;
   overflow: hidden;
   background: #d8d1b8;
@@ -139,10 +152,10 @@ textarea {
 .hero-badge,
 .favorite-badge {
   position: absolute;
-  top: 14px;
+  top: 16px;
   border-radius: 999px;
-  padding: 7px 11px;
-  background: rgba(255, 250, 240, 0.9);
+  padding: 8px 12px;
+  background: rgba(255, 250, 240, 0.92);
   color: #243126;
   font-weight: 800;
   font-size: 13px;
@@ -150,15 +163,15 @@ textarea {
 }
 
 .hero-badge {
-  left: 14px;
+  left: 16px;
 }
 
 .favorite-badge {
-  right: 14px;
+  right: 16px;
 }
 
 .image-body {
-  padding: 18px;
+  padding: 20px;
 }
 
 .image-heading {
@@ -177,7 +190,7 @@ textarea {
 
 .image-heading h3 {
   margin: 0;
-  font-size: 19px;
+  font-size: 21px;
   line-height: 1.2;
 }
 
@@ -188,12 +201,12 @@ textarea {
 }
 
 .meta-list {
-  margin: 14px 0 0;
-  padding: 12px;
-  border-radius: 16px;
+  margin: 16px 0 0;
+  padding: 13px;
+  border-radius: 18px;
   background: #f2eadc;
   display: grid;
-  gap: 6px;
+  gap: 7px;
 }
 
 .meta-list p {
@@ -211,7 +224,7 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 16px 0;
+  margin: 18px 0;
 }
 
 .tag-row span {
@@ -223,7 +236,7 @@ textarea {
 
 textarea {
   width: 100%;
-  min-height: 92px;
+  min-height: 98px;
   resize: vertical;
   border-radius: 16px;
   border: 1px solid #d8d0c0;
