@@ -3,6 +3,13 @@ import { extractImageMetadata } from "./extractImageMetadata";
 import { orderImageRecordsForTimeline } from "./orderImageRecordsForTimeline";
 import { type ZipImportSummary } from "./readZipImages";
 
+function createThumbnailUrlFromImageData(data: Uint8Array, fileName: string) {
+  const mimeType = fileName.toLowerCase().endsWith("png") ? "image/png" : fileName.toLowerCase().endsWith("webp") ? "image/webp" : "image/jpeg";
+  const bytes = data.slice();
+  const blob = new Blob([bytes], { type: mimeType });
+  return URL.createObjectURL(blob);
+}
+
 interface VisitCreationOptions {
   date?: string;
 }
@@ -18,6 +25,7 @@ function createImageRecords(summary: ZipImportSummary): ImageRecord[] {
       fileSize: imageEntry?.fileSize ?? 0,
       format: filename.split(".").pop()?.toLowerCase() ?? "unknown",
       sourcePath: filename,
+      thumbnailUrl: imageEntry?.data ? createThumbnailUrlFromImageData(imageEntry.data, filename) : undefined,
       ...metadata,
     };
   });

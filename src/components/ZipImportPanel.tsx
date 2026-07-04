@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { type Visit } from "../models/blomzip";
 import { createTemporaryVisitFromZip } from "../utils/createTemporaryVisitFromZip";
+import { revokeThumbnailUrls } from "../utils/createThumbnailUrls";
 import { readZipImages, type ZipImportSummary } from "../utils/readZipImages";
 
 interface ZipImportPanelProps {
@@ -12,6 +13,14 @@ export function ZipImportPanel({ className }: ZipImportPanelProps) {
   const [temporaryVisit, setTemporaryVisit] = useState<Visit | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (temporaryVisit?.imageRecords) {
+        revokeThumbnailUrls(temporaryVisit.imageRecords);
+      }
+    };
+  }, [temporaryVisit]);
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const selectedFile = event.target.files?.[0];
@@ -160,6 +169,30 @@ export function ZipImportPanel({ className }: ZipImportPanelProps) {
           )}
 
           <p className="result-count">{(temporaryVisit.imageRecords ?? []).slice(0, 4).map((record) => record.filename).join(", ") || "No image records yet."}</p>
+
+          {temporaryVisit.imageRecords && temporaryVisit.imageRecords.length > 0 && (
+            <div className="preview-gallery">
+              {temporaryVisit.imageRecords.map((record) => (
+                <div key={record.id} className="preview-card">
+                  <div className="preview-thumb">
+                    {record.thumbnailUrl ? (
+                      <img src={record.thumbnailUrl} alt={record.filename} />
+                    ) : (
+                      <span>No preview</span>
+                    )}
+                  </div>
+                  <div className="preview-meta">
+                    <strong>{record.filename}</strong>
+                    <span>#{record.timelineIndex ?? 0}</span>
+                    <span>
+                      {record.width && record.height ? `${record.width} × ${record.height}` : "Dimensions unavailable"}
+                      {record.orientation ? ` • ${record.orientation}` : ""}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {temporaryVisit.imageRecords && temporaryVisit.imageRecords.length > 0 && (
             <details className="metadata-details">
