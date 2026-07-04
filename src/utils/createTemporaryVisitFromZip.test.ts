@@ -58,6 +58,28 @@ describe("createTemporaryVisitFromZip", () => {
     );
   });
 
+  it("creates one entry per image record and attaches them to the visit", () => {
+    const visit = createTemporaryVisitFromZip({
+      fileName: "archive.zip",
+      status: "ready",
+      imageCount: 2,
+      totalImageSize: 10,
+      imageFiles: ["first.jpg", "second.jpg"],
+      imageEntries: [
+        { filename: "first.jpg", fileSize: 4, data: new Uint8Array([1, 2, 3, 4]) },
+        { filename: "second.jpg", fileSize: 6, data: new Uint8Array([5, 6, 7, 8, 9, 10]) },
+      ],
+    });
+
+    expect(visit?.entries).toHaveLength(2);
+    expect(visit?.entries?.map((entry) => entry.imageRecordId)).toEqual(visit?.imageRecords?.map((record) => record.id));
+    expect(visit?.entries?.map((entry) => entry.visitId)).toEqual([visit?.id, visit?.id]);
+    expect(visit?.entries?.map((entry) => entry.status)).toEqual(["new", "new"]);
+    expect(visit?.entries?.map((entry) => entry.notes)).toEqual(["", ""]);
+    expect(visit?.entries?.map((entry) => entry.tags)).toEqual([[], []]);
+    expect(visit?.entries?.map((entry) => entry.observations)).toEqual([[], []]);
+  });
+
   it("returns null when the ZIP summary is invalid", () => {
     const visit = createTemporaryVisitFromZip({
       fileName: "broken.zip",

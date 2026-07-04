@@ -317,6 +317,16 @@ button {
   color: #c9d2c4;
 }
 
+.preview-entry-badge {
+  display: inline-flex;
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(247, 244, 236, 0.1);
+  color: #f7f4ec;
+}
+
 .metadata-details {
   margin: 12px 0 0;
   padding: 10px 12px;

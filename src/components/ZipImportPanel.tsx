@@ -135,6 +135,13 @@ export function ZipImportPanel({ className }: ZipImportPanelProps) {
               <strong>{temporaryVisit.imageRecords?.length ?? 0}</strong>
             </div>
             <div>
+              <span>Entries</span>
+              <strong>{temporaryVisit.entries?.length ?? 0} ready for review</strong>
+            </div>
+          </div>
+
+          <div className="import-summary-grid">
+            <div>
               <span>Formats</span>
               <strong>{Array.from(new Set((temporaryVisit.imageRecords ?? []).map((record) => record.format))).join(", ") || "—"}</strong>
             </div>
@@ -187,6 +194,9 @@ export function ZipImportPanel({ className }: ZipImportPanelProps) {
                     <span>
                       {record.width && record.height ? `${record.width} × ${record.height}` : "Dimensions unavailable"}
                       {record.orientation ? ` • ${record.orientation}` : ""}
+                    </span>
+                    <span className="preview-entry-badge">
+                      Entry #{temporaryVisit.entries.findIndex((entry) => entry.imageRecordId === record.id)} • New
                     </span>
                   </div>
                 </div>

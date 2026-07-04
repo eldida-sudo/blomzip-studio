@@ -45,12 +45,14 @@ export interface ImageRecord {
 
 export interface Entry {
   id: string;
-
-  timestamp?: string;
-
+  imageRecordId: string;
+  visitId: string;
+  status: "new";
+  notes: string;
+  tags: string[];
   observations: Observation[];
-
-  fieldNotes?: FieldNote[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Observation {

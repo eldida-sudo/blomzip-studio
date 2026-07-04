@@ -1,4 +1,4 @@
-import { type ImageRecord, type Visit } from "../models/blomzip";
+import { type Entry, type ImageRecord, type Visit } from "../models/blomzip";
 import { extractImageMetadata } from "./extractImageMetadata";
 import { orderImageRecordsForTimeline } from "./orderImageRecordsForTimeline";
 import { type ZipImportSummary } from "./readZipImages";
@@ -12,6 +12,24 @@ function createThumbnailUrlFromImageData(data: Uint8Array, fileName: string) {
 
 interface VisitCreationOptions {
   date?: string;
+}
+
+function createEntries(imageRecords: ImageRecord[], visitId: string): Entry[] {
+  return imageRecords.map((imageRecord, index) => {
+    const now = new Date().toISOString();
+
+    return {
+      id: `entry-${index}-${imageRecord.id}`,
+      imageRecordId: imageRecord.id,
+      visitId,
+      status: "new",
+      notes: "",
+      tags: [],
+      observations: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+  });
 }
 
 function createImageRecords(summary: ZipImportSummary): ImageRecord[] {
@@ -48,15 +66,17 @@ export function createTemporaryVisitFromZip(
 
   const now = new Date();
   const fallbackDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const imageRecords = createImageRecords(summary);
+  const visitId = `visit-${summary.fileName}-${summary.imageCount}-${Date.now()}`;
 
   return {
-    id: `visit-${summary.fileName}-${summary.imageCount}-${Date.now()}`,
+    id: visitId,
     placeId: "temporary-import",
     date: options.date ?? fallbackDate,
-    entries: [],
+    entries: createEntries(imageRecords, visitId),
     imageCount: summary.imageCount,
     importedImageFiles: summary.imageFiles,
-    imageRecords: createImageRecords(summary),
+    imageRecords,
     status: "Ready for observations",
   };
 }
