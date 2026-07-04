@@ -39,6 +39,7 @@ export interface ImageRecord {
   aspectRatio?: number;
   orientation?: "portrait" | "landscape" | "square";
   mimeType?: string;
+  timelineIndex?: number;
   thumbnailUrl?: string;
 }
 

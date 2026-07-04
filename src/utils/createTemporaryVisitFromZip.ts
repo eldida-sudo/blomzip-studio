@@ -1,5 +1,6 @@
 import { type ImageRecord, type Visit } from "../models/blomzip";
 import { extractImageMetadata } from "./extractImageMetadata";
+import { orderImageRecordsForTimeline } from "./orderImageRecordsForTimeline";
 import { type ZipImportSummary } from "./readZipImages";
 
 interface VisitCreationOptions {
@@ -7,7 +8,7 @@ interface VisitCreationOptions {
 }
 
 function createImageRecords(summary: ZipImportSummary): ImageRecord[] {
-  return summary.imageFiles.map((filename, index) => {
+  const imageRecords = summary.imageFiles.map((filename, index) => {
     const imageEntry = summary.imageEntries?.[index];
     const metadata = imageEntry?.data ? extractImageMetadata(imageEntry.data, filename) : {};
 
@@ -20,6 +21,13 @@ function createImageRecords(summary: ZipImportSummary): ImageRecord[] {
       ...metadata,
     };
   });
+
+  const { orderedRecords } = orderImageRecordsForTimeline(imageRecords);
+
+  return orderedRecords.map((record, index) => ({
+    ...record,
+    timelineIndex: index,
+  }));
 }
 
 export function createTemporaryVisitFromZip(

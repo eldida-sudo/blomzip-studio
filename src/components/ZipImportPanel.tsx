@@ -138,6 +138,27 @@ export function ZipImportPanel({ className }: ZipImportPanelProps) {
             </div>
           </div>
 
+          {temporaryVisit.imageRecords && temporaryVisit.imageRecords.length > 0 && (
+            <div className="timeline-summary">
+              <div>
+                <span>First</span>
+                <strong>{temporaryVisit.imageRecords[0]?.filename}</strong>
+              </div>
+              <div>
+                <span>Last</span>
+                <strong>{temporaryVisit.imageRecords[temporaryVisit.imageRecords.length - 1]?.filename}</strong>
+              </div>
+              <div>
+                <span>Ordered</span>
+                <strong>{temporaryVisit.imageRecords.length}</strong>
+              </div>
+              <div>
+                <span>Using</span>
+                <strong>{temporaryVisit.imageRecords.some((record) => record.captureDate) ? "capture dates" : "filename fallback"}</strong>
+              </div>
+            </div>
+          )}
+
           <p className="result-count">{(temporaryVisit.imageRecords ?? []).slice(0, 4).map((record) => record.filename).join(", ") || "No image records yet."}</p>
 
           {temporaryVisit.imageRecords && temporaryVisit.imageRecords.length > 0 && (
