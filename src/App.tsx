@@ -1,17 +1,46 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { initialImages, type ImageItem } from "./data/demoImages";
 import "./App.css";
 
 type ViewFilter = "all" | "favorites" | "hero";
+type CardLayout = "landscape" | "portrait";
 
 function App() {
   const [images, setImages] = useState<ImageItem[]>(initialImages);
+  const [dataSource, setDataSource] = useState("Demo fallback");
   const [search, setSearch] = useState("");
   const [collectionFilter, setCollectionFilter] = useState("All");
   const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
+  const [cardLayout, setCardLayout] = useState<CardLayout>("landscape");
+  const [selectedImage, setSelectedImage] = useState<ImageItem | null>(null);
+
+  useEffect(() => {
+    fetch("/data/images.json")
+      .then((response) => {
+        if (!response.ok) throw new Error("Could not load imported images");
+        return response.json();
+      })
+      .then((data: ImageItem[]) => {
+        setImages(data);
+        setDataSource("Auto-imported JSON");
+      })
+      .catch(() => {
+        setImages(initialImages);
+        setDataSource("Demo fallback");
+      });
+  }, []);
 
   const collections = useMemo(() => {
     return ["All", ...Array.from(new Set(images.map((image) => image.collection)))];
+  }, [images]);
+
+  const collectionStats = useMemo(() => {
+    return Array.from(
+      images.reduce((stats, image) => {
+        stats.set(image.collection, (stats.get(image.collection) ?? 0) + 1);
+        return stats;
+      }, new Map<string, number>())
+    ).sort((a, b) => b[1] - a[1]);
   }, [images]);
 
   const filteredImages = images.filter((image) => {
@@ -57,6 +86,16 @@ function App() {
     );
   }
 
+  function renderMeta(label: string, value: string) {
+    if (!value) return null;
+
+    return (
+      <p>
+        <strong>{label}:</strong> {value}
+      </p>
+    );
+  }
+
   return (
     <main className="studio">
       <aside className="sidebar">
@@ -71,6 +110,13 @@ function App() {
         </div>
 
         <div className="sidebar-card">
+          <span>Showing now</span>
+          <strong>
+            {filteredImages.length} / {images.length}
+          </strong>
+        </div>
+
+        <div className="sidebar-card">
           <span>Favorites</span>
           <strong>{favoriteCount}</strong>
         </div>
@@ -79,13 +125,50 @@ function App() {
           <span>Hero candidates</span>
           <strong>{heroCount}</strong>
         </div>
+
+        <div className="sidebar-card">
+          <span>Collections</span>
+          <strong>{collectionStats.length}</strong>
+        </div>
+
+        <div className="sidebar-card">
+          <span>Data source</span>
+          <strong>{dataSource}</strong>
+        </div>
+
+        <div className="sidebar-card">
+          <span>Collection stats</span>
+          <div className="collection-stats">
+            <button
+              className={collectionFilter === "All" ? "active" : ""}
+              onClick={() => setCollectionFilter("All")}
+            >
+              <span>All</span>
+              <strong>{images.length}</strong>
+            </button>
+
+            {collectionStats.map(([collection, count]) => (
+              <button
+                key={collection}
+                className={collectionFilter === collection ? "active" : ""}
+                onClick={() => setCollectionFilter(collection)}
+              >
+                <span>{collection}</span>
+                <strong>{count}</strong>
+              </button>
+            ))}
+          </div>
+        </div>
       </aside>
 
       <section className="content">
         <header className="toolbar">
           <div>
-            <p className="eyebrow">v0.7</p>
-            <h2>Richer metadata for image storytelling</h2>
+            <p className="eyebrow">v0.8.5</p>
+            <h2>Filtered image count</h2>
+            <p className="result-count">
+              Showing {filteredImages.length} of {images.length} images
+            </p>
           </div>
 
           <div className="controls">
@@ -129,19 +212,34 @@ function App() {
           >
             Hero
           </button>
+
+          <button
+            className={cardLayout === "landscape" ? "active" : ""}
+            onClick={() => setCardLayout("landscape")}
+          >
+            Landscape
+          </button>
+
+          <button
+            className={cardLayout === "portrait" ? "active" : ""}
+            onClick={() => setCardLayout("portrait")}
+          >
+            Portrait
+          </button>
         </div>
 
-        <section className="image-grid">
+        <section className={`image-grid ${cardLayout}`}>
           {filteredImages.map((image) => (
             <article className="image-card" key={image.id}>
-              <div
-                className="image-preview"
+              <button
+                className="image-preview image-open-button"
                 style={{ background: image.src ? undefined : image.color }}
+                onClick={() => setSelectedImage(image)}
               >
                 {image.src && <img src={image.src} alt={image.alt} />}
                 {image.hero && <span className="hero-badge">Hero</span>}
                 {image.favorite && <span className="favorite-badge">★</span>}
-              </div>
+              </button>
 
               <div className="image-body">
                 <div className="image-heading">
@@ -149,21 +247,15 @@ function App() {
                     <p className="collection">{image.collection}</p>
                     <h3>{image.title}</h3>
                   </div>
-                  <span className="date">{image.date}</span>
+                  {image.date && <span className="date">{image.date}</span>}
                 </div>
 
-                <div className="meta-list">
-                  <p><strong>Role:</strong> {image.storyRole}</p>
-                  <p><strong>Season:</strong> {image.season}</p>
-                  <p><strong>Location:</strong> {image.location}</p>
-                  <p><strong>Mood:</strong> {image.mood}</p>
-                  <p><strong>Light:</strong> {image.light}</p>
-                </div>
-
-                <div className="detail-list">
-                  <p><strong>Material:</strong> {image.material}</p>
-                  <p><strong>Composition:</strong> {image.composition}</p>
-                  <p><strong>Import:</strong> {image.importSource}</p>
+                <div className="meta-list compact">
+                  {renderMeta("Role", image.storyRole)}
+                  {renderMeta("Season", image.season)}
+                  {renderMeta("Location", image.location)}
+                  {renderMeta("Mood", image.mood)}
+                  {renderMeta("Light", image.light)}
                 </div>
 
                 <div className="tag-row">
@@ -176,6 +268,7 @@ function App() {
                   value={image.notes}
                   onChange={(event) => updateNotes(image.id, event.target.value)}
                   aria-label={`Notes for ${image.title}`}
+                  placeholder="Add notes..."
                 />
 
                 <div className="button-row">
@@ -198,6 +291,44 @@ function App() {
           ))}
         </section>
       </section>
+
+      {selectedImage && (
+        <div className="detail-overlay" onClick={() => setSelectedImage(null)}>
+          <article className="detail-panel" onClick={(event) => event.stopPropagation()}>
+            <button className="close-button" onClick={() => setSelectedImage(null)}>
+              Close
+            </button>
+
+            <div className="detail-image">
+              <img src={selectedImage.src} alt={selectedImage.alt} />
+            </div>
+
+            <div className="detail-body">
+              <p className="collection">{selectedImage.collection}</p>
+              <h2>{selectedImage.title}</h2>
+
+              <div className="meta-list">
+                {renderMeta("Role", selectedImage.storyRole)}
+                {renderMeta("Season", selectedImage.season)}
+                {renderMeta("Location", selectedImage.location)}
+                {renderMeta("Mood", selectedImage.mood)}
+                {renderMeta("Light", selectedImage.light)}
+                {renderMeta("Material", selectedImage.material)}
+                {renderMeta("Composition", selectedImage.composition)}
+                {renderMeta("Import", selectedImage.importSource)}
+              </div>
+
+              <div className="tag-row">
+                {selectedImage.tags.map((tag) => (
+                  <span key={tag}>{tag}</span>
+                ))}
+              </div>
+
+              {selectedImage.notes && <p className="detail-notes">{selectedImage.notes}</p>}
+            </div>
+          </article>
+        </div>
+      )}
     </main>
   );
 }
