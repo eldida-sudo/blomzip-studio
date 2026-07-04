@@ -18,6 +18,10 @@ describe("createTemporaryVisitFromZip", () => {
     expect(visit?.date).toBe("2026-07-04");
     expect(visit?.imageCount).toBe(2);
     expect(visit?.importedImageFiles).toEqual(["one.jpg", "two.png"]);
+    expect(visit?.imageRecords).toEqual([
+      expect.objectContaining({ filename: "one.jpg", format: "jpg", sourcePath: "one.jpg" }),
+      expect.objectContaining({ filename: "two.png", format: "png", sourcePath: "two.png" }),
+    ]);
     expect(visit?.status).toBe("Ready for observations");
   });
 

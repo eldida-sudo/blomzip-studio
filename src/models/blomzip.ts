@@ -23,7 +23,20 @@ export interface Visit {
 
   imageCount?: number;
   importedImageFiles?: string[];
+  imageRecords?: ImageRecord[];
   status?: string;
+}
+
+export interface ImageRecord {
+  id: string;
+  filename: string;
+  fileSize: number;
+  format: string;
+  sourcePath: string;
+  captureDate?: string;
+  width?: number;
+  height?: number;
+  thumbnailUrl?: string;
 }
 
 export interface Entry {

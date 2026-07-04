@@ -120,6 +120,25 @@ export function ZipImportPanel({ className }: ZipImportPanelProps) {
             </div>
           </div>
 
+          <div className="import-summary-grid">
+            <div>
+              <span>Image records</span>
+              <strong>{temporaryVisit.imageRecords?.length ?? 0}</strong>
+            </div>
+            <div>
+              <span>Formats</span>
+              <strong>{Array.from(new Set((temporaryVisit.imageRecords ?? []).map((record) => record.format))).join(", ") || "—"}</strong>
+            </div>
+          </div>
+
+          <div className="import-summary-grid">
+            <div>
+              <span>Total size</span>
+              <strong>{(temporaryVisit.imageRecords ?? []).reduce((total, record) => total + record.fileSize, 0)} bytes</strong>
+            </div>
+          </div>
+
+          <p className="result-count">{(temporaryVisit.imageRecords ?? []).slice(0, 4).map((record) => record.filename).join(", ") || "No image records yet."}</p>
           <p className="result-count">This visit exists in memory and is ready for future observations.</p>
         </div>
       )}
