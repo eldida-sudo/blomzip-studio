@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { type Visit } from "../models/blomzip";
+import { createTemporaryVisitFromZip } from "../utils/createTemporaryVisitFromZip";
 import { readZipImages, type ZipImportSummary } from "../utils/readZipImages";
 
 interface ZipImportPanelProps {
@@ -7,6 +9,7 @@ interface ZipImportPanelProps {
 
 export function ZipImportPanel({ className }: ZipImportPanelProps) {
   const [summary, setSummary] = useState<ZipImportSummary | null>(null);
+  const [temporaryVisit, setTemporaryVisit] = useState<Visit | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -21,8 +24,10 @@ export function ZipImportPanel({ className }: ZipImportPanelProps) {
     setErrorMessage(null);
 
     const result = await readZipImages(selectedFile);
+    const visit = createTemporaryVisitFromZip(result);
 
     setSummary(result);
+    setTemporaryVisit(visit);
     setIsLoading(false);
 
     if (result.status === "invalid") {
@@ -94,6 +99,28 @@ export function ZipImportPanel({ className }: ZipImportPanelProps) {
               ))}
             </ul>
           )}
+        </div>
+      )}
+
+      {temporaryVisit && (
+        <div className="sidebar-card import-summary">
+          <div className="import-summary-header">
+            <span>Visit</span>
+            <strong>{temporaryVisit.date}</strong>
+          </div>
+
+          <div className="import-summary-grid">
+            <div>
+              <span>Images</span>
+              <strong>{temporaryVisit.imageCount ?? 0}</strong>
+            </div>
+            <div>
+              <span>Status</span>
+              <strong>{temporaryVisit.status ?? "Pending"}</strong>
+            </div>
+          </div>
+
+          <p className="result-count">This visit exists in memory and is ready for future observations.</p>
         </div>
       )}
     </section>

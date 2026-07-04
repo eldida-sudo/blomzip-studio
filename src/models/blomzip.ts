@@ -20,6 +20,10 @@ export interface Visit {
   weather?: Weather;
 
   entries: Entry[];
+
+  imageCount?: number;
+  importedImageFiles?: string[];
+  status?: string;
 }
 
 export interface Entry {
