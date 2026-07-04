@@ -6,9 +6,10 @@ import { readZipImages, type ZipImportSummary } from "../utils/readZipImages";
 
 interface ZipImportPanelProps {
   className?: string;
+  onImportStateChange?: (state: { summary: ZipImportSummary | null; visit: Visit | null }) => void;
 }
 
-export function ZipImportPanel({ className }: ZipImportPanelProps) {
+export function ZipImportPanel({ className, onImportStateChange }: ZipImportPanelProps) {
   const [summary, setSummary] = useState<ZipImportSummary | null>(null);
   const [temporaryVisit, setTemporaryVisit] = useState<Visit | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -37,6 +38,7 @@ export function ZipImportPanel({ className }: ZipImportPanelProps) {
 
     setSummary(result);
     setTemporaryVisit(visit);
+    onImportStateChange?.({ summary: result, visit });
     setIsLoading(false);
 
     if (result.status === "invalid") {
