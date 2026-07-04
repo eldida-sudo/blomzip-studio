@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { initialImages, type ImageItem } from "./data/demoImages";
+import { ZipImportPanel } from "./components/ZipImportPanel";
 import "./App.css";
 
 type ViewFilter = "all" | "favorites" | "hero";
@@ -159,6 +160,8 @@ function App() {
             ))}
           </div>
         </div>
+
+        <ZipImportPanel className="zip-panel" />
       </aside>
 
       <section className="content">
