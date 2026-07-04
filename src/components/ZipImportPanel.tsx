@@ -139,6 +139,26 @@ export function ZipImportPanel({ className }: ZipImportPanelProps) {
           </div>
 
           <p className="result-count">{(temporaryVisit.imageRecords ?? []).slice(0, 4).map((record) => record.filename).join(", ") || "No image records yet."}</p>
+
+          {temporaryVisit.imageRecords && temporaryVisit.imageRecords.length > 0 && (
+            <details className="metadata-details">
+              <summary>Metadata</summary>
+              <ul className="metadata-details-list">
+                {temporaryVisit.imageRecords.map((record) => (
+                  <li key={record.id}>
+                    <strong>{record.filename}</strong>
+                    <span>
+                      {record.width && record.height ? `${record.width} × ${record.height}` : "Dimensions unavailable"}
+                      {record.orientation ? ` • ${record.orientation}` : ""}
+                      {record.mimeType ? ` • ${record.mimeType}` : ""}
+                      {record.captureDate ? ` • ${record.captureDate}` : ""}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
           <p className="result-count">This visit exists in memory and is ready for future observations.</p>
         </div>
       )}

@@ -2,12 +2,19 @@ import JSZip from "jszip";
 
 export type ZipImportStatus = "ready" | "empty" | "invalid";
 
+export interface ZipImageEntry {
+  filename: string;
+  fileSize: number;
+  data: Uint8Array;
+}
+
 export interface ZipImportSummary {
   fileName: string;
   status: ZipImportStatus;
   imageCount: number;
   totalImageSize: number;
   imageFiles: string[];
+  imageEntries?: ZipImageEntry[];
   errorMessage?: string;
 }
 
@@ -57,12 +64,15 @@ export async function readZipImages(file: Pick<File, "name" | "arrayBuffer">): P
     }
 
     const imageFiles: string[] = [];
+    const imageEntriesData: ZipImageEntry[] = [];
     let totalImageSize = 0;
 
     for (const entry of imageEntries) {
       const data = await entry.async("uint8array");
+      const filename = entry.name.split("/").pop() ?? entry.name;
       totalImageSize += data.byteLength;
-      imageFiles.push(entry.name.split("/").pop() ?? entry.name);
+      imageFiles.push(filename);
+      imageEntriesData.push({ filename, fileSize: data.byteLength, data });
     }
 
     return {
@@ -71,6 +81,7 @@ export async function readZipImages(file: Pick<File, "name" | "arrayBuffer">): P
       imageCount: imageFiles.length,
       totalImageSize,
       imageFiles,
+      imageEntries: imageEntriesData,
     };
   } catch (error) {
     return {

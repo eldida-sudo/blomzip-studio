@@ -258,8 +258,40 @@ button {
   color: #243126;
   border-radius: 999px;
   padding: 10px 14px;
+}
+
+.metadata-details {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(247, 244, 236, 0.16);
+  border-radius: 12px;
+  background: rgba(247, 244, 236, 0.05);
+}
+
+.metadata-details summary {
   cursor: pointer;
-  font-weight: 700;
+  color: #f7f4ec;
+  font-weight: 600;
+}
+
+.metadata-details-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+  color: #dfe8dc;
+}
+
+.metadata-details-list strong {
+  display: block;
+  color: #f7f4ec;
+  font-size: 14px;
+}
+
+.metadata-details-list span {
+  display: block;
+  font-size: 13px;
+  color: #dfe8dc;
 }
 
 .button-row button {

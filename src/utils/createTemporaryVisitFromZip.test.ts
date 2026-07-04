@@ -25,6 +25,39 @@ describe("createTemporaryVisitFromZip", () => {
     expect(visit?.status).toBe("Ready for observations");
   });
 
+  it("enriches image records with metadata extracted from in-memory image bytes", () => {
+    const jpegBytes = Uint8Array.from([
+      0xff, 0xd8,
+      0xff, 0xc0, 0x00, 0x0b,
+      0x08, 0x01, 0x90, 0x02, 0x58, 0x03,
+      0xff, 0xe1, 0x00, 0x1f,
+      0x45, 0x78, 0x69, 0x66, 0x00, 0x00,
+      0x44, 0x61, 0x74, 0x65, 0x54, 0x69, 0x6d, 0x65, 0x3d, 0x32, 0x30, 0x32, 0x34, 0x3a, 0x30, 0x35, 0x3a, 0x30, 0x36, 0x20, 0x31, 0x32, 0x3a, 0x33, 0x34, 0x3a, 0x35, 0x36,
+      0xff, 0xd9,
+    ]);
+
+    const visit = createTemporaryVisitFromZip({
+      fileName: "archive.zip",
+      status: "ready",
+      imageCount: 1,
+      totalImageSize: jpegBytes.byteLength,
+      imageFiles: ["photo.jpg"],
+      imageEntries: [{ filename: "photo.jpg", fileSize: jpegBytes.byteLength, data: jpegBytes }],
+    });
+
+    expect(visit?.imageRecords?.[0]).toEqual(
+      expect.objectContaining({
+        filename: "photo.jpg",
+        width: 600,
+        height: 400,
+        aspectRatio: 1.5,
+        orientation: "landscape",
+        captureDate: "2024:05:06 12:34:56",
+        mimeType: "image/jpeg",
+      })
+    );
+  });
+
   it("returns null when the ZIP summary is invalid", () => {
     const visit = createTemporaryVisitFromZip({
       fileName: "broken.zip",
