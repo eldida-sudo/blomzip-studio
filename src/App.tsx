@@ -338,9 +338,8 @@ function App() {
                         {record.width && record.height ? `${record.width} × ${record.height}` : "Dimensions unavailable"}
                         {record.orientation ? ` • ${record.orientation}` : ""}
                       </span>
-                      <span className="preview-entry-badge">
-                        Entry #{(importVisit.entries ?? []).findIndex((entry) => entry.imageRecordId === record.id)} • New
-                      </span>
+                      <span className="preview-entry-badge">0 observations</span>
+                      <span className="preview-entry-badge preview-entry-badge-subtle">Ready for AI</span>
                     </div>
                   </div>
                 ))}

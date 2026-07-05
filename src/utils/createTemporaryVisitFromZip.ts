@@ -77,6 +77,6 @@ export function createTemporaryVisitFromZip(
     imageCount: summary.imageCount,
     importedImageFiles: summary.imageFiles,
     imageRecords,
-    status: "Ready for observations",
+    status: "Ready for AI",
   };
 }

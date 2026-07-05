@@ -22,7 +22,7 @@ describe("createTemporaryVisitFromZip", () => {
       expect.objectContaining({ filename: "one.jpg", format: "jpg", sourcePath: "one.jpg" }),
       expect.objectContaining({ filename: "two.png", format: "png", sourcePath: "two.png" }),
     ]);
-    expect(visit?.status).toBe("Ready for observations");
+    expect(visit?.status).toBe("Ready for AI");
   });
 
   it("enriches image records with metadata extracted from in-memory image bytes", () => {
@@ -77,6 +77,7 @@ describe("createTemporaryVisitFromZip", () => {
     expect(visit?.entries?.map((entry) => entry.status)).toEqual(["new", "new"]);
     expect(visit?.entries?.map((entry) => entry.notes)).toEqual(["", ""]);
     expect(visit?.entries?.map((entry) => entry.tags)).toEqual([[], []]);
+    expect(visit?.entries?.every((entry) => entry.observations.length === 0)).toBe(true);
     expect(visit?.entries?.map((entry) => entry.observations)).toEqual([[], []]);
   });
 

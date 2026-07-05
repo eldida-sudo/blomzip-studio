@@ -138,7 +138,7 @@ export function ZipImportPanel({ className, onImportStateChange }: ZipImportPane
             </div>
             <div>
               <span>Entries</span>
-              <strong>{temporaryVisit.entries?.length ?? 0} ready for review</strong>
+              <strong>{temporaryVisit.entries?.length ?? 0} ready for AI</strong>
             </div>
           </div>
 
@@ -197,9 +197,8 @@ export function ZipImportPanel({ className, onImportStateChange }: ZipImportPane
                       {record.width && record.height ? `${record.width} × ${record.height}` : "Dimensions unavailable"}
                       {record.orientation ? ` • ${record.orientation}` : ""}
                     </span>
-                    <span className="preview-entry-badge">
-                      Entry #{temporaryVisit.entries.findIndex((entry) => entry.imageRecordId === record.id)} • New
-                    </span>
+                    <span className="preview-entry-badge">0 observations</span>
+                    <span className="preview-entry-badge preview-entry-badge-subtle">Ready for AI</span>
                   </div>
                 </div>
               ))}

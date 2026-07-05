@@ -57,16 +57,13 @@ export interface Entry {
 
 export interface Observation {
   id: string;
-
-  type: ObservationType;
-
-  title: string;
-
-  description?: string;
-
-  photos?: Photo[];
-
-  tags?: string[];
+  entryId: string;
+  type: string;
+  confidence?: number;
+  source: "ai" | "user";
+  value: string;
+  createdAt: string;
+  reviewed: boolean;
 }
 
 export interface FieldNote {
