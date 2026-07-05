@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { initialImages, type ImageItem } from "./data/demoImages";
+import { EntryReview } from "./components/EntryReview";
 import { ZipImportPanel } from "./components/ZipImportPanel";
 import type { Visit } from "./models/blomzip";
 import type { ZipImportSummary } from "./utils/readZipImages";
@@ -18,6 +19,7 @@ function App() {
   const [selectedImage, setSelectedImage] = useState<ImageItem | null>(null);
   const [importSummary, setImportSummary] = useState<ZipImportSummary | null>(null);
   const [importVisit, setImportVisit] = useState<Visit | null>(null);
+  const [isReviewingEntries, setIsReviewingEntries] = useState(false);
 
   useEffect(() => {
     fetch("/data/images.json")
@@ -275,7 +277,9 @@ function App() {
       </aside>
 
       <section className="content">
-        {importVisit ? (
+        {isReviewingEntries && importVisit ? (
+          <EntryReview visit={importVisit} onClose={() => setIsReviewingEntries(false)} />
+        ) : importVisit ? (
           <div className="import-mode">
             <section className="import-mode-panel">
               <div className="import-mode-heading">
@@ -306,7 +310,7 @@ function App() {
                     Step through the in-memory entries and begin shaping observations in the next phase.
                   </p>
                 </div>
-                <button type="button" disabled>
+                <button type="button" onClick={() => setIsReviewingEntries(true)}>
                   Review entries
                 </button>
               </div>
@@ -346,7 +350,7 @@ function App() {
               </div>
             </section>
 
-            <section className="import-library">
+            <section className="import-library import-library-secondary">
               <div className="import-preview-heading">
                 <div>
                   <p className="eyebrow">Studio library</p>
