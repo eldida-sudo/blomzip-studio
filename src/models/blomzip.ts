@@ -41,6 +41,12 @@ export interface ImageRecord {
   mimeType?: string;
   timelineIndex?: number;
   thumbnailUrl?: string;
+  
+  // Sidecar-provided metadata
+  location?: Location;
+  notes?: string;
+  tags?: string[];
+  custom?: Record<string, string | number | boolean>;
 }
 
 export interface Entry {

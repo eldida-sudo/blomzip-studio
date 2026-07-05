@@ -1,4 +1,7 @@
 import JSZip from "jszip";
+import { type ImportSidecarV1 } from "../models/importSidecar";
+import { parseSidecarFromZip } from "./parseSidecarFromZip";
+import { validateSidecar } from "./validateSidecar";
 
 export type ZipImportStatus = "ready" | "empty" | "invalid";
 
@@ -16,6 +19,11 @@ export interface ZipImportSummary {
   imageFiles: string[];
   imageEntries?: ZipImageEntry[];
   errorMessage?: string;
+  
+  // Sidecar metadata (if present)
+  sidecar?: ImportSidecarV1;
+  sidecarFound?: boolean;
+  sidecarErrors?: Array<{ path: string; message: string; severity: "error" | "warning" }>;
 }
 
 const SUPPORTED_IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp"]);
@@ -43,6 +51,16 @@ export async function readZipImages(file: Pick<File, "name" | "arrayBuffer">): P
     const archiveEntries = Object.values(zip.files);
     const imageEntries = archiveEntries.filter((entry) => !entry.dir && isSupportedImage(entry.name));
 
+    // Try to parse sidecar JSON if it exists
+    const sidecarResult = await parseSidecarFromZip(zip);
+    
+    // Validate sidecar if found and successfully parsed
+    let validationResult = null;
+    if (sidecarResult.sidecar) {
+      const imageFilenames = imageEntries.map((e) => e.name.split("/").pop() ?? e.name);
+      validationResult = validateSidecar(sidecarResult.sidecar, imageFilenames);
+    }
+
     if (archiveEntries.length === 0 || archiveEntries.every((entry) => entry.dir)) {
       return {
         fileName: file.name,
@@ -50,6 +68,8 @@ export async function readZipImages(file: Pick<File, "name" | "arrayBuffer">): P
         imageCount: 0,
         totalImageSize: 0,
         imageFiles: [],
+        sidecarFound: sidecarResult.found,
+        sidecarErrors: sidecarResult.errors,
       };
     }
 
@@ -60,6 +80,8 @@ export async function readZipImages(file: Pick<File, "name" | "arrayBuffer">): P
         imageCount: 0,
         totalImageSize: 0,
         imageFiles: [],
+        sidecarFound: sidecarResult.found,
+        sidecarErrors: sidecarResult.errors,
       };
     }
 
@@ -82,6 +104,9 @@ export async function readZipImages(file: Pick<File, "name" | "arrayBuffer">): P
       totalImageSize,
       imageFiles,
       imageEntries: imageEntriesData,
+      sidecar: sidecarResult.sidecar,
+      sidecarFound: sidecarResult.found,
+      sidecarErrors: sidecarResult.errors,
     };
   } catch (error) {
     return {
