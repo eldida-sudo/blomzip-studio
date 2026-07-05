@@ -115,6 +115,8 @@ describe("EntryReview", () => {
     );
 
     expect(html).toContain("1 observations");
+    expect(html).toContain("Observation created");
+    expect(html).toContain("Mock observation");
     expect(html).not.toContain("Analyze image");
   });
 });

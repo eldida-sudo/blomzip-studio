@@ -195,10 +195,15 @@ export function EntryReview({ visit, onClose }: EntryReviewProps) {
 
           <div className="entry-review-field">
             <span>Observations</span>
-            <div className="entry-review-observations">
+            <div className={`entry-review-observations ${hasObservations ? "has-observations" : ""}`}>
               <div className="entry-review-observations-header">
-                <strong>{observationCount} observations</strong>
-                <span>{hasObservations ? "Mock analysis ready" : "Currently empty"}</span>
+                <div>
+                  <strong>{observationCount} observations</strong>
+                  <p>{hasObservations ? "Observation created" : "Awaiting mock review"}</p>
+                </div>
+                <span className={hasObservations ? "entry-review-status-pill" : ""}>
+                  {hasObservations ? "Mock observation" : "No result yet"}
+                </span>
               </div>
 
               {!hasObservations ? (
@@ -206,20 +211,34 @@ export function EntryReview({ visit, onClose }: EntryReviewProps) {
                   Analyze image
                 </button>
               ) : (
-                <ul className="entry-review-observation-list">
-                  {entry.observations.map((observation) => (
-                    <li key={observation.id}>
-                      <div className="entry-review-observation-row">
-                        <strong>{observation.type}</strong>
-                        <span>{observation.value}</span>
-                      </div>
-                      <div className="entry-review-observation-meta">
-                        <span>Confidence {observation.confidence?.toFixed(2) ?? "—"}</span>
-                        <span>{observation.source}</span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  <div className="entry-review-observation-hero">
+                    <p>Observation created</p>
+                    <span>Mock analysis completed in memory.</span>
+                  </div>
+                  <ul className="entry-review-observation-list">
+                    {entry.observations.map((observation) => (
+                      <li key={observation.id} className="entry-review-observation-card">
+                        <div className="entry-review-observation-row">
+                          <strong>{observation.type}</strong>
+                          <span>{observation.value}</span>
+                        </div>
+                        <div className="entry-review-observation-meta">
+                          <span>Confidence {(observation.confidence ? observation.confidence * 100 : 0).toFixed(0)}%</span>
+                          <span>{observation.source}</span>
+                        </div>
+                        <div className="entry-review-observation-meta entry-review-observation-meta-secondary">
+                          <span>Reviewed: {observation.reviewed ? "Yes" : "No"}</span>
+                        </div>
+                        <div className="entry-review-observation-actions">
+                          <button type="button">Approve</button>
+                          <button type="button">Edit</button>
+                          <button type="button">Remove</button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
             </div>
           </div>
