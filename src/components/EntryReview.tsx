@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Observation, Visit } from "../models/blomzip";
+import type { Visit } from "../models/blomzip";
+import { MockObservationEngine, type ObservationEngine } from "./observationEngine";
 
 interface EntryReviewProps {
   visit: Visit;
@@ -12,33 +13,10 @@ interface EntryDraft {
   tags: string;
 }
 
-const mockObservationTemplates = [
-  { type: "Plant", value: "Flower", confidence: 0.98 },
-  { type: "Ground", value: "Grass", confidence: 0.91 },
-  { type: "Change", value: "Leaf fall", confidence: 0.87 },
-  { type: "Season", value: "Blooming", confidence: 0.84 },
-] as const;
-
-export function createMockObservationSet(entryId: string): Observation[] {
-  const selectedTemplate = mockObservationTemplates[Math.floor(Math.random() * mockObservationTemplates.length)];
-
-  return [
-    {
-      id: `observation-${entryId}-${Date.now()}`,
-      entryId,
-      type: selectedTemplate.type,
-      confidence: selectedTemplate.confidence,
-      source: "mock-ai",
-      value: selectedTemplate.value,
-      createdAt: new Date().toISOString(),
-      reviewed: false,
-    },
-  ];
-}
-
 export function EntryReview({ visit, onClose }: EntryReviewProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [entries, setEntries] = useState(visit.entries);
+  const [observationEngine] = useState<ObservationEngine>(() => new MockObservationEngine());
   const [drafts, setDrafts] = useState<EntryDraft[]>(() =>
     visit.entries.map((entry) => ({
       id: entry.id,
@@ -92,7 +70,7 @@ export function EntryReview({ visit, onClose }: EntryReviewProps) {
   function handleAnalyzeImage() {
     if (!entry) return;
 
-    const observations = createMockObservationSet(entry.id);
+    const observations = observationEngine.generateObservations(entry.id);
     setEntries((currentEntries) =>
       currentEntries.map((currentEntry) =>
         currentEntry.id === entry.id

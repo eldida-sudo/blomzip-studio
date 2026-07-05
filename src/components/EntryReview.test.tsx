@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { createMockObservationSet, EntryReview } from "./EntryReview";
+import { EntryReview } from "./EntryReview";
+import { MockObservationEngine } from "./observationEngine";
 import type { Visit } from "../models/blomzip";
 
 const visit: Visit = {
@@ -80,7 +81,7 @@ describe("EntryReview", () => {
   });
 
   it("creates mock observations for the matching entry", () => {
-    const observations = createMockObservationSet("entry-1");
+    const observations = new MockObservationEngine().generateObservations("entry-1");
 
     expect(observations.length).toBeGreaterThan(0);
     expect(observations.every((observation) => observation.entryId === "entry-1")).toBe(true);
