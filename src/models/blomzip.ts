@@ -60,7 +60,7 @@ export interface Observation {
   entryId: string;
   type: string;
   confidence?: number;
-  source: "ai" | "user";
+  source: "ai" | "user" | "mock-ai";
   value: string;
   createdAt: string;
   reviewed: boolean;

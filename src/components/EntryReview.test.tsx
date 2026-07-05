@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { EntryReview } from "./EntryReview";
+import { createMockObservationSet, EntryReview } from "./EntryReview";
 import type { Visit } from "../models/blomzip";
 
 const visit: Visit = {
@@ -76,5 +76,45 @@ describe("EntryReview", () => {
     expect(html).toContain("Tags");
     expect(html).toContain("Previous");
     expect(html).toContain("Next");
+    expect(html).toContain("Analyze image");
+  });
+
+  it("creates mock observations for the matching entry", () => {
+    const observations = createMockObservationSet("entry-1");
+
+    expect(observations.length).toBeGreaterThan(0);
+    expect(observations.every((observation) => observation.entryId === "entry-1")).toBe(true);
+    expect(observations.every((observation) => observation.source === "mock-ai")).toBe(true);
+  });
+
+  it("hides the analyze button once observations exist", () => {
+    const html = renderToStaticMarkup(
+      <EntryReview
+        visit={{
+          ...visit,
+          entries: [
+            {
+              ...visit.entries[0],
+              observations: [
+                {
+                  id: "obs-1",
+                  entryId: "entry-1",
+                  type: "Plant",
+                  confidence: 0.98,
+                  source: "mock-ai",
+                  value: "Flower",
+                  createdAt: "2026-07-05T00:00:00.000Z",
+                  reviewed: false,
+                },
+              ],
+            },
+            ...visit.entries.slice(1),
+          ],
+        }}
+      />
+    );
+
+    expect(html).toContain("1 observations");
+    expect(html).not.toContain("Analyze image");
   });
 });

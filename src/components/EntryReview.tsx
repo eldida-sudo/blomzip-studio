@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Visit } from "../models/blomzip";
+import type { Observation, Visit } from "../models/blomzip";
 
 interface EntryReviewProps {
   visit: Visit;
@@ -12,8 +12,33 @@ interface EntryDraft {
   tags: string;
 }
 
+const mockObservationTemplates = [
+  { type: "Plant", value: "Flower", confidence: 0.98 },
+  { type: "Ground", value: "Grass", confidence: 0.91 },
+  { type: "Change", value: "Leaf fall", confidence: 0.87 },
+  { type: "Season", value: "Blooming", confidence: 0.84 },
+] as const;
+
+export function createMockObservationSet(entryId: string): Observation[] {
+  const selectedTemplate = mockObservationTemplates[Math.floor(Math.random() * mockObservationTemplates.length)];
+
+  return [
+    {
+      id: `observation-${entryId}-${Date.now()}`,
+      entryId,
+      type: selectedTemplate.type,
+      confidence: selectedTemplate.confidence,
+      source: "mock-ai",
+      value: selectedTemplate.value,
+      createdAt: new Date().toISOString(),
+      reviewed: false,
+    },
+  ];
+}
+
 export function EntryReview({ visit, onClose }: EntryReviewProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [entries, setEntries] = useState(visit.entries);
   const [drafts, setDrafts] = useState<EntryDraft[]>(() =>
     visit.entries.map((entry) => ({
       id: entry.id,
@@ -24,6 +49,7 @@ export function EntryReview({ visit, onClose }: EntryReviewProps) {
 
   useEffect(() => {
     setCurrentIndex(0);
+    setEntries(visit.entries);
     setDrafts(
       visit.entries.map((entry) => ({
         id: entry.id,
@@ -33,10 +59,11 @@ export function EntryReview({ visit, onClose }: EntryReviewProps) {
     );
   }, [visit.id, visit.entries]);
 
-  const entry = useMemo(() => visit.entries[currentIndex], [visit.entries, currentIndex]);
+  const entry = useMemo(() => entries[currentIndex], [entries, currentIndex]);
   const imageRecord = useMemo(() => visit.imageRecords?.find((record) => record.id === entry?.imageRecordId), [visit.imageRecords, entry]);
   const draft = useMemo(() => drafts.find((item) => item.id === entry?.id), [drafts, entry]);
   const observationCount = entry?.observations.length ?? 0;
+  const hasObservations = observationCount > 0;
 
   function updateDraft(update: Partial<EntryDraft>) {
     if (!entry) return;
@@ -60,6 +87,19 @@ export function EntryReview({ visit, onClose }: EntryReviewProps) {
 
   function handleNext() {
     setCurrentIndex((index) => (index < visit.entries.length - 1 ? index + 1 : index));
+  }
+
+  function handleAnalyzeImage() {
+    if (!entry) return;
+
+    const observations = createMockObservationSet(entry.id);
+    setEntries((currentEntries) =>
+      currentEntries.map((currentEntry) =>
+        currentEntry.id === entry.id
+          ? { ...currentEntry, observations: [...currentEntry.observations, ...observations] }
+          : currentEntry
+      )
+    );
   }
 
   if (!entry || !draft) {
@@ -158,9 +198,29 @@ export function EntryReview({ visit, onClose }: EntryReviewProps) {
             <div className="entry-review-observations">
               <div className="entry-review-observations-header">
                 <strong>{observationCount} observations</strong>
-                <span>Currently empty</span>
+                <span>{hasObservations ? "Mock analysis ready" : "Currently empty"}</span>
               </div>
-              <p className="result-count">No observations yet.</p>
+
+              {!hasObservations ? (
+                <button type="button" className="entry-review-analyze-button" onClick={handleAnalyzeImage}>
+                  Analyze image
+                </button>
+              ) : (
+                <ul className="entry-review-observation-list">
+                  {entry.observations.map((observation) => (
+                    <li key={observation.id}>
+                      <div className="entry-review-observation-row">
+                        <strong>{observation.type}</strong>
+                        <span>{observation.value}</span>
+                      </div>
+                      <div className="entry-review-observation-meta">
+                        <span>Confidence {observation.confidence?.toFixed(2) ?? "—"}</span>
+                        <span>{observation.source}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         </div>
