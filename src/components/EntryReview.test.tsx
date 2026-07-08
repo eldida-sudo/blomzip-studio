@@ -208,6 +208,24 @@ describe("EntryReview", () => {
     }));
   });
 
+  it("invokes the save draft action when requested", () => {
+    const onSaveDraft = vi.fn();
+
+    act(() => {
+      root.render(<EntryReview visit={visit} onSaveDraft={onSaveDraft} />);
+    });
+
+    const saveButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent === "Save Draft"
+    );
+
+    act(() => {
+      saveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onSaveDraft).toHaveBeenCalledTimes(1);
+  });
+
   it("shows visit progress and disables finalize until all entries are reviewed", () => {
     const onVisitFinalized = vi.fn();
 

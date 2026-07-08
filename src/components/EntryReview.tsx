@@ -7,6 +7,7 @@ interface EntryReviewProps {
   onClose?: () => void;
   onEntryUpdated?: (entry: Entry) => void;
   onVisitFinalized?: (visit: Visit) => void;
+  onSaveDraft?: () => void;
 }
 
 interface EntryDraft {
@@ -15,7 +16,7 @@ interface EntryDraft {
   tags: string;
 }
 
-export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized }: EntryReviewProps) {
+export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized, onSaveDraft }: EntryReviewProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [entries, setEntries] = useState(visit.entries);
   const [observationEngine] = useState<ObservationEngine>(() => new MockObservationEngine());
@@ -217,6 +218,11 @@ export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized }
             {isEntryReviewed ? "Reviewed" : "Mark entry reviewed"}
           </button>
         </div>
+        {onSaveDraft ? (
+          <button type="button" onClick={onSaveDraft}>
+            Save Draft
+          </button>
+        ) : null}
         <div className="entry-review-progress-row">
           <span>
             {reviewedEntryCount} of {totalEntryCount} entries reviewed ({percentReviewed}%)

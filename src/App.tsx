@@ -1,8 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { initialImages, type ImageItem } from "./data/demoImages";
 import { EntryReview } from "./components/EntryReview";
 import { ZipImportPanel } from "./components/ZipImportPanel";
-import type { Entry, Visit } from "./models/blomzip";
+import type { DraftVisit, DraftWorkspace, Entry, Visit } from "./models/blomzip";
+import {
+  createDraftImportSummary,
+  createDraftVisitFromState,
+  loadDraftWorkspace,
+  saveDraftWorkspace,
+  upsertDraftVisit,
+} from "./utils/draftWorkspace";
 import type { ZipImportSummary } from "./utils/readZipImages";
 import "./App.css";
 
@@ -19,7 +26,13 @@ function App() {
   const [selectedImage, setSelectedImage] = useState<ImageItem | null>(null);
   const [importSummary, setImportSummary] = useState<ZipImportSummary | null>(null);
   const [importVisit, setImportVisit] = useState<Visit | null>(null);
+  const [draftWorkspace, setDraftWorkspace] = useState<DraftWorkspace>(() => loadDraftWorkspace());
   const [isReviewingEntries, setIsReviewingEntries] = useState(false);
+  const hasAppliedStudioImagesRef = useRef(false);
+
+  useEffect(() => {
+    saveDraftWorkspace(draftWorkspace);
+  }, [draftWorkspace]);
 
   function handleImportEntryUpdated(updatedEntry: Entry) {
     setImportVisit((currentVisit) => {
@@ -29,6 +42,7 @@ function App() {
 
       return {
         ...currentVisit,
+        status: currentVisit.status === "Finalized" ? currentVisit.status : "Review in progress",
         entries: currentVisit.entries.map((entry) =>
           entry.id === updatedEntry.id ? updatedEntry : entry
         ),
@@ -41,6 +55,36 @@ function App() {
     setIsReviewingEntries(false);
   }
 
+  function handleSaveDraft() {
+    if (!importVisit) {
+      return;
+    }
+
+    const draftVisit = createDraftVisitFromState({
+      visit: {
+        ...importVisit,
+        status: importVisit.status === "Finalized" ? "Finalized" : "Review in progress",
+      },
+      studioImages: images,
+    });
+
+    setDraftWorkspace((currentWorkspace) => upsertDraftVisit(currentWorkspace, draftVisit));
+  }
+
+  function handleLoadDraft(draftVisit: DraftVisit) {
+    hasAppliedStudioImagesRef.current = true;
+    setImages(draftVisit.studioImages);
+    setImportSummary(createDraftImportSummary(draftVisit));
+    setImportVisit(draftVisit.visit);
+    setIsReviewingEntries(true);
+    setSelectedImage(null);
+    setDataSource("Draft workspace");
+    setDraftWorkspace((currentWorkspace) => ({
+      ...currentWorkspace,
+      activeDraftId: draftVisit.id,
+    }));
+  }
+
   useEffect(() => {
     fetch("/data/images.json")
       .then((response) => {
@@ -48,12 +92,22 @@ function App() {
         return response.json();
       })
       .then((data: ImageItem[]) => {
+        if (hasAppliedStudioImagesRef.current) {
+          return;
+        }
+
         setImages(data);
         setDataSource("Auto-imported JSON");
+        hasAppliedStudioImagesRef.current = true;
       })
       .catch(() => {
+        if (hasAppliedStudioImagesRef.current) {
+          return;
+        }
+
         setImages(initialImages);
         setDataSource("Demo fallback");
+        hasAppliedStudioImagesRef.current = true;
       });
   }, []);
 
@@ -128,6 +182,7 @@ function App() {
       },
     ];
   }, [importSummary, importVisit]);
+  const savedDrafts = draftWorkspace.drafts;
 
   function toggleFavorite(id: number) {
     setImages((currentImages) =>
@@ -290,6 +345,30 @@ function App() {
           </div>
         </div>
 
+        <div className="sidebar-card">
+          <span>Draft workspace</span>
+          <strong>{savedDrafts.length} saved drafts</strong>
+          <p className="result-count">
+            Save the current draft visit to continue later without touching the canonical archive.
+          </p>
+          <div className="collection-stats">
+            {savedDrafts.length > 0 ? (
+              savedDrafts.map((draftVisit) => (
+                <button
+                  key={draftVisit.id}
+                  className={draftWorkspace.activeDraftId === draftVisit.id ? "active" : ""}
+                  onClick={() => handleLoadDraft(draftVisit)}
+                >
+                  <span>{draftVisit.label}</span>
+                  <strong>{draftVisit.visit.entries.length} entries</strong>
+                </button>
+              ))
+            ) : (
+              <p className="result-count">No saved drafts yet.</p>
+            )}
+          </div>
+        </div>
+
         <ZipImportPanel className="zip-panel" onImportStateChange={({ summary, visit }) => {
           setImportSummary(summary);
           setImportVisit(visit);
@@ -303,6 +382,7 @@ function App() {
             onClose={() => setIsReviewingEntries(false)}
             onEntryUpdated={handleImportEntryUpdated}
             onVisitFinalized={handleVisitFinalized}
+            onSaveDraft={handleSaveDraft}
           />
         ) : importVisit ? (
           <div className="import-mode">

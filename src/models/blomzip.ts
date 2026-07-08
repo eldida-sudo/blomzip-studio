@@ -1,3 +1,5 @@
+import type { ImageItem } from "../data/demoImages";
+
 export interface Place {
   id: string;
   name: string;
@@ -25,6 +27,20 @@ export interface Visit {
   importedImageFiles?: string[];
   imageRecords?: ImageRecord[];
   status?: string;
+}
+
+export interface DraftVisit {
+  id: string;
+  label: string;
+  createdAt: string;
+  savedAt: string;
+  visit: Visit;
+  studioImages: ImageItem[];
+}
+
+export interface DraftWorkspace {
+  drafts: DraftVisit[];
+  activeDraftId: string | null;
 }
 
 export interface ImageRecord {
