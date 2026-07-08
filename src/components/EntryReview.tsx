@@ -20,6 +20,8 @@ export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized, 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [entries, setEntries] = useState(visit.entries);
   const [observationEngine] = useState<ObservationEngine>(() => new MockObservationEngine());
+  const [saveFeedback, setSaveFeedback] = useState<{ savedAt: string } | null>(null);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [drafts, setDrafts] = useState<EntryDraft[]>(() =>
     visit.entries.map((entry) => ({
       id: entry.id,
@@ -31,6 +33,8 @@ export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized, 
   useEffect(() => {
     setCurrentIndex(0);
     setEntries(visit.entries);
+    setSaveFeedback(null);
+    setIsSavingDraft(false);
     setDrafts(
       visit.entries.map((entry) => ({
         id: entry.id,
@@ -50,6 +54,18 @@ export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized, 
   const totalEntryCount = entries.length;
   const percentReviewed = totalEntryCount > 0 ? Math.round((reviewedEntryCount / totalEntryCount) * 100) : 0;
   const canFinalizeVisit = totalEntryCount > 0 && reviewedEntryCount === totalEntryCount;
+
+  useEffect(() => {
+    if (!saveFeedback) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSaveFeedback(null);
+    }, 2000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [saveFeedback]);
 
   function updateDraft(update: Partial<EntryDraft>) {
     if (!entry) return;
@@ -140,6 +156,18 @@ export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized, 
     });
   }
 
+  function handleSaveDraft() {
+    if (!onSaveDraft || isSavingDraft) return;
+
+    setIsSavingDraft(true);
+    onSaveDraft();
+    setSaveFeedback({ savedAt: new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) });
+
+    window.setTimeout(() => {
+      setIsSavingDraft(false);
+    }, 250);
+  }
+
   function handleObservationTextChange(observationId: string, value: string) {
     if (!entry) return;
 
@@ -219,9 +247,14 @@ export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized, 
           </button>
         </div>
         {onSaveDraft ? (
-          <button type="button" onClick={onSaveDraft}>
-            Save Draft
-          </button>
+          <div className="entry-review-save-draft-row">
+            <button type="button" onClick={handleSaveDraft} disabled={isSavingDraft} aria-pressed={isSavingDraft}>
+              {isSavingDraft ? "Saving Draft..." : "Save Draft"}
+            </button>
+            {saveFeedback ? (
+              <span className="entry-review-save-feedback">Draft saved at {saveFeedback.savedAt}</span>
+            ) : null}
+          </div>
         ) : null}
         <div className="entry-review-progress-row">
           <span>

@@ -226,6 +226,46 @@ describe("EntryReview", () => {
     expect(onSaveDraft).toHaveBeenCalledTimes(1);
   });
 
+  it("shows a temporary saved confirmation when the draft is saved", () => {
+    vi.useFakeTimers();
+    const onSaveDraft = vi.fn();
+
+    act(() => {
+      root.render(<EntryReview visit={visit} onSaveDraft={onSaveDraft} />);
+    });
+
+    const saveButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent === "Save Draft"
+    );
+
+    act(() => {
+      saveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onSaveDraft).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain("Draft saved at");
+
+    const savingButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent === "Saving Draft..."
+    );
+
+    expect(savingButton?.hasAttribute("disabled")).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(Array.from(container.querySelectorAll("button")).some((button) => button.textContent === "Save Draft")).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(container.textContent).not.toContain("Draft saved at");
+
+    vi.useRealTimers();
+  });
+
   it("shows visit progress and disables finalize until all entries are reviewed", () => {
     const onVisitFinalized = vi.fn();
 
