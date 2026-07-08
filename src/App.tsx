@@ -36,6 +36,11 @@ function App() {
     });
   }
 
+  function handleVisitFinalized(finalizedVisit: Visit) {
+    setImportVisit(finalizedVisit);
+    setIsReviewingEntries(false);
+  }
+
   useEffect(() => {
     fetch("/data/images.json")
       .then((response) => {
@@ -297,6 +302,7 @@ function App() {
             visit={importVisit}
             onClose={() => setIsReviewingEntries(false)}
             onEntryUpdated={handleImportEntryUpdated}
+            onVisitFinalized={handleVisitFinalized}
           />
         ) : importVisit ? (
           <div className="import-mode">

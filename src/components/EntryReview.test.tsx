@@ -207,4 +207,67 @@ describe("EntryReview", () => {
       reviewed: true,
     }));
   });
+
+  it("shows visit progress and disables finalize until all entries are reviewed", () => {
+    const onVisitFinalized = vi.fn();
+
+    act(() => {
+      root.render(<EntryReview visit={visit} onVisitFinalized={onVisitFinalized} />);
+    });
+
+    expect(container.textContent).toContain("0 of 2 entries reviewed (0%)");
+
+    const finalizeButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent === "Finalize visit"
+    );
+
+    expect(finalizeButton).toBeDefined();
+    expect(finalizeButton?.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("finalizes the visit when all entries are reviewed", () => {
+    const onVisitFinalized = vi.fn();
+
+    act(() => {
+      root.render(<EntryReview visit={visit} onVisitFinalized={onVisitFinalized} />);
+    });
+
+    const markReviewed = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent === "Mark entry reviewed"
+    );
+
+    act(() => {
+      markReviewed?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    act(() => {
+      const nextButton = Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent === "Next"
+      );
+      nextButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const secondReviewButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent === "Mark entry reviewed"
+    );
+
+    act(() => {
+      secondReviewButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    act(() => {
+      const finalizeButton = Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent === "Finalize visit"
+      );
+      finalizeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onVisitFinalized).toHaveBeenCalledWith(expect.objectContaining({
+      status: "Finalized",
+      entries: expect.arrayContaining([
+        expect.objectContaining({ reviewed: true }),
+        expect.objectContaining({ reviewed: true }),
+      ]),
+    }));
+  });
 });

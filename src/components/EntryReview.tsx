@@ -6,6 +6,7 @@ interface EntryReviewProps {
   visit: Visit;
   onClose?: () => void;
   onEntryUpdated?: (entry: Entry) => void;
+  onVisitFinalized?: (visit: Visit) => void;
 }
 
 interface EntryDraft {
@@ -14,7 +15,7 @@ interface EntryDraft {
   tags: string;
 }
 
-export function EntryReview({ visit, onClose, onEntryUpdated }: EntryReviewProps) {
+export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized }: EntryReviewProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [entries, setEntries] = useState(visit.entries);
   const [observationEngine] = useState<ObservationEngine>(() => new MockObservationEngine());
@@ -44,6 +45,10 @@ export function EntryReview({ visit, onClose, onEntryUpdated }: EntryReviewProps
   const observationCount = entry?.observations.length ?? 0;
   const hasObservations = observationCount > 0;
   const isEntryReviewed = entry?.reviewed ?? false;
+  const reviewedEntryCount = entries.filter((entryItem) => entryItem.reviewed).length;
+  const totalEntryCount = entries.length;
+  const percentReviewed = totalEntryCount > 0 ? Math.round((reviewedEntryCount / totalEntryCount) * 100) : 0;
+  const canFinalizeVisit = totalEntryCount > 0 && reviewedEntryCount === totalEntryCount;
 
   function updateDraft(update: Partial<EntryDraft>) {
     if (!entry) return;
@@ -124,6 +129,16 @@ export function EntryReview({ visit, onClose, onEntryUpdated }: EntryReviewProps
     });
   }
 
+  function handleFinalizeVisit() {
+    if (!canFinalizeVisit) return;
+
+    onVisitFinalized?.({
+      ...visit,
+      entries,
+      status: "Finalized",
+    });
+  }
+
   function handleObservationTextChange(observationId: string, value: string) {
     if (!entry) return;
 
@@ -200,6 +215,19 @@ export function EntryReview({ visit, onClose, onEntryUpdated }: EntryReviewProps
           </span>
           <button type="button" onClick={handleMarkEntryReviewed} disabled={isEntryReviewed}>
             {isEntryReviewed ? "Reviewed" : "Mark entry reviewed"}
+          </button>
+        </div>
+        <div className="entry-review-progress-row">
+          <span>
+            {reviewedEntryCount} of {totalEntryCount} entries reviewed ({percentReviewed}%)
+          </span>
+          <button
+            type="button"
+            className="finalize-visit-button"
+            onClick={handleFinalizeVisit}
+            disabled={!canFinalizeVisit || visit.status === "Finalized"}
+          >
+            {visit.status === "Finalized" ? "Visit finalized" : "Finalize visit"}
           </button>
         </div>
       </div>
