@@ -74,6 +74,15 @@ describe("EntryReview", () => {
   let container: HTMLDivElement;
   let root: Root;
 
+  function getReactProps<ElementType extends Element>(element: ElementType) {
+    const propKey = Object.keys(element).find((key) => key.startsWith("__reactProps$"));
+    if (!propKey) {
+      return null;
+    }
+
+    return (element as ElementType & { [key: string]: any })[propKey] as any;
+  }
+
   beforeEach(() => {
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -151,6 +160,47 @@ describe("EntryReview", () => {
     expect(container.innerHTML).toContain("textarea");
     expect(container.innerHTML).toContain("placeholder=\"Add tags, separated by commas\"");
     expect(container.innerHTML).toContain("Analyze image");
+  });
+
+  it("keeps the current entry selected while typing in notes and tags", () => {
+    const onEntryUpdated = vi.fn();
+
+    act(() => {
+      root.render(<EntryReview visit={visit} onEntryUpdated={onEntryUpdated} />);
+    });
+
+    const nextButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent === "Next"
+    );
+
+    act(() => {
+      nextButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Entry 2 of 2");
+    expect(container.textContent).toContain("courtyard-02.jpg");
+
+    const noteField = container.querySelector("textarea");
+    const tagField = Array.from(container.querySelectorAll("input")).find((input) =>
+      input.getAttribute("placeholder")?.includes("tags")
+    ) as HTMLInputElement | undefined;
+
+    act(() => {
+      const noteProps = noteField ? getReactProps(noteField as HTMLTextAreaElement) : null;
+      noteProps?.onChange?.({ target: { value: "Updated note" } });
+    });
+
+    expect(container.textContent).toContain("Entry 2 of 2");
+    expect(container.textContent).toContain("courtyard-02.jpg");
+
+    act(() => {
+      const tagProps = tagField ? getReactProps(tagField) : null;
+      tagProps?.onChange?.({ target: { value: "tag-a, tag-b" } });
+    });
+
+    expect(container.textContent).toContain("Entry 2 of 2");
+    expect(container.textContent).toContain("courtyard-02.jpg");
+    expect(onEntryUpdated).toHaveBeenCalled();
   });
 
   it("renders observation review controls when observations exist", () => {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Entry, Observation, Visit } from "../models/blomzip";
 import { MockObservationEngine, type ObservationEngine } from "./observationEngine";
 
@@ -19,6 +19,7 @@ interface EntryDraft {
 export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized, onSaveDraft }: EntryReviewProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [entries, setEntries] = useState(visit.entries);
+  const visitEntriesRef = useRef(visit.entries);
   const [observationEngine] = useState<ObservationEngine>(() => new MockObservationEngine());
   const [saveFeedback, setSaveFeedback] = useState<{ savedAt: string } | null>(null);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
@@ -30,19 +31,25 @@ export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized, 
     }))
   );
 
+  visitEntriesRef.current = visit.entries;
+
+  const entrySignature = visit.entries.map((entry) => entry.id).join("|");
+
   useEffect(() => {
+    const nextEntries = visitEntriesRef.current;
+
     setCurrentIndex(0);
-    setEntries(visit.entries);
+    setEntries(nextEntries);
     setSaveFeedback(null);
     setIsSavingDraft(false);
     setDrafts(
-      visit.entries.map((entry) => ({
+      nextEntries.map((entry) => ({
         id: entry.id,
         notes: entry.notes,
         tags: entry.tags.join(", "),
       }))
     );
-  }, [visit.id, visit.entries]);
+  }, [visit.id, entrySignature]);
 
   const entry = useMemo(() => entries[currentIndex], [entries, currentIndex]);
   const imageRecord = useMemo(() => visit.imageRecords?.find((record) => record.id === entry?.imageRecordId), [visit.imageRecords, entry]);
