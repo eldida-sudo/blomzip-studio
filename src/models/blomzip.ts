@@ -70,6 +70,7 @@ export interface Observation {
   value: string;
   createdAt: string;
   reviewed: boolean;
+  accepted?: boolean;
 }
 
 export interface FieldNote {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Entry, Visit } from "../models/blomzip";
+import type { Entry, Observation, Visit } from "../models/blomzip";
 import { MockObservationEngine, type ObservationEngine } from "./observationEngine";
 
 interface EntryReviewProps {
@@ -97,6 +97,58 @@ export function EntryReview({ visit, onClose, onEntryUpdated }: EntryReviewProps
 
   function handleNext() {
     setCurrentIndex((index) => (index < visit.entries.length - 1 ? index + 1 : index));
+  }
+
+  function updateObservation(updatedObservation: Observation) {
+    if (!entry) return;
+
+    const updatedEntry = {
+      ...entry,
+      observations: entry.observations.map((observation) =>
+        observation.id === updatedObservation.id ? updatedObservation : observation
+      ),
+      updatedAt: new Date().toISOString(),
+    };
+
+    applyEntryUpdate(updatedEntry);
+  }
+
+  function handleObservationTextChange(observationId: string, value: string) {
+    if (!entry) return;
+
+    const observation = entry.observations.find((item) => item.id === observationId);
+    if (!observation) return;
+
+    updateObservation({
+      ...observation,
+      value,
+    });
+  }
+
+  function handleAcceptObservation(observationId: string) {
+    if (!entry) return;
+
+    const observation = entry.observations.find((item) => item.id === observationId);
+    if (!observation) return;
+
+    updateObservation({
+      ...observation,
+      reviewed: true,
+      accepted: true,
+    });
+  }
+
+  function handleRejectObservation(observationId: string) {
+    if (!entry) return;
+
+    const observation = entry.observations.find((item) => item.id === observationId);
+    if (!observation) return;
+
+    updateObservation({
+      ...observation,
+      reviewed: true,
+      accepted: false,
+    });
   }
 
   function handleAnalyzeImage() {
@@ -228,26 +280,54 @@ export function EntryReview({ visit, onClose, onEntryUpdated }: EntryReviewProps
                     <span>Mock analysis completed in memory.</span>
                   </div>
                   <ul className="entry-review-observation-list">
-                    {entry.observations.map((observation) => (
-                      <li key={observation.id} className="entry-review-observation-card">
-                        <div className="entry-review-observation-row">
-                          <strong>{observation.type}</strong>
-                          <span>{observation.value}</span>
-                        </div>
-                        <div className="entry-review-observation-meta">
-                          <span>Confidence {(observation.confidence ? observation.confidence * 100 : 0).toFixed(0)}%</span>
-                          <span>{observation.source}</span>
-                        </div>
-                        <div className="entry-review-observation-meta entry-review-observation-meta-secondary">
-                          <span>Reviewed: {observation.reviewed ? "Yes" : "No"}</span>
-                        </div>
-                        <div className="entry-review-observation-actions">
-                          <button type="button">Approve</button>
-                          <button type="button">Edit</button>
-                          <button type="button">Remove</button>
-                        </div>
-                      </li>
-                    ))}
+                    {entry.observations.map((observation) => {
+                      const isResolved = observation.reviewed;
+                      const statusText = observation.reviewed
+                        ? observation.accepted
+                          ? "Accepted"
+                          : "Rejected"
+                        : "Pending review";
+
+                      return (
+                        <li key={observation.id} className="entry-review-observation-card">
+                          <div className="entry-review-observation-row">
+                            <strong>{observation.type}</strong>
+                            <input
+                              type="text"
+                              className="entry-review-observation-input"
+                              value={observation.value}
+                              onChange={(event) => handleObservationTextChange(observation.id, event.target.value)}
+                              disabled={isResolved}
+                            />
+                          </div>
+                          <div className="entry-review-observation-meta">
+                            <span>Confidence {(observation.confidence ? observation.confidence * 100 : 0).toFixed(0)}%</span>
+                            <span>{observation.source}</span>
+                          </div>
+                          <div className="entry-review-observation-meta entry-review-observation-meta-secondary">
+                            <span>{statusText}</span>
+                          </div>
+                          <div className="entry-review-observation-actions">
+                            <button
+                              type="button"
+                              className="entry-review-observation-action accept"
+                              onClick={() => handleAcceptObservation(observation.id)}
+                              disabled={isResolved}
+                            >
+                              Accept
+                            </button>
+                            <button
+                              type="button"
+                              className="entry-review-observation-action reject"
+                              onClick={() => handleRejectObservation(observation.id)}
+                              disabled={isResolved}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </>
               )}
