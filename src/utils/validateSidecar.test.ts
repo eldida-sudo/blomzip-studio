@@ -15,7 +15,7 @@ describe("validateSidecar", () => {
   });
 
   it("detects invalid version", () => {
-    const sidecar = { ...baseValidSidecar, version: "2.0" } as ImportSidecarV1;
+    const sidecar = { ...baseValidSidecar, version: "2.0" } as unknown as ImportSidecarV1;
 
     const result = validateSidecar(sidecar, []);
 

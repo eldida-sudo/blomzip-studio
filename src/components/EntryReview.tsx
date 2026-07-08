@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Visit } from "../models/blomzip";
+import type { Entry, Visit } from "../models/blomzip";
 import { MockObservationEngine, type ObservationEngine } from "./observationEngine";
 
 interface EntryReviewProps {
   visit: Visit;
   onClose?: () => void;
+  onEntryUpdated?: (entry: Entry) => void;
 }
 
 interface EntryDraft {
@@ -13,7 +14,7 @@ interface EntryDraft {
   tags: string;
 }
 
-export function EntryReview({ visit, onClose }: EntryReviewProps) {
+export function EntryReview({ visit, onClose, onEntryUpdated }: EntryReviewProps) {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [entries, setEntries] = useState(visit.entries);
   const [observationEngine] = useState<ObservationEngine>(() => new MockObservationEngine());
@@ -51,12 +52,43 @@ export function EntryReview({ visit, onClose }: EntryReviewProps) {
     );
   }
 
+  function applyEntryUpdate(updatedEntry: Entry) {
+    setEntries((currentEntries) =>
+      currentEntries.map((currentEntry) =>
+        currentEntry.id === updatedEntry.id ? updatedEntry : currentEntry
+      )
+    );
+
+    onEntryUpdated?.(updatedEntry);
+  }
+
   function handleNotesChange(value: string) {
+    if (!entry) return;
+
     updateDraft({ notes: value });
+
+    applyEntryUpdate({
+      ...entry,
+      notes: value,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   function handleTagsChange(value: string) {
+    if (!entry) return;
+
     updateDraft({ tags: value });
+
+    const tags = value
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter((tag): tag is string => tag.length > 0);
+
+    applyEntryUpdate({
+      ...entry,
+      tags,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   function handlePrevious() {
@@ -71,13 +103,14 @@ export function EntryReview({ visit, onClose }: EntryReviewProps) {
     if (!entry) return;
 
     const observations = observationEngine.generateObservations(entry.id);
-    setEntries((currentEntries) =>
-      currentEntries.map((currentEntry) =>
-        currentEntry.id === entry.id
-          ? { ...currentEntry, observations: [...currentEntry.observations, ...observations] }
-          : currentEntry
-      )
-    );
+
+    const updatedEntry = {
+      ...entry,
+      observations: [...entry.observations, ...observations],
+      updatedAt: new Date().toISOString(),
+    };
+
+    applyEntryUpdate(updatedEntry);
   }
 
   if (!entry || !draft) {

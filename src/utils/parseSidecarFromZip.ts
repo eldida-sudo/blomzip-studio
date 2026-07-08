@@ -46,7 +46,7 @@ export async function parseSidecarFromZip(zip: JSZip): Promise<ParseSidecarResul
     content = await sidecarFile.async("text");
   } catch (error) {
     errors.push({
-      path: foundFilename,
+      path: foundFilename ?? "unknown",
       message: `Failed to read sidecar file: ${error instanceof Error ? error.message : "Unknown error"}`,
       severity: "error",
     });
@@ -59,7 +59,7 @@ export async function parseSidecarFromZip(zip: JSZip): Promise<ParseSidecarResul
     parsed = JSON.parse(content);
   } catch (error) {
     errors.push({
-      path: foundFilename,
+      path: foundFilename ?? "unknown",
       message: `Invalid JSON: ${error instanceof Error ? error.message : "JSON parsing failed"}`,
       severity: "error",
     });

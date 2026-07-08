@@ -21,7 +21,7 @@ export interface ZipImportSummary {
   errorMessage?: string;
   
   // Sidecar metadata (if present)
-  sidecar?: ImportSidecarV1;
+  sidecar?: ImportSidecarV1 | null;
   sidecarFound?: boolean;
   sidecarErrors?: Array<{ path: string; message: string; severity: "error" | "warning" }>;
 }
@@ -55,10 +55,9 @@ export async function readZipImages(file: Pick<File, "name" | "arrayBuffer">): P
     const sidecarResult = await parseSidecarFromZip(zip);
     
     // Validate sidecar if found and successfully parsed
-    let validationResult = null;
     if (sidecarResult.sidecar) {
       const imageFilenames = imageEntries.map((e) => e.name.split("/").pop() ?? e.name);
-      validationResult = validateSidecar(sidecarResult.sidecar, imageFilenames);
+      validateSidecar(sidecarResult.sidecar, imageFilenames);
     }
 
     if (archiveEntries.length === 0 || archiveEntries.every((entry) => entry.dir)) {

@@ -1,5 +1,10 @@
+/**
+ * @vitest-environment jsdom
+ */
+
+import { create, act } from "react-test-renderer";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EntryReview } from "./EntryReview";
 import { MockObservationEngine } from "./observationEngine";
 import type { Visit } from "../models/blomzip";
@@ -119,5 +124,47 @@ describe("EntryReview", () => {
     expect(html).toContain("Observation created");
     expect(html).toContain("Mock observation");
     expect(html).not.toContain("Analyze image");
+  });
+
+  it("calls onEntryUpdated when notes, tags, or observations change", () => {
+    const onEntryUpdated = vi.fn();
+
+    const renderer = create(<EntryReview visit={visit} onEntryUpdated={onEntryUpdated} />);
+    const root = renderer.root;
+    const textarea = root.find((node: any) => node.type === "textarea");
+    const input = root.find((node: any) => node.type === "input");
+    const analyzeButton = root.find((node: any) => typeof node.type === "string" && node.props.className?.includes("entry-review-analyze-button"));
+
+    act(() => {
+      textarea.props.onChange({ target: { value: "New notes" } });
+    });
+
+    expect(onEntryUpdated).toHaveBeenCalledWith(expect.objectContaining({
+      id: "entry-1",
+      notes: "New notes",
+    }));
+
+    act(() => {
+      input.props.onChange({ target: { value: "tag-a, tag-b" } });
+    });
+
+    expect(onEntryUpdated).toHaveBeenCalledWith(expect.objectContaining({
+      id: "entry-1",
+      tags: ["tag-a", "tag-b"],
+    }));
+
+    act(() => {
+      analyzeButton.props.onClick();
+    });
+
+    expect(onEntryUpdated).toHaveBeenCalledWith(expect.objectContaining({
+      id: "entry-1",
+      observations: expect.arrayContaining([
+        expect.objectContaining({
+          entryId: "entry-1",
+          source: "mock-ai",
+        }),
+      ]),
+    }));
   });
 });

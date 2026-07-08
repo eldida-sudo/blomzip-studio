@@ -50,32 +50,34 @@ export function validateSidecar(
   };
 }
 
-function validateVisitMetadata(visit: Record<string, unknown>, errors: Array<{ path: string; message: string; severity: "error" | "warning" }>) {
-  if (visit.date !== undefined) {
-    if (typeof visit.date !== "string") {
+function validateVisitMetadata(visit: unknown, errors: Array<{ path: string; message: string; severity: "error" | "warning" }>) {
+  const visitRecord = visit as Record<string, unknown>;
+
+  if (visitRecord.date !== undefined) {
+    if (typeof visitRecord.date !== "string") {
       errors.push({
         path: "visit.date",
         message: "Expected string (ISO 8601 date)",
         severity: "error",
       });
-    } else if (!isValidISO8601(visit.date)) {
+    } else if (!isValidISO8601(visitRecord.date)) {
       errors.push({
         path: "visit.date",
-        message: `Invalid ISO 8601 date format: "${visit.date}"`,
+        message: `Invalid ISO 8601 date format: "${visitRecord.date}"`,
         severity: "warning",
       });
     }
   }
 
-  if (visit.location !== undefined) {
-    validateLocation(visit.location, "visit.location", errors);
+  if (visitRecord.location !== undefined) {
+    validateLocation(visitRecord.location, "visit.location", errors);
   }
 
-  if (visit.weather !== undefined) {
-    validateWeather(visit.weather, "visit.weather", errors);
+  if (visitRecord.weather !== undefined) {
+    validateWeather(visitRecord.weather, "visit.weather", errors);
   }
 
-  if (visit.notes !== undefined && typeof visit.notes !== "string") {
+  if (visitRecord.notes !== undefined && typeof visitRecord.notes !== "string") {
     errors.push({
       path: "visit.notes",
       message: "Expected string",
@@ -83,7 +85,7 @@ function validateVisitMetadata(visit: Record<string, unknown>, errors: Array<{ p
     });
   }
 
-  if (visit.name !== undefined && typeof visit.name !== "string") {
+  if (visitRecord.name !== undefined && typeof visitRecord.name !== "string") {
     errors.push({
       path: "visit.name",
       message: "Expected string",
@@ -93,15 +95,16 @@ function validateVisitMetadata(visit: Record<string, unknown>, errors: Array<{ p
 }
 
 function validateImageMetadata(
-  img: Record<string, unknown>,
+  img: unknown,
   index: number,
   availableFilenames: Set<string>,
   errors: Array<{ path: string; message: string; severity: "error" | "warning" }>
 ) {
+  const imgRecord = img as Record<string, unknown>;
   const basePath = `images[${index}]`;
 
   // Validate filename
-  if (typeof img.filename !== "string") {
+  if (typeof imgRecord.filename !== "string") {
     errors.push({
       path: `${basePath}.filename`,
       message: "Expected string",
@@ -110,7 +113,7 @@ function validateImageMetadata(
     return; // Can't validate further without filename
   }
 
-  if (!img.filename) {
+  if (!imgRecord.filename) {
     errors.push({
       path: `${basePath}.filename`,
       message: "Filename cannot be empty",
@@ -119,43 +122,43 @@ function validateImageMetadata(
     return;
   }
 
-  if (!availableFilenames.has(img.filename)) {
+  if (!availableFilenames.has(imgRecord.filename)) {
     errors.push({
       path: `${basePath}.filename`,
-      message: `Image file not found in ZIP: "${img.filename}"`,
+      message: `Image file not found in ZIP: "${imgRecord.filename}"`,
       severity: "warning",
     });
   }
 
   // Validate captureDate
-  if (img.captureDate !== undefined) {
-    if (typeof img.captureDate !== "string") {
+  if (imgRecord.captureDate !== undefined) {
+    if (typeof imgRecord.captureDate !== "string") {
       errors.push({
         path: `${basePath}.captureDate`,
         message: "Expected string (ISO 8601 timestamp)",
         severity: "error",
       });
-    } else if (!isValidISO8601(img.captureDate)) {
+    } else if (!isValidISO8601(imgRecord.captureDate)) {
       errors.push({
         path: `${basePath}.captureDate`,
-        message: `Invalid ISO 8601 timestamp format: "${img.captureDate}"`,
+        message: `Invalid ISO 8601 timestamp format: "${imgRecord.captureDate}"`,
         severity: "warning",
       });
     }
   }
 
   // Validate dimensions
-  if (img.dimensions !== undefined) {
-    validateDimensions(img.dimensions, `${basePath}.dimensions`, errors);
+  if (imgRecord.dimensions !== undefined) {
+    validateDimensions(imgRecord.dimensions, `${basePath}.dimensions`, errors);
   }
 
   // Validate location
-  if (img.location !== undefined) {
-    validateLocation(img.location, `${basePath}.location`, errors);
+  if (imgRecord.location !== undefined) {
+    validateLocation(imgRecord.location, `${basePath}.location`, errors);
   }
 
   // Validate notes
-  if (img.notes !== undefined && typeof img.notes !== "string") {
+  if (imgRecord.notes !== undefined && typeof imgRecord.notes !== "string") {
     errors.push({
       path: `${basePath}.notes`,
       message: "Expected string",
@@ -164,15 +167,15 @@ function validateImageMetadata(
   }
 
   // Validate tags
-  if (img.tags !== undefined) {
-    if (!Array.isArray(img.tags)) {
+  if (imgRecord.tags !== undefined) {
+    if (!Array.isArray(imgRecord.tags)) {
       errors.push({
         path: `${basePath}.tags`,
         message: "Expected array of strings",
         severity: "error",
       });
     } else {
-      img.tags.forEach((tag, tagIndex) => {
+      imgRecord.tags.forEach((tag, tagIndex) => {
         if (typeof tag !== "string") {
           errors.push({
             path: `${basePath}.tags[${tagIndex}]`,
@@ -185,15 +188,15 @@ function validateImageMetadata(
   }
 
   // Validate custom metadata
-  if (img.custom !== undefined) {
-    if (typeof img.custom !== "object" || img.custom === null || Array.isArray(img.custom)) {
+  if (imgRecord.custom !== undefined) {
+    if (typeof imgRecord.custom !== "object" || imgRecord.custom === null || Array.isArray(imgRecord.custom)) {
       errors.push({
         path: `${basePath}.custom`,
         message: "Expected object with string/number/boolean values",
         severity: "error",
       });
     } else {
-      Object.entries(img.custom as Record<string, unknown>).forEach(([key, value]) => {
+      Object.entries(imgRecord.custom as Record<string, unknown>).forEach(([key, value]) => {
         if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
           errors.push({
             path: `${basePath}.custom.${key}`,
@@ -429,7 +432,7 @@ function isValidISO8601(dateString: string): boolean {
     // Additional validation: verify that month and day are reasonable
     // by checking if the date string components match what JavaScript parsed
     const parts = dateString.split('T')[0].split('-');
-    const [year, month, day] = parts.map(p => parseInt(p, 10));
+    const [, month, day] = parts.map(p => parseInt(p, 10));
     
     // Validate month and day ranges
     if (month < 1 || month > 12 || day < 1 || day > 31) {

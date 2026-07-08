@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { initialImages, type ImageItem } from "./data/demoImages";
 import { EntryReview } from "./components/EntryReview";
 import { ZipImportPanel } from "./components/ZipImportPanel";
-import type { Visit } from "./models/blomzip";
+import type { Entry, Visit } from "./models/blomzip";
 import type { ZipImportSummary } from "./utils/readZipImages";
 import "./App.css";
 
@@ -20,6 +20,21 @@ function App() {
   const [importSummary, setImportSummary] = useState<ZipImportSummary | null>(null);
   const [importVisit, setImportVisit] = useState<Visit | null>(null);
   const [isReviewingEntries, setIsReviewingEntries] = useState(false);
+
+  function handleImportEntryUpdated(updatedEntry: Entry) {
+    setImportVisit((currentVisit) => {
+      if (!currentVisit) {
+        return currentVisit;
+      }
+
+      return {
+        ...currentVisit,
+        entries: currentVisit.entries.map((entry) =>
+          entry.id === updatedEntry.id ? updatedEntry : entry
+        ),
+      };
+    });
+  }
 
   useEffect(() => {
     fetch("/data/images.json")
@@ -278,7 +293,11 @@ function App() {
 
       <section className="content">
         {isReviewingEntries && importVisit ? (
-          <EntryReview visit={importVisit} onClose={() => setIsReviewingEntries(false)} />
+          <EntryReview
+            visit={importVisit}
+            onClose={() => setIsReviewingEntries(false)}
+            onEntryUpdated={handleImportEntryUpdated}
+          />
         ) : importVisit ? (
           <div className="import-mode">
             <section className="import-mode-panel">
