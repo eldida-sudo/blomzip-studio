@@ -57,6 +57,7 @@ export interface Entry {
   notes: string;
   tags: string[];
   observations: Observation[];
+  reviewed?: boolean;
   createdAt: string;
   updatedAt: string;
 }

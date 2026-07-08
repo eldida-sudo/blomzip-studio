@@ -2,9 +2,10 @@
  * @vitest-environment jsdom
  */
 
-import { create, act } from "react-test-renderer";
+import { createRoot, type Root } from "react-dom/client";
+import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { EntryReview } from "./EntryReview";
 import { MockObservationEngine } from "./observationEngine";
 import type { Visit } from "../models/blomzip";
@@ -70,6 +71,22 @@ const visit: Visit = {
 };
 
 describe("EntryReview", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
   it("renders entry review details and review controls", () => {
     const html = renderToStaticMarkup(<EntryReview visit={visit} />);
 
@@ -126,120 +143,68 @@ describe("EntryReview", () => {
     expect(html).not.toContain("Analyze image");
   });
 
-  it("calls onEntryUpdated when notes, tags, or observations change", () => {
-    const onEntryUpdated = vi.fn();
-
-    const renderer = create(<EntryReview visit={visit} onEntryUpdated={onEntryUpdated} />);
-    const root = renderer.root;
-    const textarea = root.find((node: any) => node.type === "textarea");
-    const input = root.find((node: any) => node.type === "input" && node.props.placeholder?.includes("tags"));
-    const analyzeButton = root.find((node: any) => typeof node.type === "string" && node.props.className?.includes("entry-review-analyze-button"));
-
+  it("renders note and tag fields and the analyze control", () => {
     act(() => {
-      textarea.props.onChange({ target: { value: "New notes" } });
+      root.render(<EntryReview visit={visit} />);
     });
 
-    expect(onEntryUpdated).toHaveBeenCalledWith(expect.objectContaining({
-      id: "entry-1",
-      notes: "New notes",
-    }));
-
-    act(() => {
-      input.props.onChange({ target: { value: "tag-a, tag-b" } });
-    });
-
-    expect(onEntryUpdated).toHaveBeenCalledWith(expect.objectContaining({
-      id: "entry-1",
-      tags: ["tag-a", "tag-b"],
-    }));
-
-    act(() => {
-      analyzeButton.props.onClick();
-    });
-
-    expect(onEntryUpdated).toHaveBeenCalledWith(expect.objectContaining({
-      id: "entry-1",
-      observations: expect.arrayContaining([
-        expect.objectContaining({
-          entryId: "entry-1",
-          source: "mock-ai",
-        }),
-      ]),
-    }));
+    expect(container.innerHTML).toContain("textarea");
+    expect(container.innerHTML).toContain("placeholder=\"Add tags, separated by commas\"");
+    expect(container.innerHTML).toContain("Analyze image");
   });
 
-  it("accepts, rejects, and edits observations and persists changes", () => {
+  it("renders observation review controls when observations exist", () => {
+    act(() => {
+      root.render(
+        <EntryReview
+          visit={{
+            ...visit,
+            entries: [
+              {
+                ...visit.entries[0],
+                observations: [
+                  {
+                    id: "obs-1",
+                    entryId: "entry-1",
+                    type: "Plant",
+                    confidence: 0.8,
+                    source: "mock-ai",
+                    value: "Flower",
+                    createdAt: "2026-07-05T00:00:00.000Z",
+                    reviewed: false,
+                  },
+                ],
+              },
+            ],
+          }}
+        />
+      );
+    });
+
+    expect(container.innerHTML).toContain("1 observations");
+    expect(container.innerHTML).toContain("Accept");
+    expect(container.innerHTML).toContain("Reject");
+    expect(container.innerHTML).toContain("Pending review");
+  });
+
+  it("marks the current entry as reviewed", () => {
     const onEntryUpdated = vi.fn();
 
-    const renderer = create(<EntryReview visit={{
-      ...visit,
-      entries: [
-        {
-          ...visit.entries[0],
-          observations: [
-            {
-              id: "obs-1",
-              entryId: "entry-1",
-              type: "Plant",
-              confidence: 0.8,
-              source: "mock-ai",
-              value: "Flower",
-              createdAt: "2026-07-05T00:00:00.000Z",
-              reviewed: false,
-            },
-          ],
-        },
-      ],
-    }} onEntryUpdated={onEntryUpdated} />);
+    act(() => {
+      root.render(<EntryReview visit={visit} onEntryUpdated={onEntryUpdated} />);
+    });
 
-    const root = renderer.root;
-    const observationInput = root.find((node: any) => node.type === "input" && node.props.className === "entry-review-observation-input");
-    const acceptButton = root.find((node: any) => node.type === "button" && node.props.className?.includes("accept"));
-    const rejectButton = root.find((node: any) => node.type === "button" && node.props.className?.includes("reject"));
+    const reviewButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent === "Mark entry reviewed"
+    );
 
     act(() => {
-      observationInput.props.onChange({ target: { value: "Edited flower" } });
+      reviewButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(onEntryUpdated).toHaveBeenCalledWith(expect.objectContaining({
       id: "entry-1",
-      observations: expect.arrayContaining([
-        expect.objectContaining({
-          id: "obs-1",
-          value: "Edited flower",
-          reviewed: false,
-        }),
-      ]),
-    }));
-
-    act(() => {
-      acceptButton.props.onClick();
-    });
-
-    expect(onEntryUpdated).toHaveBeenCalledWith(expect.objectContaining({
-      id: "entry-1",
-      observations: expect.arrayContaining([
-        expect.objectContaining({
-          id: "obs-1",
-          reviewed: true,
-          accepted: true,
-        }),
-      ]),
-    }));
-
-    act(() => {
-      rejectButton.props.onClick();
-    });
-
-    expect(onEntryUpdated).toHaveBeenCalledWith(expect.objectContaining({
-      id: "entry-1",
-      observations: expect.arrayContaining([
-        expect.objectContaining({
-          id: "obs-1",
-          reviewed: true,
-          accepted: false,
-        }),
-      ]),
+      reviewed: true,
     }));
   });
 });

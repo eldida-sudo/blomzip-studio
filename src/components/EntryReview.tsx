@@ -43,6 +43,7 @@ export function EntryReview({ visit, onClose, onEntryUpdated }: EntryReviewProps
   const draft = useMemo(() => drafts.find((item) => item.id === entry?.id), [drafts, entry]);
   const observationCount = entry?.observations.length ?? 0;
   const hasObservations = observationCount > 0;
+  const isEntryReviewed = entry?.reviewed ?? false;
 
   function updateDraft(update: Partial<EntryDraft>) {
     if (!entry) return;
@@ -111,6 +112,16 @@ export function EntryReview({ visit, onClose, onEntryUpdated }: EntryReviewProps
     };
 
     applyEntryUpdate(updatedEntry);
+  }
+
+  function handleMarkEntryReviewed() {
+    if (!entry) return;
+
+    applyEntryUpdate({
+      ...entry,
+      reviewed: true,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   function handleObservationTextChange(observationId: string, value: string) {
@@ -183,6 +194,14 @@ export function EntryReview({ visit, onClose, onEntryUpdated }: EntryReviewProps
             Back to import
           </button>
         ) : null}
+        <div className="entry-review-status-row">
+          <span className={`entry-review-entry-status ${isEntryReviewed ? "reviewed" : "pending"}`}>
+            {isEntryReviewed ? "Entry reviewed" : "Review pending"}
+          </span>
+          <button type="button" onClick={handleMarkEntryReviewed} disabled={isEntryReviewed}>
+            {isEntryReviewed ? "Reviewed" : "Mark entry reviewed"}
+          </button>
+        </div>
       </div>
 
       <div className="entry-review-toolbar">

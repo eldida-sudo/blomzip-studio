@@ -31,6 +31,7 @@ function createEntries(imageRecords: ImageRecord[], visitId: string): Entry[] {
       notes: "",
       tags: [],
       observations: [],
+      reviewed: false,
       createdAt: now,
       updatedAt: now,
     };
