@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Entry, Observation, Visit } from "../models/blomzip";
 import { MockObservationEngine, type ObservationEngine } from "./observationEngine";
 
 interface EntryReviewProps {
   visit: Visit;
+  initialEntryIndex?: number;
   onClose?: () => void;
   onEntryUpdated?: (entry: Entry) => void;
   onVisitFinalized?: (visit: Visit) => void;
@@ -16,10 +17,15 @@ interface EntryDraft {
   tags: string;
 }
 
-export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized, onSaveDraft }: EntryReviewProps) {
-  const [currentIndex, setCurrentIndex] = useState(0);
+export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpdated, onVisitFinalized, onSaveDraft }: EntryReviewProps) {
+  const [currentIndex, setCurrentIndex] = useState(() => {
+    if (visit.entries.length === 0) {
+      return 0;
+    }
+
+    return Math.min(Math.max(initialEntryIndex, 0), visit.entries.length - 1);
+  });
   const [entries, setEntries] = useState(visit.entries);
-  const visitEntriesRef = useRef(visit.entries);
   const [observationEngine] = useState<ObservationEngine>(() => new MockObservationEngine());
   const [saveFeedback, setSaveFeedback] = useState<{ savedAt: string } | null>(null);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
@@ -31,14 +37,13 @@ export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized, 
     }))
   );
 
-  visitEntriesRef.current = visit.entries;
-
-  const entrySignature = visit.entries.map((entry) => entry.id).join("|");
-
   useEffect(() => {
-    const nextEntries = visitEntriesRef.current;
+    const nextEntries = visit.entries;
+    const nextCurrentIndex = nextEntries.length > 0
+      ? Math.min(Math.max(initialEntryIndex, 0), nextEntries.length - 1)
+      : 0;
 
-    setCurrentIndex(0);
+    setCurrentIndex(nextCurrentIndex);
     setEntries(nextEntries);
     setSaveFeedback(null);
     setIsSavingDraft(false);
@@ -49,7 +54,7 @@ export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized, 
         tags: entry.tags.join(", "),
       }))
     );
-  }, [visit.id, entrySignature]);
+  }, [visit.id, visit.entries, initialEntryIndex]);
 
   const entry = useMemo(() => entries[currentIndex], [entries, currentIndex]);
   const imageRecord = useMemo(() => visit.imageRecords?.find((record) => record.id === entry?.imageRecordId), [visit.imageRecords, entry]);
@@ -61,6 +66,16 @@ export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized, 
   const totalEntryCount = entries.length;
   const percentReviewed = totalEntryCount > 0 ? Math.round((reviewedEntryCount / totalEntryCount) * 100) : 0;
   const canFinalizeVisit = totalEntryCount > 0 && reviewedEntryCount === totalEntryCount;
+  const workflowStateLabel = visit.status === "Finalized"
+    ? "Review status complete"
+    : canFinalizeVisit
+      ? "Review status complete"
+      : "Entry Review";
+  const workflowNextActionLabel = visit.status === "Finalized"
+    ? "Download publish-ready output"
+    : canFinalizeVisit
+      ? "Finalize visit"
+      : "Continue reviewing entries";
 
   useEffect(() => {
     if (!saveFeedback) {
@@ -238,6 +253,8 @@ export function EntryReview({ visit, onClose, onEntryUpdated, onVisitFinalized, 
           <p className="eyebrow">Entry review</p>
           <h2>{visit.date}</h2>
           <p className="result-count">Review each imported entry in sequence without saving anything yet.</p>
+          <p className="result-count">Workflow: {workflowStateLabel}</p>
+          <p className="result-count">Next: {workflowNextActionLabel}</p>
         </div>
 
         {onClose ? (

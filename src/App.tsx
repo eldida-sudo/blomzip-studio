@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { initialImages, type ImageItem } from "./data/demoImages";
 import { EntryReview } from "./components/EntryReview";
 import { ZipImportPanel } from "./components/ZipImportPanel";
-import type { DraftVisit, DraftWorkspace, Entry, Visit } from "./models/blomzip";
+import type { DraftVisit, DraftWorkspace, Entry, ImageRecord, Visit } from "./models/blomzip";
 import {
   createDraftImportSummary,
   createDraftVisitFromState,
@@ -10,24 +10,68 @@ import {
   saveDraftWorkspace,
   upsertDraftVisit,
 } from "./utils/draftWorkspace";
+import { createPublishReadyVisitOutput } from "./utils/publishReadyOutput";
 import type { ZipImportSummary } from "./utils/readZipImages";
 import "./App.css";
 
 type ViewFilter = "all" | "favorites" | "hero";
-type CardLayout = "landscape" | "portrait";
+
+function createDraftGalleryImage(options: {
+  visit: Visit;
+  entry: Entry;
+  imageRecord: ImageRecord | undefined;
+  index: number;
+}): ImageItem {
+  const { visit, entry, imageRecord, index } = options;
+  const filename = imageRecord?.filename ?? `entry-${index + 1}`;
+
+  return {
+    id: index + 1,
+    title: filename,
+    collection: "Imported ZIP",
+    date: visit.date,
+    tags: [...entry.tags],
+    favorite: false,
+    hero: false,
+    notes: entry.notes,
+    color: "linear-gradient(135deg, #6a7878, #d6d6c8)",
+    src: imageRecord?.thumbnailUrl ?? "",
+    alt: filename,
+    storyRole: entry.reviewed ? "Reviewed import entry" : "Pending import entry",
+    season: "Imported",
+    location: imageRecord?.sourcePath ?? "Imported visit",
+    mood: "",
+    material: "",
+    light: "",
+    composition: "",
+    importSource: `ZIP import (${visit.id})`,
+  };
+}
+
+function createGalleryImagesFromVisit(visit: Visit): ImageItem[] {
+  const imageRecordsById = new Map((visit.imageRecords ?? []).map((record) => [record.id, record]));
+
+  return visit.entries.map((entry, index) =>
+    createDraftGalleryImage({
+      visit,
+      entry,
+      imageRecord: imageRecordsById.get(entry.imageRecordId),
+      index,
+    })
+  );
+}
 
 function App() {
   const [images, setImages] = useState<ImageItem[]>(initialImages);
-  const [dataSource, setDataSource] = useState("Demo fallback");
   const [search, setSearch] = useState("");
   const [collectionFilter, setCollectionFilter] = useState("All");
   const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
-  const [cardLayout, setCardLayout] = useState<CardLayout>("landscape");
   const [selectedImage, setSelectedImage] = useState<ImageItem | null>(null);
   const [importSummary, setImportSummary] = useState<ZipImportSummary | null>(null);
   const [importVisit, setImportVisit] = useState<Visit | null>(null);
   const [draftWorkspace, setDraftWorkspace] = useState<DraftWorkspace>(() => loadDraftWorkspace());
   const [isReviewingEntries, setIsReviewingEntries] = useState(false);
+  const [reviewStartIndex, setReviewStartIndex] = useState(0);
   const hasAppliedStudioImagesRef = useRef(false);
 
   useEffect(() => {
@@ -55,17 +99,24 @@ function App() {
     setIsReviewingEntries(false);
   }
 
+  function openReviewAtIndex(index: number) {
+    setReviewStartIndex(index);
+    setIsReviewingEntries(true);
+  }
+
   function handleSaveDraft() {
     if (!importVisit) {
       return;
     }
+
+    const draftImages = createGalleryImagesFromVisit(importVisit);
 
     const draftVisit = createDraftVisitFromState({
       visit: {
         ...importVisit,
         status: importVisit.status === "Finalized" ? "Finalized" : "Review in progress",
       },
-      studioImages: images,
+      studioImages: draftImages,
     });
 
     setDraftWorkspace((currentWorkspace) => upsertDraftVisit(currentWorkspace, draftVisit));
@@ -76,9 +127,9 @@ function App() {
     setImages(draftVisit.studioImages);
     setImportSummary(createDraftImportSummary(draftVisit));
     setImportVisit(draftVisit.visit);
+    setReviewStartIndex(0);
     setIsReviewingEntries(true);
     setSelectedImage(null);
-    setDataSource("Draft workspace");
     setDraftWorkspace((currentWorkspace) => ({
       ...currentWorkspace,
       activeDraftId: draftVisit.id,
@@ -97,7 +148,6 @@ function App() {
         }
 
         setImages(data);
-        setDataSource("Auto-imported JSON");
         hasAppliedStudioImagesRef.current = true;
       })
       .catch(() => {
@@ -106,25 +156,34 @@ function App() {
         }
 
         setImages(initialImages);
-        setDataSource("Demo fallback");
         hasAppliedStudioImagesRef.current = true;
       });
   }, []);
 
+  const gallerySourceImages = useMemo(
+    () => (importVisit ? createGalleryImagesFromVisit(importVisit) : images),
+    [importVisit, images]
+  );
+
   const collections = useMemo(() => {
-    return ["All", ...Array.from(new Set(images.map((image) => image.collection)))];
-  }, [images]);
+    return ["All", ...Array.from(new Set(gallerySourceImages.map((image) => image.collection)))];
+  }, [gallerySourceImages]);
 
   const collectionStats = useMemo(() => {
     return Array.from(
-      images.reduce((stats, image) => {
+      gallerySourceImages.reduce((stats, image) => {
         stats.set(image.collection, (stats.get(image.collection) ?? 0) + 1);
         return stats;
       }, new Map<string, number>())
     ).sort((a, b) => b[1] - a[1]);
-  }, [images]);
+  }, [gallerySourceImages]);
 
-  const filteredImages = images.filter((image) => {
+  const galleryItems = useMemo(
+    () => gallerySourceImages.map((image, index) => ({ image, index })),
+    [gallerySourceImages]
+  );
+
+  const filteredImages = galleryItems.filter(({ image }) => {
     const searchText =
       `${image.title} ${image.collection} ${image.tags.join(" ")} ${image.notes} ${image.storyRole} ${image.season} ${image.location} ${image.mood} ${image.material} ${image.light} ${image.composition} ${image.importSource}`.toLowerCase();
 
@@ -140,76 +199,94 @@ function App() {
     return matchesSearch && matchesCollection && matchesViewFilter;
   });
 
-  const favoriteCount = images.filter((image) => image.favorite).length;
-  const heroCount = images.filter((image) => image.hero).length;
-  const importStatusItems = useMemo(() => {
-    const hasMetadata = (importVisit?.imageRecords ?? []).some(
-      (record) => record.width || record.height || record.mimeType || record.orientation || record.captureDate || record.aspectRatio
-    );
-    const hasTimeline = (importVisit?.imageRecords ?? []).some((record) => record.timelineIndex !== undefined);
-    const hasEntries = (importVisit?.entries ?? []).length > 0;
-
-    return [
-      {
-        label: "ZIP loaded",
-        detail: importSummary?.status === "ready" ? "Archive read successfully." : importSummary?.status === "empty" ? "Archive had no supported images." : importSummary?.status === "invalid" ? "Archive could not be read." : "Waiting for an archive.",
-        active: Boolean(importSummary),
-      },
-      {
-        label: "Images detected",
-        detail: `${importSummary?.imageCount ?? 0} image files found`,
-        active: (importSummary?.imageCount ?? 0) > 0,
-      },
-      {
-        label: "Metadata extracted",
-        detail: hasMetadata ? "Technical details captured for the records." : "Metadata is still being assembled.",
-        active: hasMetadata,
-      },
-      {
-        label: "Timeline created",
-        detail: hasTimeline ? "Images are ordered for review." : "Timeline ordering is pending.",
-        active: hasTimeline,
-      },
-      {
-        label: "Entries created",
-        detail: hasEntries ? `${importVisit?.entries?.length ?? 0} in-memory entries ready.` : "Entries are being prepared.",
-        active: hasEntries,
-      },
-      {
-        label: "Ready for review",
-        detail: hasEntries && hasTimeline ? "The import is ready for review." : "The import is still being assembled.",
-        active: hasEntries && hasTimeline,
-      },
-    ];
-  }, [importSummary, importVisit]);
+  const reviewedEntryCount = importVisit?.entries.filter((entry) => entry.reviewed).length ?? 0;
+  const totalImportedEntries = importVisit?.entries.length ?? 0;
+  const reviewProgressPercent = totalImportedEntries > 0 ? Math.round((reviewedEntryCount / totalImportedEntries) * 100) : 0;
   const savedDrafts = draftWorkspace.drafts;
+  const activeGalleryImageId = selectedImage?.id ?? (!isReviewingEntries && importVisit ? gallerySourceImages[reviewStartIndex]?.id : null);
+  const canFinalizeVisit = totalImportedEntries > 0 && reviewedEntryCount === totalImportedEntries;
+  const isVisitFinalized = importVisit?.status === "Finalized";
 
-  function toggleFavorite(id: number) {
-    setImages((currentImages) =>
-      currentImages.map((image) =>
-        image.id === id ? { ...image, favorite: !image.favorite } : image
-      )
-    );
+  function handleFinalizeImportedVisit() {
+    setImportVisit((currentVisit) => {
+      if (!currentVisit) {
+        return currentVisit;
+      }
+
+      const reviewedCount = currentVisit.entries.filter((entry) => entry.reviewed).length;
+      const totalEntries = currentVisit.entries.length;
+      const readyToFinalize = totalEntries > 0 && reviewedCount === totalEntries;
+
+      if (!readyToFinalize) {
+        return currentVisit;
+      }
+
+      return {
+        ...currentVisit,
+        status: "Finalized",
+      };
+    });
   }
 
-  function toggleHero(id: number) {
-    setImages((currentImages) =>
-      currentImages.map((image) =>
-        image.id === id ? { ...image, hero: !image.hero } : image
-      )
-    );
+  function handleDownloadPublishReadyOutput() {
+    if (!importVisit || !isVisitFinalized) {
+      return;
+    }
+
+    const output = createPublishReadyVisitOutput(importVisit);
+    const outputBlob = new Blob([JSON.stringify(output, null, 2)], { type: "application/json" });
+    const outputUrl = URL.createObjectURL(outputBlob);
+    const outputLink = document.createElement("a");
+    const sanitizedDate = importVisit.date.replace(/[^0-9-]/g, "-");
+
+    outputLink.href = outputUrl;
+    outputLink.download = `visit-${sanitizedDate}-publish-ready.json`;
+    document.body.appendChild(outputLink);
+    outputLink.click();
+    document.body.removeChild(outputLink);
+    URL.revokeObjectURL(outputUrl);
   }
 
-  function updateNotes(id: number, notes: string) {
-    setImages((currentImages) =>
-      currentImages.map((image) =>
-        image.id === id ? { ...image, notes } : image
-      )
-    );
+  const workflowStateLabel = !importSummary
+    ? "ZIP import"
+    : !importVisit
+      ? "Draft ready"
+      : isVisitFinalized
+        ? "Review status complete"
+        : canFinalizeVisit
+          ? "Review status complete"
+          : isReviewingEntries
+            ? "Entry Review"
+            : "Curate thumbnails";
+
+  const workflowNextActionLabel = !importSummary
+    ? "Import a ZIP archive"
+    : !importVisit
+      ? "Load or create a draft"
+      : isVisitFinalized
+        ? "Download publish-ready output"
+        : canFinalizeVisit
+          ? "Finalize visit"
+          : isReviewingEntries
+            ? "Continue reviewing entries"
+            : "Open Entry Review";
+
+  const draftStatusLabel = !importVisit
+    ? "No draft active"
+    : isVisitFinalized
+      ? "Finalized"
+      : canFinalizeVisit
+        ? "Review status complete"
+        : importVisit.status ?? "Ready for AI";
+
+  function getImageFilename(image: ImageItem) {
+    return image.src.split("/").pop() ?? image.title;
   }
 
   function renderMeta(label: string, value: string) {
-    if (!value) return null;
+    if (!value) {
+      return null;
+    }
 
     return (
       <p>
@@ -218,144 +295,109 @@ function App() {
     );
   }
 
-  function renderImageCard(image: ImageItem) {
+  function renderGalleryCard({ image, index }: { image: ImageItem; index: number }) {
+    const reviewed = importVisit?.entries[index]?.reviewed;
+
     return (
-      <article className="image-card" key={image.id}>
-        <button
-          className="image-preview image-open-button"
-          style={{ background: image.src ? undefined : image.color }}
-          onClick={() => setSelectedImage(image)}
-        >
-          {image.src && <img src={image.src} alt={image.alt} />}
-          {image.hero && <span className="hero-badge">Hero</span>}
-          {image.favorite && <span className="favorite-badge">★</span>}
-        </button>
+      <button
+        key={image.id}
+        type="button"
+        className={`gallery-card gallery-card-button preview-card-button ${activeGalleryImageId === image.id ? "is-current" : ""}`}
+        onClick={() => (importVisit ? openReviewAtIndex(index) : setSelectedImage(image))}
+        aria-label={`Open ${getImageFilename(image)}`}
+        aria-pressed={activeGalleryImageId === image.id}
+      >
+        <div className="gallery-card-thumb">
+          {image.src ? <img src={image.src} alt={image.alt} /> : <span>No preview</span>}
+          {image.hero ? <span className="gallery-card-badge gallery-card-badge-top-left">Hero</span> : null}
+          {image.favorite ? <span className="gallery-card-badge gallery-card-badge-top-right">Favorite</span> : null}
+        </div>
 
-        <div className="image-body">
-          <div className="image-heading">
-            <div>
-              <p className="collection">{image.collection}</p>
-              <h3>{image.title}</h3>
-            </div>
-            {image.date && <span className="date">{image.date}</span>}
+        <div className="gallery-card-body">
+          <div className="gallery-card-header">
+            <strong>{getImageFilename(image)}</strong>
+            <span>#{index + 1}</span>
           </div>
 
-          <div className="meta-list compact">
-            {renderMeta("Role", image.storyRole)}
-            {renderMeta("Season", image.season)}
-            {renderMeta("Location", image.location)}
-            {renderMeta("Mood", image.mood)}
-            {renderMeta("Light", image.light)}
-          </div>
+          <p className="gallery-card-meta">
+            {image.location}
+            <span>•</span>
+            {image.collection}
+          </p>
 
-          <div className="tag-row">
-            {image.tags.map((tag) => (
-              <span key={tag}>{tag}</span>
-            ))}
-          </div>
-
-          <textarea
-            value={image.notes}
-            onChange={(event) => updateNotes(image.id, event.target.value)}
-            aria-label={`Notes for ${image.title}`}
-            placeholder="Add notes..."
-          />
-
-          <div className="button-row">
-            <button
-              className={image.favorite ? "active" : ""}
-              onClick={() => toggleFavorite(image.id)}
-            >
-              {image.favorite ? "Favorited" : "Favorite"}
-            </button>
-
-            <button
-              className={image.hero ? "active" : ""}
-              onClick={() => toggleHero(image.id)}
-            >
-              {image.hero ? "Hero image" : "Mark hero"}
-            </button>
+          <div className="gallery-card-statuses">
+            {image.favorite ? <span className="gallery-chip">Favorite</span> : null}
+            {image.hero ? <span className="gallery-chip">Hero</span> : null}
+            {reviewed !== undefined ? (
+              <span className={`gallery-chip ${reviewed ? "active" : "muted"}`}>
+                {reviewed ? "Reviewed" : "Pending"}
+              </span>
+            ) : null}
           </div>
         </div>
-      </article>
+      </button>
     );
   }
+
+  const draftSummary = importVisit
+    ? {
+        description: `${totalImportedEntries} entries, ${reviewedEntryCount} reviewed, ${reviewProgressPercent}% complete.`,
+        status: draftStatusLabel,
+      }
+    : null;
 
   return (
     <main className="studio">
       <aside className="sidebar">
-        <div>
-          <p className="eyebrow">Blomzip Studio</p>
-          <h1>Garden image sorting for stories, patterns and proof.</h1>
-        </div>
+        <section className="sidebar-card sidebar-summary-card">
+          <div>
+            <p className="eyebrow">Blomzip Studio</p>
+            <h1>{draftSummary ? "Current draft" : "Ready for a draft"}</h1>
+            <p className="result-count">
+              {draftSummary
+                ? draftSummary.description
+                : "Import a ZIP archive or choose a saved draft to start curation."}
+            </p>
+            <p className="result-count">Workflow: {workflowStateLabel}</p>
+            <p className="result-count">Next: {workflowNextActionLabel}</p>
+          </div>
+          <div className="sidebar-summary-stack">
+            <span className="sidebar-summary-pill">{draftSummary?.status ?? draftStatusLabel}</span>
+            <strong>{gallerySourceImages.length} images</strong>
+          </div>
+        </section>
 
-        <div className="sidebar-card">
-          <span>Total images</span>
-          <strong>{images.length}</strong>
-        </div>
+        <section className="sidebar-card sidebar-progress-card">
+          <div>
+            <span>Review progress</span>
+            <strong>
+              {totalImportedEntries > 0 ? `${reviewedEntryCount} / ${totalImportedEntries}` : "No entries yet"}
+            </strong>
+          </div>
+          <div className="sidebar-progress-meter" aria-hidden="true">
+            <span style={{ width: `${reviewProgressPercent}%` }} />
+          </div>
+        </section>
 
-        <div className="sidebar-card">
-          <span>Showing now</span>
-          <strong>
-            {filteredImages.length} / {images.length}
-          </strong>
-        </div>
+        <section className="sidebar-card sidebar-save-load-card">
+          <div>
+            <p className="eyebrow">Draft workspace</p>
+            <h3>Save or load a draft</h3>
+            <p className="result-count">
+              Keep the current curation session in browser storage without changing the canonical archive.
+            </p>
+          </div>
 
-        <div className="sidebar-card">
-          <span>Favorites</span>
-          <strong>{favoriteCount}</strong>
-        </div>
-
-        <div className="sidebar-card">
-          <span>Hero candidates</span>
-          <strong>{heroCount}</strong>
-        </div>
-
-        <div className="sidebar-card">
-          <span>Collections</span>
-          <strong>{collectionStats.length}</strong>
-        </div>
-
-        <div className="sidebar-card">
-          <span>Data source</span>
-          <strong>{dataSource}</strong>
-        </div>
-
-        <div className="sidebar-card">
-          <span>Collection stats</span>
-          <div className="collection-stats">
-            <button
-              className={collectionFilter === "All" ? "active" : ""}
-              onClick={() => setCollectionFilter("All")}
-            >
-              <span>All</span>
-              <strong>{images.length}</strong>
+          <div className="collection-stats draft-actions">
+            <button type="button" className="primary-action" onClick={handleSaveDraft} disabled={!importVisit}>
+              Save Draft
             </button>
 
-            {collectionStats.map(([collection, count]) => (
-              <button
-                key={collection}
-                className={collectionFilter === collection ? "active" : ""}
-                onClick={() => setCollectionFilter(collection)}
-              >
-                <span>{collection}</span>
-                <strong>{count}</strong>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="sidebar-card">
-          <span>Draft workspace</span>
-          <strong>{savedDrafts.length} saved drafts</strong>
-          <p className="result-count">
-            Save the current draft visit to continue later without touching the canonical archive.
-          </p>
-          <div className="collection-stats">
             {savedDrafts.length > 0 ? (
               savedDrafts.map((draftVisit) => (
                 <button
                   key={draftVisit.id}
+                  type="button"
                   className={draftWorkspace.activeDraftId === draftVisit.id ? "active" : ""}
                   onClick={() => handleLoadDraft(draftVisit)}
                 >
@@ -367,179 +409,135 @@ function App() {
               <p className="result-count">No saved drafts yet.</p>
             )}
           </div>
-        </div>
+        </section>
 
-        <ZipImportPanel className="zip-panel" onImportStateChange={({ summary, visit }) => {
-          setImportSummary(summary);
-          setImportVisit(visit);
-        }} />
+        <section className={`sidebar-import-shell ${importVisit ? "secondary" : "primary"}`}>
+          <ZipImportPanel
+            className="zip-panel"
+            onImportStateChange={({ summary, visit }) => {
+              setImportSummary(summary);
+              setImportVisit(visit);
+            }}
+          />
+
+          {importSummary ? (
+            <div className="sidebar-card import-summary-mini">
+              <span>ZIP ready</span>
+              <strong>{importSummary.fileName}</strong>
+              <p className="result-count">
+                {importSummary.imageCount} images, {importSummary.status}
+              </p>
+            </div>
+          ) : null}
+        </section>
+
+        <section className="sidebar-card sidebar-collection-card">
+          <p className="eyebrow">Collection stats</p>
+          <div className="collection-stats compact-stats">
+            <button
+              className={collectionFilter === "All" ? "active" : ""}
+              type="button"
+              onClick={() => setCollectionFilter("All")}
+            >
+              <span>All</span>
+              <strong>{gallerySourceImages.length}</strong>
+            </button>
+
+            {collectionStats.map(([collection, count]) => (
+              <button
+                key={collection}
+                type="button"
+                className={collectionFilter === collection ? "active" : ""}
+                onClick={() => setCollectionFilter(collection)}
+              >
+                <span>{collection}</span>
+                <strong>{count}</strong>
+              </button>
+            ))}
+          </div>
+        </section>
       </aside>
 
       <section className="content">
         {isReviewingEntries && importVisit ? (
           <EntryReview
             visit={importVisit}
+            initialEntryIndex={reviewStartIndex}
             onClose={() => setIsReviewingEntries(false)}
             onEntryUpdated={handleImportEntryUpdated}
             onVisitFinalized={handleVisitFinalized}
             onSaveDraft={handleSaveDraft}
           />
-        ) : importVisit ? (
-          <div className="import-mode">
-            <section className="import-mode-panel">
-              <div className="import-mode-heading">
-                <p className="eyebrow">Import mode</p>
-                <h2>Import Visit</h2>
-                <p className="result-count">
-                  The ZIP archive has become an in-memory visit with image records, metadata, a timeline order and review entries.
-                </p>
-              </div>
-
-              <div className="import-status-list">
-                {importStatusItems.map((item) => (
-                  <div key={item.label} className={`status-pill ${item.active ? "active" : ""}`}>
-                    <span className="status-pill-mark">{item.active ? "✓" : "•"}</span>
-                    <div>
-                      <strong>{item.label}</strong>
-                      <p>{item.detail}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="import-next-step">
-                <div>
-                  <p className="eyebrow">Next</p>
-                  <h3>Review entries</h3>
-                  <p className="result-count">
-                    Step through the in-memory entries and begin shaping observations in the next phase.
-                  </p>
-                </div>
-                <button type="button" onClick={() => setIsReviewingEntries(true)}>
-                  Review entries
-                </button>
-              </div>
-            </section>
-
-            <section className="import-preview-section">
-              <div className="import-preview-heading">
-                <div>
-                  <p className="eyebrow">Preview gallery</p>
-                  <h3>Imported images</h3>
-                </div>
-                <span>{importVisit.imageRecords?.length ?? 0} ordered</span>
-              </div>
-
-              <div className="preview-gallery">
-                {(importVisit.imageRecords ?? []).map((record) => (
-                  <div key={record.id} className="preview-card">
-                    <div className="preview-thumb">
-                      {record.thumbnailUrl ? (
-                        <img src={record.thumbnailUrl} alt={record.filename} />
-                      ) : (
-                        <span>No preview</span>
-                      )}
-                    </div>
-                    <div className="preview-meta">
-                      <strong>{record.filename}</strong>
-                      <span>#{record.timelineIndex ?? 0}</span>
-                      <span>
-                        {record.width && record.height ? `${record.width} × ${record.height}` : "Dimensions unavailable"}
-                        {record.orientation ? ` • ${record.orientation}` : ""}
-                      </span>
-                      <span className="preview-entry-badge">0 observations</span>
-                      <span className="preview-entry-badge preview-entry-badge-subtle">Ready for AI</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="import-library import-library-secondary">
-              <div className="import-preview-heading">
-                <div>
-                  <p className="eyebrow">Studio library</p>
-                  <h3>Existing image collection</h3>
-                </div>
-              </div>
-
-              <section className={`image-grid ${cardLayout}`}>
-                {filteredImages.map((image) => renderImageCard(image))}
-              </section>
-            </section>
-          </div>
         ) : (
-          <>
-            <header className="toolbar">
+          <div className="gallery-shell">
+            <header className="gallery-header">
               <div>
-                <p className="eyebrow">v0.8.5</p>
-                <h2>Filtered image count</h2>
+                <p className="eyebrow">{importVisit ? "Current draft gallery" : "Studio gallery"}</p>
+                <h2>{importVisit ? "Curate by thumbnail" : "Browse the studio collection"}</h2>
                 <p className="result-count">
-                  Showing {filteredImages.length} of {images.length} images
+                  {filteredImages.length} of {gallerySourceImages.length} images shown.
+                  {importVisit
+                    ? " Click any thumbnail to open Entry Review at that image."
+                    : " Import a ZIP to switch the workspace into review mode."}
                 </p>
               </div>
 
-              <div className="controls">
-                <input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search images, tags, notes, light or mood..."
-                />
-
-                <select
-                  value={collectionFilter}
-                  onChange={(event) => setCollectionFilter(event.target.value)}
-                >
-                  {collections.map((collection) => (
-                    <option key={collection} value={collection}>
-                      {collection}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {importVisit ? (
+                <div className="gallery-header-actions">
+                  <span className="import-summary-badge">{draftStatusLabel}</span>
+                  {isVisitFinalized ? (
+                    <button type="button" className="primary-action" onClick={handleDownloadPublishReadyOutput}>
+                      Download publish-ready JSON
+                    </button>
+                  ) : null}
+                  {canFinalizeVisit && !isVisitFinalized ? (
+                    <button type="button" className="primary-action" onClick={handleFinalizeImportedVisit}>
+                      Finalize visit
+                    </button>
+                  ) : null}
+                  <button type="button" className="primary-action" onClick={() => openReviewAtIndex(0)}>
+                    Review entries
+                  </button>
+                </div>
+              ) : null}
             </header>
 
-            <div className="filter-row" aria-label="Image view filters">
-              <button
-                className={viewFilter === "all" ? "active" : ""}
-                onClick={() => setViewFilter("all")}
-              >
-                All
-              </button>
+            <div className="gallery-toolbar">
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search filenames, location, collection, tags or notes..."
+              />
 
-              <button
-                className={viewFilter === "favorites" ? "active" : ""}
-                onClick={() => setViewFilter("favorites")}
-              >
-                Favorites
-              </button>
+              <select value={collectionFilter} onChange={(event) => setCollectionFilter(event.target.value)}>
+                {collections.map((collection) => (
+                  <option key={collection} value={collection}>
+                    {collection}
+                  </option>
+                ))}
+              </select>
 
-              <button
-                className={viewFilter === "hero" ? "active" : ""}
-                onClick={() => setViewFilter("hero")}
-              >
-                Hero
-              </button>
+              <div className="filter-row filter-row-compact" aria-label="Image view filters">
+                <button type="button" className={viewFilter === "all" ? "active" : ""} onClick={() => setViewFilter("all")}>
+                  All
+                </button>
 
-              <button
-                className={cardLayout === "landscape" ? "active" : ""}
-                onClick={() => setCardLayout("landscape")}
-              >
-                Landscape
-              </button>
+                <button
+                  type="button"
+                  className={viewFilter === "favorites" ? "active" : ""}
+                  onClick={() => setViewFilter("favorites")}
+                >
+                  Favorites
+                </button>
 
-              <button
-                className={cardLayout === "portrait" ? "active" : ""}
-                onClick={() => setCardLayout("portrait")}
-              >
-                Portrait
-              </button>
+                <button type="button" className={viewFilter === "hero" ? "active" : ""} onClick={() => setViewFilter("hero")}>
+                  Hero
+                </button>
+              </div>
             </div>
 
-            <section className={`image-grid ${cardLayout}`}>
-              {filteredImages.map((image) => renderImageCard(image))}
-            </section>
-          </>
+            <section className="gallery-grid">{filteredImages.map(renderGalleryCard)}</section>
+          </div>
         )}
       </section>
 

@@ -106,6 +106,8 @@ describe("EntryReview", () => {
     expect(html).toContain("Ready for AI");
     expect(html).toContain("Notes");
     expect(html).toContain("Tags");
+    expect(html).toContain("Workflow: Entry Review");
+    expect(html).toContain("Next: Continue reviewing entries");
     expect(html).toContain("Previous");
     expect(html).toContain("Next");
     expect(html).toContain("Analyze image");
