@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type Visit } from "../models/blomzip";
 import { createTemporaryVisitFromZip } from "../utils/createTemporaryVisitFromZip";
 import { revokeThumbnailUrls } from "../utils/createThumbnailUrls";
@@ -14,14 +14,15 @@ export function ZipImportPanel({ className, onImportStateChange }: ZipImportPane
   const [temporaryVisit, setTemporaryVisit] = useState<Visit | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const activeVisitRef = useRef<Visit | null>(null);
 
   useEffect(() => {
     return () => {
-      if (temporaryVisit?.imageRecords) {
-        revokeThumbnailUrls(temporaryVisit.imageRecords);
+      if (activeVisitRef.current?.imageRecords) {
+        revokeThumbnailUrls(activeVisitRef.current.imageRecords);
       }
     };
-  }, [temporaryVisit]);
+  }, []);
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const selectedFile = event.target.files?.[0];
@@ -33,11 +34,17 @@ export function ZipImportPanel({ className, onImportStateChange }: ZipImportPane
     setIsLoading(true);
     setErrorMessage(null);
 
+    if (activeVisitRef.current?.imageRecords) {
+      revokeThumbnailUrls(activeVisitRef.current.imageRecords);
+      activeVisitRef.current = null;
+    }
+
     const result = await readZipImages(selectedFile);
     const visit = createTemporaryVisitFromZip(result);
 
     setSummary(result);
     setTemporaryVisit(visit);
+    activeVisitRef.current = visit;
     onImportStateChange?.({ summary: result, visit });
     setIsLoading(false);
 
