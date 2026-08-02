@@ -14,13 +14,11 @@ export function ZipImportPanel({ className, onImportStateChange }: ZipImportPane
   const [temporaryVisit, setTemporaryVisit] = useState<Visit | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const activeVisitRef = useRef<Visit | null>(null);
+  const allImportedImageRecordsRef = useRef<NonNullable<Visit["imageRecords"]>>([]);
 
   useEffect(() => {
     return () => {
-      if (activeVisitRef.current?.imageRecords) {
-        revokeThumbnailUrls(activeVisitRef.current.imageRecords);
-      }
+      revokeThumbnailUrls(allImportedImageRecordsRef.current);
     };
   }, []);
 
@@ -34,17 +32,16 @@ export function ZipImportPanel({ className, onImportStateChange }: ZipImportPane
     setIsLoading(true);
     setErrorMessage(null);
 
-    if (activeVisitRef.current?.imageRecords) {
-      revokeThumbnailUrls(activeVisitRef.current.imageRecords);
-      activeVisitRef.current = null;
-    }
-
     const result = await readZipImages(selectedFile);
     const visit = createTemporaryVisitFromZip(result);
 
     setSummary(result);
     setTemporaryVisit(visit);
-    activeVisitRef.current = visit;
+
+    if (visit?.imageRecords) {
+      allImportedImageRecordsRef.current = [...allImportedImageRecordsRef.current, ...visit.imageRecords];
+    }
+
     onImportStateChange?.({ summary: result, visit });
     setIsLoading(false);
 

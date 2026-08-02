@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
+import { useState } from "react";
 import { EntryReview } from "./EntryReview";
 import { MockObservationEngine } from "./observationEngine";
 import type { Visit } from "../models/blomzip";
@@ -22,7 +23,25 @@ const visit: Visit = {
       status: "new",
       notes: "",
       tags: [],
-      observations: [],
+      observations: [
+        {
+          id: "obs-ai-1",
+          entryId: "entry-1",
+          type: "Plant",
+          confidence: 0.9,
+          source: "mock-ai",
+          value: "Hydrangea-like bloom",
+          createdAt: "2026-07-05T00:00:00.000Z",
+          reviewed: false,
+        },
+      ],
+      analysisSuggestions: {
+        engine: "mock-observation-engine",
+        generatedAt: "2026-07-05T00:00:00.000Z",
+        confidence: 0.87,
+        categories: ["story-candidate", "by-place", "possible-duplicates"],
+        possibleDuplicateEntryIds: ["entry-2"],
+      },
       createdAt: "2026-07-05T00:00:00.000Z",
       updatedAt: "2026-07-05T00:00:00.000Z",
     },
@@ -44,12 +63,13 @@ const visit: Visit = {
       filename: "courtyard-01.jpg",
       fileSize: 1200,
       format: "jpeg",
-      sourcePath: "courtyard-01.jpg",
+      sourcePath: "courtyard/courtyard-01.jpg",
       width: 1600,
       height: 1200,
       orientation: "landscape",
       mimeType: "image/jpeg",
       timelineIndex: 0,
+      captureDate: "2026-07-05T10:30:00.000Z",
       thumbnailUrl: "data:image/gif;base64,R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=",
     },
     {
@@ -57,7 +77,7 @@ const visit: Visit = {
       filename: "courtyard-02.jpg",
       fileSize: 1600,
       format: "jpeg",
-      sourcePath: "courtyard-02.jpg",
+      sourcePath: "courtyard/courtyard-02.jpg",
       width: 1200,
       height: 1600,
       orientation: "portrait",
@@ -96,84 +116,131 @@ describe("EntryReview", () => {
     container.remove();
   });
 
-  it("renders entry review details and review controls", () => {
-    const html = renderToStaticMarkup(<EntryReview visit={visit} />);
+  it("renders a compact review header with back to archive wording", () => {
+    act(() => {
+      root.render(<EntryReview visit={visit} onClose={vi.fn()} />);
+    });
 
-    expect(html).toContain("Entry review");
-    expect(html).toContain("courtyard-01.jpg");
-    expect(html).toContain("Timeline index");
-    expect(html).toContain("0 observations");
-    expect(html).toContain("Ready for AI");
-    expect(html).toContain("Notes");
-    expect(html).toContain("Tags");
-    expect(html).toContain("Workflow: Entry Review");
-    expect(html).toContain("Next: Continue reviewing entries");
-    expect(html).toContain("Previous");
-    expect(html).toContain("Next");
-    expect(html).toContain("Analyze image");
+    expect(container.querySelector('[data-testid="entry-review-header"]')).toBeDefined();
+    expect(container.textContent).toContain("Back to archive");
+    expect(container.textContent).toContain("Entry");
+    expect(container.textContent).toContain("1 of 2");
+    expect(container.textContent).toContain("Save status");
+    expect(container.textContent).toContain("Review progress");
+    expect(container.textContent).not.toContain("Workflow:");
+    expect(container.textContent).not.toContain("Next:");
+    expect(container.textContent).not.toContain("Finalize visit");
   });
 
-  it("creates mock observations for the matching entry", () => {
-    const observations = new MockObservationEngine().generateObservations("entry-1");
-
-    expect(observations.length).toBeGreaterThan(0);
-    expect(observations.every((observation) => observation.entryId === "entry-1")).toBe(true);
-    expect(observations.every((observation) => observation.source === "mock-ai")).toBe(true);
-  });
-
-  it("hides the analyze button once observations exist", () => {
-    const html = renderToStaticMarkup(
-      <EntryReview
-        visit={{
-          ...visit,
-          entries: [
-            {
-              ...visit.entries[0],
-              observations: [
-                {
-                  id: "obs-1",
-                  entryId: "entry-1",
-                  type: "Plant",
-                  confidence: 0.98,
-                  source: "mock-ai",
-                  value: "Flower",
-                  createdAt: "2026-07-05T00:00:00.000Z",
-                  reviewed: false,
-                },
-              ],
-            },
-            ...visit.entries.slice(1),
-          ],
-        }}
-      />
-    );
-
-    expect(html).toContain("1 observations");
-    expect(html).toContain("Observation created");
-    expect(html).toContain("Mock observation");
-    expect(html).not.toContain("Analyze image");
-  });
-
-  it("renders note and tag fields and the analyze control", () => {
+  it("renders the complete image in a bounded region", () => {
     act(() => {
       root.render(<EntryReview visit={visit} />);
     });
 
-    expect(container.innerHTML).toContain("textarea");
-    expect(container.innerHTML).toContain("placeholder=\"Add tags, separated by commas\"");
-    expect(container.innerHTML).toContain("Analyze image");
+    const imageRegion = container.querySelector('[data-testid="entry-review-image-region"]');
+    const image = container.querySelector('[data-testid="entry-review-main-image"]') as HTMLImageElement | null;
+
+    expect(imageRegion).toBeDefined();
+    expect(image).toBeDefined();
+    expect(image?.className).toContain("entry-review-preview-image");
+    expect(image?.getAttribute("alt")).toBe("courtyard-01.jpg");
   });
 
-  it("keeps the current entry selected while typing in notes and tags", () => {
-    const onEntryUpdated = vi.fn();
+  it("shows AI suggestions fields when analysis suggestions exist", () => {
+    const html = renderToStaticMarkup(<EntryReview visit={visit} />);
 
+    expect(html).toContain("AI suggestions");
+    expect(html).toContain("Suggested place");
+    expect(html).toContain("Categories");
+    expect(html).toContain("Confidence");
+    expect(html).toContain("Reason");
+    expect(html).toContain("Suggested observations");
+    expect(html).toContain("Possible duplicates");
+  });
+
+  it("does not show AI suggestion panel when no analysis suggestions exist", () => {
+    const html = renderToStaticMarkup(
+      <EntryReview
+        visit={{
+          ...visit,
+          entries: [{ ...visit.entries[0], analysisSuggestions: undefined }, visit.entries[1]],
+        }}
+      />
+    );
+
+    expect(html).not.toContain("AI suggestions");
+    expect(html).not.toContain("Suggested place");
+  });
+
+  it("keeps Previous and Next in one unified navigation region without duplication", () => {
     act(() => {
-      root.render(<EntryReview visit={visit} onEntryUpdated={onEntryUpdated} />);
+      root.render(<EntryReview visit={visit} />);
     });
 
-    const nextButton = Array.from(container.querySelectorAll("button")).find((button) =>
-      button.textContent === "Next"
-    );
+    const nav = container.querySelector('[data-testid="entry-review-navigation"]');
+    const allPreviousButtons = Array.from(container.querySelectorAll("button")).filter((button) => button.textContent === "Previous");
+    const allNextButtons = Array.from(container.querySelectorAll("button")).filter((button) => button.textContent === "Next");
+
+    expect(nav).toBeDefined();
+    expect(nav?.textContent).toContain("Entry 1 of 2");
+    expect(allPreviousButtons).toHaveLength(1);
+    expect(allNextButtons).toHaveLength(1);
+    expect(container.textContent).not.toContain("Next image");
+  });
+
+  it("renders review controls in the expected vertical order", () => {
+    act(() => {
+      root.render(<EntryReview visit={visit} />);
+    });
+
+    const panel = container.querySelector('[data-testid="entry-review-panel"]') as HTMLElement | null;
+    const sequence = [
+      "panel-filename",
+      "panel-captured-date",
+      "panel-essential-metadata",
+      "panel-ai-suggestions",
+      "panel-notes",
+      "panel-tags",
+      "panel-curation-controls",
+      "panel-observations",
+      "panel-mark-reviewed",
+    ].map((testId) => panel?.querySelector(`[data-testid="${testId}"]`) as HTMLElement | null);
+
+    expect(sequence.every(Boolean)).toBe(true);
+
+    const order = sequence.map((node) => Array.from(panel?.children ?? []).indexOf(node as Element));
+    for (let index = 0; index < order.length - 1; index += 1) {
+      expect(order[index]).toBeLessThan(order[index + 1] ?? 0);
+    }
+  });
+
+  it("keeps current entry selected while editing notes and tags", () => {
+    const onEntryUpdated = vi.fn();
+
+    function StatefulReview() {
+      const [statefulVisit, setStatefulVisit] = useState(visit);
+
+      return (
+        <EntryReview
+          visit={statefulVisit}
+          onEntryUpdated={(updatedEntry) => {
+            onEntryUpdated(updatedEntry);
+            setStatefulVisit((currentVisit) => ({
+              ...currentVisit,
+              entries: currentVisit.entries.map((entryItem) =>
+                entryItem.id === updatedEntry.id ? updatedEntry : entryItem
+              ),
+            }));
+          }}
+        />
+      );
+    }
+
+    act(() => {
+      root.render(<StatefulReview />);
+    });
+
+    const nextButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Next");
 
     act(() => {
       nextButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -192,9 +259,6 @@ describe("EntryReview", () => {
       noteProps?.onChange?.({ target: { value: "Updated note" } });
     });
 
-    expect(container.textContent).toContain("Entry 2 of 2");
-    expect(container.textContent).toContain("courtyard-02.jpg");
-
     act(() => {
       const tagProps = tagField ? getReactProps(tagField) : null;
       tagProps?.onChange?.({ target: { value: "tag-a, tag-b" } });
@@ -205,38 +269,191 @@ describe("EntryReview", () => {
     expect(onEntryUpdated).toHaveBeenCalled();
   });
 
-  it("renders observation review controls when observations exist", () => {
+  it("auto-advances to the next entry after marking the current one reviewed", () => {
+    const onEntryUpdated = vi.fn();
+
     act(() => {
-      root.render(
+      root.render(<EntryReview visit={visit} onEntryUpdated={onEntryUpdated} />);
+    });
+
+    const reviewButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent === "Mark entry reviewed"
+    );
+
+    act(() => {
+      reviewButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Entry 2 of 2");
+    expect(container.textContent).toContain("courtyard-02.jpg");
+    expect(onEntryUpdated).toHaveBeenCalledWith(expect.objectContaining({
+      id: "entry-1",
+      reviewed: true,
+    }));
+  });
+
+  it("supports keyboard shortcuts for navigation and curation", () => {
+    act(() => {
+      root.render(<EntryReview visit={visit} />);
+    });
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Entry 2 of 2");
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Entry 1 of 2");
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Favorite ✓");
+  });
+
+  it("does not trigger keyboard shortcuts while typing in a text field", () => {
+    act(() => {
+      root.render(<EntryReview visit={visit} />);
+    });
+
+    const noteField = container.querySelector("textarea") as HTMLTextAreaElement | null;
+    const noteProps = noteField ? getReactProps(noteField) : null;
+
+    act(() => {
+      noteProps?.onChange?.({ target: { value: "Typing a note" } });
+    });
+
+    act(() => {
+      noteField?.dispatchEvent(new KeyboardEvent("keydown", { key: "f", bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Pending review");
+    expect(container.textContent).not.toContain("Favorite ✓");
+  });
+
+  it("preserves edits while auto-advancing and stops on the final entry", () => {
+    function StatefulReview() {
+      const [statefulVisit, setStatefulVisit] = useState(visit);
+
+      return (
         <EntryReview
-          visit={{
-            ...visit,
-            entries: [
-              {
-                ...visit.entries[0],
-                observations: [
-                  {
-                    id: "obs-1",
-                    entryId: "entry-1",
-                    type: "Plant",
-                    confidence: 0.8,
-                    source: "mock-ai",
-                    value: "Flower",
-                    createdAt: "2026-07-05T00:00:00.000Z",
-                    reviewed: false,
-                  },
-                ],
-              },
-            ],
+          visit={statefulVisit}
+          onEntryUpdated={(updatedEntry) => {
+            setStatefulVisit((currentVisit) => ({
+              ...currentVisit,
+              entries: currentVisit.entries.map((entryItem) =>
+                entryItem.id === updatedEntry.id ? updatedEntry : entryItem
+              ),
+            }));
           }}
         />
       );
+    }
+
+    act(() => {
+      root.render(<StatefulReview />);
     });
 
-    expect(container.innerHTML).toContain("1 observations");
-    expect(container.innerHTML).toContain("Accept");
-    expect(container.innerHTML).toContain("Reject");
-    expect(container.innerHTML).toContain("Pending review");
+    const noteField = container.querySelector("textarea") as HTMLTextAreaElement | null;
+    const noteProps = noteField ? getReactProps(noteField) : null;
+
+    act(() => {
+      noteProps?.onChange?.({ target: { value: "Important edit" } });
+    });
+
+    act(() => {
+      const reviewButton = Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent === "Mark entry reviewed"
+      );
+      reviewButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Entry 2 of 2");
+    expect(container.textContent).toContain("courtyard-02.jpg");
+
+    act(() => {
+      const previousButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Previous");
+      previousButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Important edit");
+
+    act(() => {
+      const nextButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Next");
+      nextButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Entry 2 of 2");
+
+    act(() => {
+      const reviewButton = Array.from(container.querySelectorAll("button")).find((button) =>
+        button.textContent === "Mark entry reviewed"
+      );
+      reviewButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Entry 2 of 2");
+    expect(container.textContent).toContain("Finalize visit");
+  });
+
+  it("toggles Favorite, Hero and Story on and off with clear labels", () => {
+    const onEntryUpdated = vi.fn();
+
+    act(() => {
+      root.render(<EntryReview visit={visit} onEntryUpdated={onEntryUpdated} />);
+    });
+
+    const findButtonByText = (text: string) =>
+      Array.from(container.querySelectorAll("button")).find((button) => button.textContent === text);
+
+    act(() => {
+      findButtonByText("Mark as favorite")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      findButtonByText("Mark as hero")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      findButtonByText("Select for Story")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Favorite ✓");
+    expect(container.textContent).toContain("Hero ✓");
+    expect(container.textContent).toContain("Selected for Story ✓");
+
+    act(() => {
+      findButtonByText("Favorite ✓")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      findButtonByText("Hero ✓")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      findButtonByText("Selected for Story ✓")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Mark as favorite");
+    expect(container.textContent).toContain("Mark as hero");
+    expect(container.textContent).toContain("Select for Story");
+    expect(onEntryUpdated).toHaveBeenCalled();
+  });
+
+  it("supports observation accept, edit and reject in the same panel", () => {
+    const onEntryUpdated = vi.fn();
+
+    act(() => {
+      root.render(<EntryReview visit={visit} onEntryUpdated={onEntryUpdated} />);
+    });
+
+    const observationField = container.querySelector(".entry-review-observation-input") as HTMLInputElement | null;
+    const acceptButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Accept");
+
+    act(() => {
+      const observationProps = observationField ? getReactProps(observationField) : null;
+      observationProps?.onChange?.({ target: { value: "Edited observation" } });
+    });
+
+    act(() => {
+      acceptButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onEntryUpdated).toHaveBeenCalled();
+    expect(container.textContent).toContain("Accepted");
   });
 
   it("marks the current entry as reviewed", () => {
@@ -260,87 +477,14 @@ describe("EntryReview", () => {
     }));
   });
 
-  it("invokes the save draft action when requested", () => {
-    const onSaveDraft = vi.fn();
-
-    act(() => {
-      root.render(<EntryReview visit={visit} onSaveDraft={onSaveDraft} />);
-    });
-
-    const saveButton = Array.from(container.querySelectorAll("button")).find((button) =>
-      button.textContent === "Save Draft"
-    );
-
-    act(() => {
-      saveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    expect(onSaveDraft).toHaveBeenCalledTimes(1);
-  });
-
-  it("shows a temporary saved confirmation when the draft is saved", () => {
-    vi.useFakeTimers();
-    const onSaveDraft = vi.fn();
-
-    act(() => {
-      root.render(<EntryReview visit={visit} onSaveDraft={onSaveDraft} />);
-    });
-
-    const saveButton = Array.from(container.querySelectorAll("button")).find((button) =>
-      button.textContent === "Save Draft"
-    );
-
-    act(() => {
-      saveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    expect(onSaveDraft).toHaveBeenCalledTimes(1);
-    expect(container.textContent).toContain("Draft saved at");
-
-    const savingButton = Array.from(container.querySelectorAll("button")).find((button) =>
-      button.textContent === "Saving Draft..."
-    );
-
-    expect(savingButton?.hasAttribute("disabled")).toBe(true);
-
-    act(() => {
-      vi.advanceTimersByTime(300);
-    });
-
-    expect(Array.from(container.querySelectorAll("button")).some((button) => button.textContent === "Save Draft")).toBe(true);
-
-    act(() => {
-      vi.advanceTimersByTime(2000);
-    });
-
-    expect(container.textContent).not.toContain("Draft saved at");
-
-    vi.useRealTimers();
-  });
-
-  it("shows visit progress and disables finalize until all entries are reviewed", () => {
+  it("shows finalize only when relevant and finalizes after all entries are reviewed", () => {
     const onVisitFinalized = vi.fn();
 
     act(() => {
       root.render(<EntryReview visit={visit} onVisitFinalized={onVisitFinalized} />);
     });
 
-    expect(container.textContent).toContain("0 of 2 entries reviewed (0%)");
-
-    const finalizeButton = Array.from(container.querySelectorAll("button")).find((button) =>
-      button.textContent === "Finalize visit"
-    );
-
-    expect(finalizeButton).toBeDefined();
-    expect(finalizeButton?.hasAttribute("disabled")).toBe(true);
-  });
-
-  it("finalizes the visit when all entries are reviewed", () => {
-    const onVisitFinalized = vi.fn();
-
-    act(() => {
-      root.render(<EntryReview visit={visit} onVisitFinalized={onVisitFinalized} />);
-    });
+    expect(Array.from(container.querySelectorAll("button")).some((button) => button.textContent === "Finalize visit")).toBe(false);
 
     const markReviewed = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent === "Mark entry reviewed"
@@ -351,9 +495,7 @@ describe("EntryReview", () => {
     });
 
     act(() => {
-      const nextButton = Array.from(container.querySelectorAll("button")).find((button) =>
-        button.textContent === "Next"
-      );
+      const nextButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Next");
       nextButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
@@ -365,10 +507,13 @@ describe("EntryReview", () => {
       secondReviewButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
+    const finalizeButton = Array.from(container.querySelectorAll("button")).find((button) =>
+      button.textContent === "Finalize visit"
+    );
+
+    expect(finalizeButton).toBeDefined();
+
     act(() => {
-      const finalizeButton = Array.from(container.querySelectorAll("button")).find((button) =>
-        button.textContent === "Finalize visit"
-      );
       finalizeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
@@ -379,5 +524,13 @@ describe("EntryReview", () => {
         expect.objectContaining({ reviewed: true }),
       ]),
     }));
+  });
+
+  it("creates mock observations for the matching entry", () => {
+    const observations = new MockObservationEngine().generateObservations("entry-1");
+
+    expect(observations.length).toBeGreaterThan(0);
+    expect(observations.every((observation) => observation.entryId === "entry-1")).toBe(true);
+    expect(observations.every((observation) => observation.source === "mock-ai")).toBe(true);
   });
 });

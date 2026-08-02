@@ -24,6 +24,13 @@ const visit: Visit = {
       status: "new",
       notes: "Draft note",
       tags: ["tag-a"],
+      analysisSuggestions: {
+        engine: "mock-observation-engine",
+        generatedAt: "2026-07-08T00:00:00.000Z",
+        confidence: 0.82,
+        categories: ["story-candidate", "overview-image", "needs-review"],
+      },
+      storySelected: true,
       observations: [
         {
           id: "obs-1",
@@ -87,6 +94,12 @@ describe("draftWorkspace", () => {
         entries: expect.arrayContaining([
           expect.objectContaining({
             id: "entry-1",
+            storySelected: true,
+            analysisSuggestions: expect.objectContaining({
+              engine: "mock-observation-engine",
+              confidence: 0.82,
+              categories: expect.arrayContaining(["story-candidate", "overview-image", "needs-review"]),
+            }),
             reviewed: true,
             observations: expect.arrayContaining([
               expect.objectContaining({

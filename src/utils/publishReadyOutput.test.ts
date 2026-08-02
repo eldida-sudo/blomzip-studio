@@ -37,6 +37,9 @@ describe("createPublishReadyVisitOutput", () => {
           status: "new",
           notes: "lavender near path",
           tags: ["lavender", "pollinator"],
+          favorite: true,
+          hero: true,
+          storySelected: true,
           observations: [
             {
               id: "obs-1",
@@ -60,6 +63,9 @@ describe("createPublishReadyVisitOutput", () => {
           status: "new",
           notes: "",
           tags: [],
+          favorite: false,
+          hero: false,
+          storySelected: false,
           observations: [],
           reviewed: false,
           createdAt: "2026-07-09T00:00:00.000Z",
@@ -71,7 +77,7 @@ describe("createPublishReadyVisitOutput", () => {
     const output = createPublishReadyVisitOutput(visit, "2026-07-09T12:00:00.000Z");
 
     expect(output.schema).toBe("blomzip.publish-ready.visit");
-    expect(output.schemaVersion).toBe("1.1.0");
+    expect(output.schemaVersion).toBe("1.2.0");
     expect(output.stage).toBe("publish");
     expect(output.exportedAt).toBe("2026-07-09T12:00:00.000Z");
 
@@ -80,6 +86,7 @@ describe("createPublishReadyVisitOutput", () => {
       reviewedEntries: 1,
       pendingEntries: 1,
       exportedEntries: 2,
+      storySelectedEntries: 1,
     });
 
     expect(output.visit).toEqual({
@@ -90,6 +97,7 @@ describe("createPublishReadyVisitOutput", () => {
       weather: { temperature: 22, conditions: "clear" },
       imageCount: 2,
       importedImageFiles: ["courtyard-01.jpg", "courtyard-02.jpg"],
+      importBatches: undefined,
       location: undefined,
     });
 
@@ -100,6 +108,11 @@ describe("createPublishReadyVisitOutput", () => {
       review: {
         reviewed: true,
         status: "new",
+      },
+      curation: {
+        favorite: true,
+        hero: true,
+        storySelected: true,
       },
       content: {
         notes: "lavender near path",
@@ -137,6 +150,8 @@ describe("createPublishReadyVisitOutput", () => {
     });
 
     expect(output.entries[1]?.image).toBeNull();
+    expect(output.storyReady.selectedEntries).toHaveLength(1);
+    expect(output.storyReady.selectedEntries[0]?.id).toBe("entry-1");
   });
 
   it("returns cloned values for nested payloads", () => {
@@ -152,6 +167,9 @@ describe("createPublishReadyVisitOutput", () => {
           status: "new",
           notes: "initial",
           tags: ["before"],
+          favorite: false,
+          hero: false,
+          storySelected: false,
           observations: [
             {
               id: "obs-1",

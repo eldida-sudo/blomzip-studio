@@ -26,7 +26,16 @@ export interface Visit {
   imageCount?: number;
   importedImageFiles?: string[];
   imageRecords?: ImageRecord[];
+  importBatches?: ImportBatch[];
   status?: string;
+}
+
+export interface ImportBatch {
+  id: string;
+  fileName: string;
+  importedAt: string;
+  imageCount: number;
+  sourceMetadata?: Record<string, unknown>;
 }
 
 export interface DraftVisit {
@@ -45,6 +54,7 @@ export interface DraftWorkspace {
 
 export interface ImageRecord {
   id: string;
+  importBatchId?: string;
   filename: string;
   fileSize: number;
   format: string;
@@ -73,9 +83,33 @@ export interface Entry {
   notes: string;
   tags: string[];
   observations: Observation[];
+  analysisSuggestions?: EntryAnalysisSuggestions;
+  favorite?: boolean;
+  hero?: boolean;
+  storySelected?: boolean;
   reviewed?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export type EntrySuggestionCategory =
+  | "story-candidate"
+  | "hero-candidate"
+  | "favorite-candidate"
+  | "strong-change"
+  | "overview-image"
+  | "detail-image"
+  | "by-place"
+  | "needs-review"
+  | "low-confidence"
+  | "possible-duplicates";
+
+export interface EntryAnalysisSuggestions {
+  engine: "mock-observation-engine" | "future-vision-engine";
+  generatedAt: string;
+  confidence: number;
+  categories: EntrySuggestionCategory[];
+  possibleDuplicateEntryIds?: string[];
 }
 
 export interface Observation {

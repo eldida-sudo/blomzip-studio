@@ -1,32 +1,86 @@
-# React + TypeScript + Vite
+# Blomzip Studio
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+AI-assisted curation for long-term place documentation.
 
-Currently, two official plugins are available:
+---
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+# Current Objective
 
-## React Compiler
+**Grow the archive.**
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Every development sprint should leave the archive richer than before.
 
-## Expanding the Oxlint configuration
+Before implementing any feature, ask:
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+> Does this make the archive richer, easier to curate, easier to understand, or easier to publish?
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
+If not, it is probably not the right priority.
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+---
+
+# Project Principles
+
+- Images are the primary source of knowledge.
+- AI discovers possibilities.
+- Humans make decisions.
+- Stories emerge through curation.
+- Studio builds knowledge.
+- Story communicates knowledge.
+
+---
+
+# Workflow
+
+ZIP
+↓
+Automatic AI Analysis
+↓
+Human Curation
+↓
+Review
+↓
+Publish
+↓
+Story
+
+---
+
+# Products
+
+## Blomzip Studio
+
+The production environment.
+
+Transforms image collections into structured knowledge.
+
+## A Courtyard's Story
+
+The presentation environment.
+
+Transforms structured knowledge into public storytelling.
+
+---
+
+# Current Sprint Focus
+
+Grow the archive.
+
+Every sprint should improve at least one of:
+
+- Import more real photographs
+- Improve AI understanding
+- Reduce manual work
+- Improve curation
+- Improve Story selection
+- Improve publishing
+
+---
+
+# Technology
+
+- React
+- TypeScript
+- Vite
+- Vitest
+- GitHub Codespaces
+

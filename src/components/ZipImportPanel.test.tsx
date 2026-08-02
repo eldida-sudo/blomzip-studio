@@ -49,7 +49,7 @@ describe("ZipImportPanel", () => {
     container.remove();
   });
 
-  it("revokes previous import thumbnails only when replacing import or unmounting", async () => {
+  it("keeps previous thumbnails alive during multiple imports and revokes all on unmount", async () => {
     const summary: ZipImportSummary = {
       fileName: "images.zip",
       status: "ready",
@@ -135,15 +135,17 @@ describe("ZipImportPanel", () => {
       input.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
-    expect(mockRevokeThumbnailUrls).toHaveBeenCalledTimes(1);
-    expect(mockRevokeThumbnailUrls).toHaveBeenNthCalledWith(1, firstVisit.imageRecords);
+    expect(mockRevokeThumbnailUrls).not.toHaveBeenCalled();
 
     act(() => {
       root.unmount();
     });
     didUnmountRoot = true;
 
-    expect(mockRevokeThumbnailUrls).toHaveBeenCalledTimes(2);
-    expect(mockRevokeThumbnailUrls).toHaveBeenNthCalledWith(2, secondVisit.imageRecords);
+    expect(mockRevokeThumbnailUrls).toHaveBeenCalledTimes(1);
+    expect(mockRevokeThumbnailUrls).toHaveBeenNthCalledWith(1, [
+      ...(firstVisit.imageRecords ?? []),
+      ...(secondVisit.imageRecords ?? []),
+    ]);
   });
 });

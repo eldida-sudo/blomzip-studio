@@ -18,9 +18,16 @@ describe("createTemporaryVisitFromZip", () => {
     expect(visit?.date).toBe("2026-07-04");
     expect(visit?.imageCount).toBe(2);
     expect(visit?.importedImageFiles).toEqual(["one.jpg", "two.png"]);
+    expect(visit?.importBatches).toHaveLength(1);
+    expect(visit?.importBatches?.[0]).toEqual(
+      expect.objectContaining({
+        fileName: "archive.zip",
+        imageCount: 2,
+      })
+    );
     expect(visit?.imageRecords).toEqual([
-      expect.objectContaining({ filename: "one.jpg", format: "jpg", sourcePath: "one.jpg" }),
-      expect.objectContaining({ filename: "two.png", format: "png", sourcePath: "two.png" }),
+      expect.objectContaining({ filename: "one.jpg", format: "jpg", sourcePath: "one.jpg", importBatchId: expect.any(String) }),
+      expect.objectContaining({ filename: "two.png", format: "png", sourcePath: "two.png", importBatchId: expect.any(String) }),
     ]);
     expect(visit?.status).toBe("Ready for AI");
   });
@@ -77,6 +84,9 @@ describe("createTemporaryVisitFromZip", () => {
     expect(visit?.entries?.map((entry) => entry.status)).toEqual(["new", "new"]);
     expect(visit?.entries?.map((entry) => entry.notes)).toEqual(["", ""]);
     expect(visit?.entries?.map((entry) => entry.tags)).toEqual([[], []]);
+    expect(visit?.entries?.map((entry) => entry.favorite)).toEqual([false, false]);
+    expect(visit?.entries?.map((entry) => entry.hero)).toEqual([false, false]);
+    expect(visit?.entries?.map((entry) => entry.storySelected)).toEqual([false, false]);
     expect(visit?.entries?.every((entry) => entry.observations.length === 0)).toBe(true);
     expect(visit?.entries?.map((entry) => entry.observations)).toEqual([[], []]);
   });

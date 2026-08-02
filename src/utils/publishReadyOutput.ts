@@ -1,8 +1,8 @@
-import type { Entry, Location, Observation, Visit, Weather } from "../models/blomzip";
+import type { Entry, ImportBatch, Location, Observation, Visit, Weather } from "../models/blomzip";
 
 export interface PublishReadyVisitOutput {
   schema: "blomzip.publish-ready.visit";
-  schemaVersion: "1.1.0";
+  schemaVersion: "1.2.0";
   stage: "publish";
   exportedAt: string;
   counts: {
@@ -10,9 +10,13 @@ export interface PublishReadyVisitOutput {
     reviewedEntries: number;
     pendingEntries: number;
     exportedEntries: number;
+    storySelectedEntries: number;
   };
   visit: PublishReadyVisitMetadata;
   entries: PublishReadyEntry[];
+  storyReady: {
+    selectedEntries: PublishReadyEntry[];
+  };
   rawVisit: Visit;
 }
 
@@ -23,6 +27,7 @@ export interface PublishReadyVisitMetadata {
   status?: string;
   imageCount?: number;
   importedImageFiles?: string[];
+  importBatches?: ImportBatch[];
   weather?: Weather;
   location?: Location;
 }
@@ -34,6 +39,11 @@ export interface PublishReadyEntry {
   review: {
     reviewed: boolean;
     status: Entry["status"];
+  };
+  curation: {
+    favorite: boolean;
+    hero: boolean;
+    storySelected: boolean;
   };
   content: {
     notes: string;
@@ -79,6 +89,11 @@ export function createPublishReadyVisitOutput(
         reviewed: Boolean(entry.reviewed),
         status: entry.status,
       },
+      curation: {
+        favorite: Boolean(entry.favorite),
+        hero: Boolean(entry.hero),
+        storySelected: Boolean(entry.storySelected),
+      },
       content: {
         notes: entry.notes,
         tags: [...entry.tags],
@@ -108,10 +123,11 @@ export function createPublishReadyVisitOutput(
   const reviewedEntries = entries.filter((entry) => entry.review.reviewed).length;
   const totalEntries = entries.length;
   const pendingEntries = totalEntries - reviewedEntries;
+  const storySelectedEntries = entries.filter((entry) => entry.curation.storySelected).length;
 
   return {
     schema: "blomzip.publish-ready.visit",
-    schemaVersion: "1.1.0",
+    schemaVersion: "1.2.0",
     stage: "publish",
     exportedAt,
     counts: {
@@ -119,6 +135,7 @@ export function createPublishReadyVisitOutput(
       reviewedEntries,
       pendingEntries,
       exportedEntries: entries.length,
+      storySelectedEntries,
     },
     visit: {
       id: visit.id,
@@ -127,12 +144,16 @@ export function createPublishReadyVisitOutput(
       status: visit.status,
       imageCount: visit.imageCount,
       importedImageFiles: visit.importedImageFiles ? [...visit.importedImageFiles] : undefined,
+      importBatches: visit.importBatches ? cloneValue(visit.importBatches) : undefined,
       weather: visit.weather ? cloneValue(visit.weather) : undefined,
       location: (visit as Visit & { location?: Location }).location
         ? cloneValue((visit as Visit & { location?: Location }).location)
         : undefined,
     },
     entries,
+    storyReady: {
+      selectedEntries: entries.filter((entry) => entry.curation.storySelected),
+    },
     rawVisit: cloneValue(visit),
   };
 }
