@@ -210,6 +210,98 @@ describe("discoverPlacesVisionSummary", () => {
     expect(summary.heroCandidates[0]?.imageRecordId).toBe("img-3");
   });
 
+  it("skips photographs that already have an approved place assignment", () => {
+    const visit = createVisit(
+      [
+        {
+          id: "img-1",
+          importBatchId: "batch-1",
+          placeId: "house-wall",
+          filename: "a1.jpg",
+          sourcePath: "north-yard/a1.jpg",
+          format: "jpg",
+          fileSize: 1800000,
+          width: 4000,
+          height: 3000,
+          aspectRatio: 1.3333,
+          orientation: "landscape",
+          captureDate: "2026-08-02T10:00:00.000Z",
+          timelineIndex: 0,
+        },
+        {
+          id: "img-2",
+          importBatchId: "batch-1",
+          filename: "a2.jpg",
+          sourcePath: "north-yard/a2.jpg",
+          format: "jpg",
+          fileSize: 1785000,
+          width: 4000,
+          height: 3000,
+          aspectRatio: 1.3333,
+          orientation: "landscape",
+          captureDate: "2026-08-02T10:06:00.000Z",
+          timelineIndex: 1,
+        },
+        {
+          id: "img-3",
+          importBatchId: "batch-1",
+          filename: "a3.jpg",
+          sourcePath: "north-yard/a3.jpg",
+          format: "jpg",
+          fileSize: 1790000,
+          width: 4000,
+          height: 3000,
+          aspectRatio: 1.3333,
+          orientation: "landscape",
+          captureDate: "2026-08-02T10:12:00.000Z",
+          timelineIndex: 2,
+        },
+      ],
+      [
+        {
+          id: "entry-1",
+          imageRecordId: "img-1",
+          visitId: "visit-vision-1",
+          status: "new",
+          notes: "",
+          tags: [],
+          observations: [],
+          createdAt: "2026-08-02T10:00:00.000Z",
+          updatedAt: "2026-08-02T10:00:00.000Z",
+        },
+        {
+          id: "entry-2",
+          imageRecordId: "img-2",
+          visitId: "visit-vision-1",
+          status: "new",
+          notes: "",
+          tags: [],
+          observations: [],
+          createdAt: "2026-08-02T10:00:00.000Z",
+          updatedAt: "2026-08-02T10:00:00.000Z",
+        },
+        {
+          id: "entry-3",
+          imageRecordId: "img-3",
+          visitId: "visit-vision-1",
+          status: "new",
+          notes: "",
+          tags: [],
+          observations: [],
+          createdAt: "2026-08-02T10:00:00.000Z",
+          updatedAt: "2026-08-02T10:00:00.000Z",
+        },
+      ]
+    );
+
+    const summary = discoverPlacesVisionSummary(visit);
+
+    expect(summary.analyzedImageCount).toBe(2);
+    expect(summary.candidatePlaceGroups).toHaveLength(1);
+    expect(summary.candidatePlaceGroups[0]?.imageRecordIds).toEqual(["img-2", "img-3"]);
+    expect(summary.candidatePlaceGroups[0]?.imageRecordIds).not.toContain("img-1");
+  });
+
   it("returns an empty summary when no records exist", () => {
     const visit = createVisit([], []);
     const summary = discoverPlacesVisionSummary(visit);

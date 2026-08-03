@@ -48,6 +48,7 @@ const visit: Visit = {
   imageRecords: [
     {
       id: "image-1",
+      placeId: "house-wall",
       filename: "garden-01.jpg",
       fileSize: 1024,
       format: "jpeg",
@@ -125,6 +126,7 @@ describe("archivePersistence", () => {
         imageRecords: expect.arrayContaining([
           expect.objectContaining({
             id: "image-1",
+            placeId: "house-wall",
             thumbnailUrl: expect.stringContaining("data:image/jpeg;base64,"),
           }),
         ]),

@@ -144,7 +144,9 @@ function buildFeatureRows(visit: Visit, importBatchId?: string | null): FeatureR
     ? imageRecords.filter((record) => record.importBatchId === importBatchId)
     : imageRecords;
 
-  return recordsToAnalyze.map((record, index) => {
+  const unassignedRecords = recordsToAnalyze.filter((record) => !record.placeId);
+
+  return unassignedRecords.map((record, index) => {
     const width = record.width ?? 0;
     const height = record.height ?? 0;
     const aspectRatio = record.aspectRatio ?? (height > 0 ? width / height : 0);

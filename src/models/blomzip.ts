@@ -55,6 +55,7 @@ export interface DraftWorkspace {
 export interface ImageRecord {
   id: string;
   importBatchId?: string;
+  placeId?: string;
   filename: string;
   fileSize: number;
   format: string;

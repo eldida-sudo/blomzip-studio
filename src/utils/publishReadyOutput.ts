@@ -53,6 +53,7 @@ export interface PublishReadyEntry {
   image: {
     filename: string;
     sourcePath: string;
+    placeId?: string;
     format: string;
     fileSize: number;
     timelineIndex?: number;
@@ -103,6 +104,7 @@ export function createPublishReadyVisitOutput(
         ? {
             filename: imageRecord.filename,
             sourcePath: imageRecord.sourcePath,
+            ...(imageRecord.placeId ? { placeId: imageRecord.placeId } : {}),
             format: imageRecord.format,
             fileSize: imageRecord.fileSize,
             timelineIndex: imageRecord.timelineIndex,

@@ -15,6 +15,7 @@ describe("createPublishReadyVisitOutput", () => {
       imageRecords: [
         {
           id: "image-1",
+          placeId: "house-wall",
           filename: "courtyard-01.jpg",
           fileSize: 1200,
           format: "jpeg",
@@ -133,6 +134,7 @@ describe("createPublishReadyVisitOutput", () => {
       image: {
         filename: "courtyard-01.jpg",
         sourcePath: "courtyard-01.jpg",
+        placeId: "house-wall",
         format: "jpeg",
         fileSize: 1200,
         timelineIndex: 0,
