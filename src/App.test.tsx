@@ -9,7 +9,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App, { getGalleryCardDisplayTitle, resolveGalleryThumbnailSrc } from "./App";
 import { initialImages } from "./data/demoImages";
 import type { Visit } from "./models/blomzip";
-import { createArchiveStateSnapshot, saveArchiveState } from "./utils/archivePersistence";
+import { createArchiveStateSnapshot, loadArchiveState, saveArchiveState } from "./utils/archivePersistence";
+import { createPublishReadyVisitOutput } from "./utils/publishReadyOutput";
 import type { ZipImportSummary } from "./utils/readZipImages";
 
 let mockImportState: { summary: ZipImportSummary | null; visit: Visit | null } | null = null;
@@ -404,6 +405,183 @@ describe("App", () => {
     expect(summary?.textContent).toContain("candidate place groups");
     expect(summary?.textContent).toContain("near duplicates");
     expect(summary?.textContent).toContain("hero candidates");
+  });
+
+  it("approves a canonical place for a Vision candidate group and persists the assignment", async () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const placeSelect = container.querySelector('[data-testid="vision-place-select-vision-place-1"]') as HTMLSelectElement | null;
+    const approveButton = container.querySelector('[data-testid="vision-place-approve-vision-place-1"]') as HTMLButtonElement | null;
+
+    expect(placeSelect).toBeDefined();
+    expect(approveButton).toBeDefined();
+
+    act(() => {
+      if (placeSelect) {
+        placeSelect.value = "house-wall";
+      }
+
+      placeSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    act(() => {
+      approveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Assigned The House Wall to 2 photographs.");
+    expect(container.textContent).toContain("The House Wall");
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    mockImportState = { summary: null, visit: null };
+    hasEmittedImportState = false;
+
+    act(() => {
+      root.unmount();
+    });
+
+    root = createRoot(container);
+
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+    });
+
+    await waitForArchiveHydration();
+
+    expect(container.textContent).toContain("The House Wall");
+  });
+
+  it("applies assignment to all unassigned records in a group, never overwrites approved records, and keeps publish output consistent", async () => {
+    const mixedState = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
+    mixedState.summary.imageCount = 3;
+    mixedState.summary.totalImageSize = 36;
+    mixedState.summary.imageFiles = ["courtyard-01.jpg", "courtyard-02.jpg", "courtyard-03.jpg"];
+
+    mixedState.visit.imageCount = 3;
+    mixedState.visit.imageRecords = [
+      {
+        ...(mixedState.visit.imageRecords?.[0] ?? {
+          id: "image-1",
+          importBatchId: "batch-1",
+          filename: "courtyard-01.jpg",
+          fileSize: 12,
+          format: "jpeg",
+          sourcePath: "courtyard-01.jpg",
+          timelineIndex: 0,
+        }),
+        placeId: "parking",
+      },
+      ...(mixedState.visit.imageRecords?.slice(1) ?? []),
+      {
+        id: "image-3",
+        importBatchId: "batch-1",
+        filename: "courtyard-03.jpg",
+        fileSize: 12,
+        format: "jpeg",
+        sourcePath: "courtyard-03.jpg",
+        timelineIndex: 2,
+        thumbnailUrl: "data:image/gif;base64,R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=",
+      },
+    ];
+
+    mixedState.visit.entries = [
+      ...(mixedState.visit.entries ?? []),
+      {
+        id: "entry-3",
+        imageRecordId: "image-3",
+        visitId: "visit-1",
+        status: "new",
+        notes: "",
+        tags: [],
+        observations: [],
+        analysisSuggestions: {
+          engine: "mock-observation-engine",
+          generatedAt: "2026-07-08T00:00:00.000Z",
+          confidence: 0.72,
+          categories: ["by-place", "needs-review"],
+        },
+        reviewed: false,
+        createdAt: "2026-07-08T00:00:00.000Z",
+        updatedAt: "2026-07-08T00:00:00.000Z",
+      },
+    ];
+
+    mockImportState = mixedState;
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    expect(container.textContent).toContain("2 photographs analyzed");
+
+    const placeSelect = container.querySelector('[data-testid="vision-place-select-vision-place-1"]') as HTMLSelectElement | null;
+    const approveButton = container.querySelector('[data-testid="vision-place-approve-vision-place-1"]') as HTMLButtonElement | null;
+
+    expect(placeSelect).toBeDefined();
+    expect(approveButton).toBeDefined();
+
+    act(() => {
+      if (placeSelect) {
+        placeSelect.value = "house-wall";
+      }
+
+      placeSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    act(() => {
+      approveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Assigned The House Wall to 2 photographs.");
+    expect(container.textContent).toContain("The House Wall");
+    expect(container.textContent).toContain("0 photographs analyzed");
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const persistedSnapshot = await loadArchiveState();
+    const persistedVisit = persistedSnapshot?.importVisit;
+
+    expect(persistedVisit).toBeTruthy();
+
+    const placeByRecordId = new Map((persistedVisit?.imageRecords ?? []).map((record) => [record.id, record.placeId]));
+
+    expect(placeByRecordId.get("image-1")).toBe("parking");
+    expect(placeByRecordId.get("image-2")).toBe("house-wall");
+    expect(placeByRecordId.get("image-3")).toBe("house-wall");
+
+    if (!persistedVisit) {
+      throw new Error("Expected persisted visit");
+    }
+
+    const publishOutput = createPublishReadyVisitOutput(persistedVisit, "2026-08-04T12:00:00.000Z");
+    const placeByFilename = new Map(
+      publishOutput.entries
+        .filter((entry) => entry.image)
+        .map((entry) => [entry.image?.filename ?? "", entry.image?.placeId])
+    );
+
+    expect(placeByFilename.get("courtyard-01.jpg")).toBe("parking");
+    expect(placeByFilename.get("courtyard-02.jpg")).toBe("house-wall");
+    expect(placeByFilename.get("courtyard-03.jpg")).toBe("house-wall");
+  });
+
+  it("keeps unassigned photographs backward compatible with Unknown place labels", () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    expect(container.textContent).toContain("Unknown");
   });
 
   it("filters timeline by import batch and clears batch filter", () => {

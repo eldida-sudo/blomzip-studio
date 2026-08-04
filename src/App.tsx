@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { initialImages, type ImageItem } from "./data/demoImages";
+import { getPlaceById, listCanonicalPlaces } from "./data/canonicalPlaces";
 import { EntryReview } from "./components/EntryReview";
 import { MockObservationEngine, type ObservationEngine } from "./components/observationEngine";
 import { ZipImportPanel } from "./components/ZipImportPanel";
@@ -27,6 +28,7 @@ import {
 import { discoverPlacesVisionSummary } from "./utils/discoverPlacesVisionEngine";
 import { mergeImportedVisit } from "./utils/mergeImportedVisit";
 import { createPublishReadyVisitOutput } from "./utils/publishReadyOutput";
+import type { VisionPlaceCandidateGroup } from "./utils/discoverPlacesVisionEngine";
 import type { ZipImportSummary } from "./utils/readZipImages";
 import "./App.css";
 
@@ -54,6 +56,11 @@ interface InboxSuggestionGroup {
   key: string;
   title: string;
   items: InboxSuggestionItem[];
+}
+
+interface PlaceAssignmentResult {
+  visit: Visit;
+  assignedCount: number;
 }
 
 type PrimaryArchiveAction =
@@ -262,6 +269,9 @@ function createDraftGalleryImage(options: {
 }): ImageItem {
   const { visit, entry, imageRecord, importBatchFileName, index } = options;
   const filename = imageRecord?.filename ?? `entry-${index + 1}`;
+  const placeLabel = imageRecord?.placeId
+    ? getPlaceById(imageRecord.placeId)?.displayName ?? "Unknown"
+    : "Unknown";
 
   return {
     id: index + 1,
@@ -277,12 +287,55 @@ function createDraftGalleryImage(options: {
     alt: filename,
     storyRole: entry.storySelected ? "Selected for Courtyard Story" : entry.reviewed ? "Reviewed import entry" : "Pending import entry",
     season: "Imported",
-    location: imageRecord?.sourcePath ?? "Imported visit",
+    location: placeLabel,
     mood: "",
     material: "",
     light: "",
     composition: "",
     importSource: importBatchFileName ? `ZIP import (${importBatchFileName})` : `ZIP import (${visit.id})`,
+  };
+}
+
+function assignCanonicalPlaceToVisionGroup(options: {
+  visit: Visit;
+  group: VisionPlaceCandidateGroup;
+  canonicalPlaceId: string;
+}): PlaceAssignmentResult {
+  const { visit, group, canonicalPlaceId } = options;
+  const targetRecordIds = new Set(group.imageRecordIds);
+  let assignedCount = 0;
+
+  const nextImageRecords = (visit.imageRecords ?? []).map((record) => {
+    if (!targetRecordIds.has(record.id)) {
+      return record;
+    }
+
+    // Approved assignments are immutable; never overwrite an existing place id.
+    if (record.placeId) {
+      return record;
+    }
+
+    assignedCount += 1;
+
+    return {
+      ...record,
+      placeId: canonicalPlaceId,
+    };
+  });
+
+  if (assignedCount === 0) {
+    return {
+      visit,
+      assignedCount,
+    };
+  }
+
+  return {
+    visit: {
+      ...visit,
+      imageRecords: nextImageRecords,
+    },
+    assignedCount,
   };
 }
 
@@ -448,6 +501,8 @@ function App() {
   const [isReviewingEntries, setIsReviewingEntries] = useState(false);
   const [reviewStartIndex, setReviewStartIndex] = useState(0);
   const [overviewObservationEngine] = useState<ObservationEngine>(() => new MockObservationEngine());
+  const [selectedPlaceByVisionGroupId, setSelectedPlaceByVisionGroupId] = useState<Record<string, string>>({});
+  const [placeAssignmentFeedback, setPlaceAssignmentFeedback] = useState<string | null>(null);
   const hasAppliedStudioImagesRef = useRef(false);
   const sidebarImportSectionRef = useRef<HTMLElement | null>(null);
   const savedDrafts = draftWorkspace.drafts;
@@ -851,6 +906,25 @@ function App() {
     });
   }, [importVisit, latestImportedBatchIdForVision]);
 
+  const canonicalPlaces = useMemo(() => listCanonicalPlaces(), []);
+
+  useEffect(() => {
+    if (!visionDiscoverySummary) {
+      setSelectedPlaceByVisionGroupId({});
+      return;
+    }
+
+    const visibleGroupIds = new Set(visionDiscoverySummary.candidatePlaceGroups.map((group) => group.id));
+
+    setSelectedPlaceByVisionGroupId((currentSelections) => {
+      const nextSelections = Object.fromEntries(
+        Object.entries(currentSelections).filter(([groupId]) => visibleGroupIds.has(groupId))
+      );
+
+      return nextSelections;
+    });
+  }, [visionDiscoverySummary]);
+
   const storyFirstQueue = useMemo(() => {
     return entryViewModels
       .filter(({ entry }) => !entry.reviewed)
@@ -1047,6 +1121,46 @@ function App() {
     URL.revokeObjectURL(outputUrl);
   }
 
+  function handleVisionGroupPlaceSelection(groupId: string, placeId: string) {
+    setSelectedPlaceByVisionGroupId((currentSelections) => ({
+      ...currentSelections,
+      [groupId]: placeId,
+    }));
+  }
+
+  function handleApproveVisionGroupPlace(group: VisionPlaceCandidateGroup) {
+    if (!importVisit) {
+      return;
+    }
+
+    const selectedCanonicalPlaceId = selectedPlaceByVisionGroupId[group.id];
+    if (!selectedCanonicalPlaceId) {
+      return;
+    }
+
+    const canonicalPlace = getPlaceById(selectedCanonicalPlaceId);
+    if (!canonicalPlace) {
+      setPlaceAssignmentFeedback("Select a valid canonical place before approving.");
+      return;
+    }
+
+    const assignment = assignCanonicalPlaceToVisionGroup({
+      visit: importVisit,
+      group,
+      canonicalPlaceId: canonicalPlace.id,
+    });
+
+    if (assignment.assignedCount === 0) {
+      setPlaceAssignmentFeedback("No unassigned photographs were available in this group.");
+      return;
+    }
+
+    setImportVisit(assignment.visit);
+    setPlaceAssignmentFeedback(
+      `Assigned ${canonicalPlace.displayName} to ${assignment.assignedCount} photographs.`
+    );
+  }
+
   function handleExportArchiveBackup() {
     if (!hasExportableArchive) {
       return;
@@ -1104,6 +1218,11 @@ function App() {
     const visibleSuggestionCategories = prioritizedSuggestionCategories
       .filter((category) => suggestionCategories.includes(category))
       .slice(0, 2);
+    const placeLabel = importVisit
+      ? imageRecord?.placeId
+        ? getPlaceById(imageRecord.placeId)?.displayName ?? "Unknown"
+        : "Unknown"
+      : image.location;
 
     return (
       <article
@@ -1136,7 +1255,12 @@ function App() {
                   <span>•</span>
                   Demo collection
                 </>
-              ) : null}
+              ) : (
+                <>
+                  <span>•</span>
+                  {placeLabel}
+                </>
+              )}
             </p>
 
             <div className="gallery-card-statuses">
@@ -1423,15 +1547,41 @@ function App() {
 
                   {visionDiscoverySummary.candidatePlaceGroups.length > 0 ? (
                     <div className="vision-engine-groups">
-                      {visionDiscoverySummary.candidatePlaceGroups.slice(0, 3).map((group) => {
+                      {visionDiscoverySummary.candidatePlaceGroups.map((group) => {
                         const representativeRecord = imageRecordsById.get(group.representativeImageRecordId);
                         const representativeLabel = representativeRecord?.filename ?? group.representativeImageRecordId;
+                        const selectedPlaceId = selectedPlaceByVisionGroupId[group.id] ?? "";
 
                         return (
                           <article key={group.id} className="vision-engine-group-item">
                             <div>
                               <strong>{group.imageRecordIds.length} photographs</strong>
                               <p className="result-count">Representative: {representativeLabel}</p>
+                              <label className="vision-engine-group-assign-label" htmlFor={`vision-place-select-${group.id}`}>
+                                Canonical place
+                              </label>
+                              <select
+                                id={`vision-place-select-${group.id}`}
+                                data-testid={`vision-place-select-${group.id}`}
+                                value={selectedPlaceId}
+                                onChange={(event) => handleVisionGroupPlaceSelection(group.id, event.target.value)}
+                              >
+                                <option value="">Select place...</option>
+                                {canonicalPlaces.map((place) => (
+                                  <option key={place.id} value={place.id}>
+                                    {place.displayName}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                className="secondary-action vision-engine-group-approve"
+                                data-testid={`vision-place-approve-${group.id}`}
+                                onClick={() => handleApproveVisionGroupPlace(group)}
+                                disabled={!selectedPlaceId}
+                              >
+                                Approve place
+                              </button>
                             </div>
                             <div>
                               <span>Confidence</span>
@@ -1441,6 +1591,10 @@ function App() {
                         );
                       })}
                     </div>
+                  ) : null}
+
+                  {placeAssignmentFeedback ? (
+                    <p className="result-count" aria-live="polite">{placeAssignmentFeedback}</p>
                   ) : null}
                 </section>
               ) : null}

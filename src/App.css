@@ -599,6 +599,24 @@ textarea {
   text-transform: uppercase;
 }
 
+.vision-engine-group-assign-label {
+  display: block;
+  margin-top: 8px;
+  margin-bottom: 4px;
+  color: #314233;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.vision-engine-group-item select {
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.vision-engine-group-approve {
+  width: 100%;
+}
+
 .archive-attention-card h3 {
   margin: 0 0 4px;
   font-size: 20px;
