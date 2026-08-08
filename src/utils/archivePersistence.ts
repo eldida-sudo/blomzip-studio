@@ -1,4 +1,5 @@
-import type { DraftWorkspace, Visit } from "../models/blomzip";
+import type { DraftWorkspace, Entry, ImageRecord, Observation, Visit } from "../models/blomzip";
+import { ARCHIVE_STATE_STORE_NAME, openArchiveDatabase } from "./archiveIndexedDb";
 
 const ARCHIVE_STORAGE_KEY = "blomzip-studio:archive-state:v1";
 const ARCHIVE_SCHEMA = "blomzip.archive-state";
@@ -12,8 +13,63 @@ export interface ArchiveState {
   draftWorkspace: DraftWorkspace;
 }
 
-function cloneValue<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+function sanitizeObservationForPersistence(observation: Observation): Observation {
+  return {
+    ...observation,
+  };
+}
+
+function sanitizeEntryForPersistence(entry: Entry): Entry {
+  return {
+    ...entry,
+    tags: [...entry.tags],
+    observations: entry.observations.map((observation) => sanitizeObservationForPersistence(observation)),
+    analysisSuggestions: entry.analysisSuggestions
+      ? {
+          ...entry.analysisSuggestions,
+          categories: [...entry.analysisSuggestions.categories],
+          possibleDuplicateEntryIds: entry.analysisSuggestions.possibleDuplicateEntryIds
+            ? [...entry.analysisSuggestions.possibleDuplicateEntryIds]
+            : undefined,
+        }
+      : undefined,
+  };
+}
+
+function sanitizeImageRecordForPersistence(record: ImageRecord): ImageRecord {
+  const { thumbnailUrl: _thumbnailUrl, ...recordWithoutThumbnail } = record;
+
+  return {
+    ...recordWithoutThumbnail,
+    location: record.location ? { ...record.location } : undefined,
+    tags: record.tags ? [...record.tags] : undefined,
+    custom: record.custom ? { ...record.custom } : undefined,
+  };
+}
+
+function sanitizeVisitForPersistence(visit: Visit): Visit {
+  return {
+    ...visit,
+    entries: visit.entries.map((entry) => sanitizeEntryForPersistence(entry)),
+    importedImageFiles: visit.importedImageFiles ? [...visit.importedImageFiles] : undefined,
+    imageRecords: visit.imageRecords?.map((record) => sanitizeImageRecordForPersistence(record)),
+    importBatches: visit.importBatches?.map((batch) => ({
+      ...batch,
+      sourceMetadata: batch.sourceMetadata ? { ...batch.sourceMetadata } : undefined,
+    })),
+  };
+}
+
+function sanitizeDraftWorkspaceForArchivePersistence(workspace: DraftWorkspace): DraftWorkspace {
+  return {
+    activeDraftId: typeof workspace.activeDraftId === "string" ? workspace.activeDraftId : null,
+    drafts: workspace.drafts.map((draft) => ({
+      ...draft,
+      visit: sanitizeVisitForPersistence(draft.visit),
+      // Draft gallery cards are reconstructable from draft visit metadata.
+      studioImages: [],
+    })),
+  };
 }
 
 function isDraftWorkspace(value: unknown): value is DraftWorkspace {
@@ -30,8 +86,8 @@ function sanitizeArchiveState(state: ArchiveState): ArchiveState {
     schema: ARCHIVE_SCHEMA,
     schemaVersion: ARCHIVE_SCHEMA_VERSION,
     savedAt: typeof state.savedAt === "string" ? state.savedAt : new Date().toISOString(),
-    importVisit: state.importVisit ? cloneValue(state.importVisit) : null,
-    draftWorkspace: cloneValue(state.draftWorkspace),
+    importVisit: state.importVisit ? sanitizeVisitForPersistence(state.importVisit) : null,
+    draftWorkspace: sanitizeDraftWorkspaceForArchivePersistence(state.draftWorkspace),
   };
 }
 
@@ -100,37 +156,32 @@ async function loadFromIndexedDB(): Promise<ArchiveState | null> {
     return null;
   }
 
-  return new Promise<ArchiveState | null>((resolve) => {
-    const request = indexedDB.open("blomzip-studio-archive", ARCHIVE_SCHEMA_VERSION);
+  try {
+    const database = await openArchiveDatabase();
 
-    request.onupgradeneeded = () => {
-      const database = request.result;
-      if (!database.objectStoreNames.contains("archive-state")) {
-        database.createObjectStore("archive-state", { keyPath: "key" });
-      }
-    };
+    try {
+      const transaction = database.transaction(ARCHIVE_STATE_STORE_NAME, "readonly");
+      const store = transaction.objectStore(ARCHIVE_STATE_STORE_NAME);
 
-    request.onerror = () => {
-      resolve(null);
-    };
+      const record = await new Promise<{ snapshot?: unknown } | undefined>((resolve, reject) => {
+        const readRequest = store.get("current");
 
-    request.onsuccess = () => {
-      const database = request.result;
-      const transaction = database.transaction("archive-state", "readonly");
-      const store = transaction.objectStore("archive-state");
-      const readRequest = store.get("current");
+        readRequest.onerror = () => {
+          reject(readRequest.error ?? new Error("Could not read archive state"));
+        };
 
-      readRequest.onerror = () => {
-        database.close();
-        resolve(null);
-      };
+        readRequest.onsuccess = () => {
+          resolve(readRequest.result as { snapshot?: unknown } | undefined);
+        };
+      });
 
-      readRequest.onsuccess = () => {
-        database.close();
-        resolve(migrateArchiveState(readRequest.result?.snapshot ?? readRequest.result));
-      };
-    };
-  });
+      return migrateArchiveState(record?.snapshot ?? record);
+    } finally {
+      database.close();
+    }
+  } catch {
+    return null;
+  }
 }
 
 async function saveToIndexedDB(snapshot: ArchiveState): Promise<void> {
@@ -138,37 +189,29 @@ async function saveToIndexedDB(snapshot: ArchiveState): Promise<void> {
     return;
   }
 
-  return new Promise<void>((resolve, reject) => {
-    const request = indexedDB.open("blomzip-studio-archive", ARCHIVE_SCHEMA_VERSION);
+  const database = await openArchiveDatabase();
 
-    request.onupgradeneeded = () => {
-      const database = request.result;
-      if (!database.objectStoreNames.contains("archive-state")) {
-        database.createObjectStore("archive-state", { keyPath: "key" });
-      }
-    };
-
-    request.onerror = () => {
-      reject(request.error ?? new Error("Could not open archive storage"));
-    };
-
-    request.onsuccess = () => {
-      const database = request.result;
-      const transaction = database.transaction("archive-state", "readwrite");
-      const store = transaction.objectStore("archive-state");
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(ARCHIVE_STATE_STORE_NAME, "readwrite");
+      const store = transaction.objectStore(ARCHIVE_STATE_STORE_NAME);
       store.put({ key: "current", snapshot: sanitizeArchiveState(snapshot) });
 
       transaction.onerror = () => {
-        database.close();
+        reject(transaction.error ?? new Error("Could not save archive storage"));
+      };
+
+      transaction.onabort = () => {
         reject(transaction.error ?? new Error("Could not save archive storage"));
       };
 
       transaction.oncomplete = () => {
-        database.close();
         resolve();
       };
-    };
-  });
+    });
+  } finally {
+    database.close();
+  }
 }
 
 function loadFromLocalStorage(): ArchiveState | null {

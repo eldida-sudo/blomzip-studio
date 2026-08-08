@@ -10,11 +10,104 @@ import App, { getGalleryCardDisplayTitle, resolveGalleryThumbnailSrc } from "./A
 import { initialImages } from "./data/demoImages";
 import type { Visit } from "./models/blomzip";
 import { createArchiveStateSnapshot, loadArchiveState, saveArchiveState } from "./utils/archivePersistence";
+import { persistArchiveThumbnailBinaries } from "./utils/archiveThumbnailStore";
 import { createPublishReadyVisitOutput } from "./utils/publishReadyOutput";
 import type { ZipImportSummary } from "./utils/readZipImages";
 
 let mockImportState: { summary: ZipImportSummary | null; visit: Visit | null } | null = null;
 let hasEmittedImportState = false;
+
+function createInMemoryIndexedDb() {
+  const storeNames = new Set<string>();
+  const stores = new Map<string, Map<string, unknown>>();
+
+  const ensureStore = (storeName: string) => {
+    if (!storeNames.has(storeName)) {
+      storeNames.add(storeName);
+      stores.set(storeName, new Map());
+    }
+  };
+
+  const database = {
+    objectStoreNames: {
+      contains: (storeName: string) => storeNames.has(storeName),
+    },
+    createObjectStore: (storeName: string) => {
+      ensureStore(storeName);
+      return {} as IDBObjectStore;
+    },
+    transaction: (storeName: string) => {
+      ensureStore(storeName);
+
+      const transaction = {
+        oncomplete: null as ((event: Event) => void) | null,
+        onerror: null as ((event: Event) => void) | null,
+        onabort: null as ((event: Event) => void) | null,
+        objectStore: (targetStoreName: string) => {
+          ensureStore(targetStoreName);
+          const targetStore = stores.get(targetStoreName) as Map<string, unknown>;
+
+          return {
+            get: (key: string) => {
+              const request = {
+                result: targetStore.get(key),
+                onsuccess: null as ((event: Event) => void) | null,
+                onerror: null as ((event: Event) => void) | null,
+              };
+
+              queueMicrotask(() => {
+                request.onsuccess?.(new Event("success"));
+              });
+
+              return request;
+            },
+            put: (value: { key?: string; imageRecordId?: string }) => {
+              const key = value.key ?? value.imageRecordId;
+
+              if (key) {
+                targetStore.set(key, value);
+              }
+
+              const request = {
+                onsuccess: null as ((event: Event) => void) | null,
+                onerror: null as ((event: Event) => void) | null,
+              };
+
+              queueMicrotask(() => {
+                request.onsuccess?.(new Event("success"));
+                transaction.oncomplete?.(new Event("complete"));
+              });
+
+              return request;
+            },
+          };
+        },
+      };
+
+      return transaction;
+    },
+    close: () => undefined,
+  };
+
+  return {
+    open: (_name: string, _version?: number) => {
+      const request = {
+        result: undefined as unknown,
+        onerror: null as ((event: Event) => void) | null,
+        onsuccess: null as ((event: Event) => void) | null,
+        onupgradeneeded: null as ((event: Event) => void) | null,
+      };
+
+      queueMicrotask(() => {
+        request.result = database;
+        request.onupgradeneeded?.(new Event("upgradeneeded"));
+        request.onsuccess?.(new Event("success"));
+      });
+
+      return request;
+    },
+  };
+}
 
 const importedArchiveState: { summary: ZipImportSummary; visit: Visit } = {
   summary: {
@@ -257,6 +350,98 @@ describe("App", () => {
 
     expect(resolveGalleryThumbnailSrc(image, imageRecord)).toBe(imageRecord.thumbnailUrl);
     expect(getGalleryCardDisplayTitle(image, imageRecord)).toBe(imageRecord.filename);
+  });
+
+  it("generates a lightweight thumbnail placeholder when persisted thumbnail data is missing", () => {
+    const image = {
+      ...initialImages[0],
+      src: "",
+    };
+
+    const generatedThumbnail = resolveGalleryThumbnailSrc(image, {
+      filename: "restored-import.jpg",
+    });
+
+    expect(generatedThumbnail).toContain("data:image/svg+xml");
+    expect(generatedThumbnail).toContain("restored-import.jpg");
+  });
+
+  it("renders fallback thumbnails after loading a legacy archive snapshot with oversized thumbnail payloads", async () => {
+    mockImportState = { summary: null, visit: null };
+
+    const largeThumbnail = `data:image/jpeg;base64,${"A".repeat(150_000)}`;
+    const legacyVisit: Visit = {
+      id: "visit-legacy-app",
+      placeId: "place-legacy",
+      date: "2026-06-20",
+      imageCount: 1,
+      entries: [
+        {
+          id: "entry-legacy-app-1",
+          imageRecordId: "image-legacy-app-1",
+          visitId: "visit-legacy-app",
+          status: "new",
+          notes: "",
+          tags: [],
+          observations: [],
+          reviewed: false,
+          createdAt: "2026-06-20T00:00:00.000Z",
+          updatedAt: "2026-06-20T00:00:00.000Z",
+        },
+      ],
+      imageRecords: [
+        {
+          id: "image-legacy-app-1",
+          importBatchId: "batch-legacy-app",
+          filename: "legacy-import-01.jpg",
+          fileSize: 3210,
+          format: "jpeg",
+          sourcePath: "legacy/legacy-import-01.jpg",
+          timelineIndex: 0,
+          thumbnailUrl: largeThumbnail,
+        },
+      ],
+      importBatches: [
+        {
+          id: "batch-legacy-app",
+          fileName: "legacy-app.zip",
+          importedAt: "2026-06-20T00:00:00.000Z",
+          imageCount: 1,
+        },
+      ],
+      status: "Review in progress",
+    };
+
+    window.localStorage.setItem(
+      "blomzip-studio:archive-state:v1",
+      JSON.stringify({
+        savedAt: "2026-06-20T00:00:00.000Z",
+        importVisit: legacyVisit,
+        draftWorkspace: {
+          drafts: [],
+          activeDraftId: null,
+        },
+      })
+    );
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (container.textContent?.includes("legacy-import-01.jpg")) {
+        break;
+      }
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+    }
+
+    const renderedThumb = container.querySelector(".gallery-card-thumb img") as HTMLImageElement | null;
+    expect(renderedThumb).toBeTruthy();
+    expect(renderedThumb?.src).toContain("data:image/svg+xml");
+    expect(renderedThumb?.src).not.toContain("data:image/jpeg;base64,");
   });
 
   it("opens EntryReview at the clicked preview thumbnail", () => {
@@ -757,6 +942,8 @@ describe("App", () => {
   });
 
   it("restores a persisted archive after reload and remount with review state intact", async () => {
+    vi.stubGlobal("indexedDB", createInMemoryIndexedDb());
+
     const persistedVisit = JSON.parse(JSON.stringify(importedArchiveState.visit)) as Visit;
     persistedVisit.entries = persistedVisit.entries.map((entry, index) =>
       index === 0
@@ -784,6 +971,14 @@ describe("App", () => {
         : entry
     );
 
+    await persistArchiveThumbnailBinaries({
+      importVisit: persistedVisit,
+      draftWorkspace: {
+        drafts: [],
+        activeDraftId: null,
+      },
+    });
+
     await saveArchiveState(
       createArchiveStateSnapshot({
         importVisit: persistedVisit,
@@ -807,6 +1002,10 @@ describe("App", () => {
 
     await waitForArchiveHydration();
 
+    const restoredGalleryThumb = container.querySelector(".gallery-card-thumb img") as HTMLImageElement | null;
+    expect(restoredGalleryThumb?.src).toContain("blob:mock-url");
+    expect(restoredGalleryThumb?.src).not.toContain("data:image/svg+xml");
+
     await openFirstPreviewCardForRestoredArchive();
 
     expect(container.textContent).toContain("Entry 1 of 2");
@@ -815,10 +1014,14 @@ describe("App", () => {
     expect(container.textContent).toContain("Hero ✓");
     expect(container.textContent).toContain("Selected for Story ✓");
     expect(container.textContent).toContain("1 observations");
+    expect((container.querySelector('[data-testid="entry-review-main-image"]') as HTMLImageElement | null)?.src).toContain("blob:mock-url");
+    expect(createObjectUrlSpy).toHaveBeenCalled();
 
     act(() => {
       root.unmount();
     });
+
+    expect(revokeObjectUrlSpy).toHaveBeenCalledWith("blob:mock-url");
 
     root = createRoot(container);
 
@@ -834,5 +1037,6 @@ describe("App", () => {
     expect(container.textContent).toContain("Favorite ✓");
     expect(container.textContent).toContain("Hero ✓");
     expect(container.textContent).toContain("Selected for Story ✓");
+    expect((container.querySelector('[data-testid="entry-review-main-image"]') as HTMLImageElement | null)?.src).toContain("blob:mock-url");
   });
 });

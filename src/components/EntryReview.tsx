@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Entry, EntrySuggestionCategory, Observation, Visit } from "../models/blomzip";
+import { createThumbnailUrlForRecord } from "../utils/createThumbnailUrls";
 import { MockObservationEngine, type ObservationEngine } from "./observationEngine";
 
 interface EntryReviewProps {
@@ -199,6 +200,7 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
   const suggestionPlace = suggestionCategories.includes("by-place")
     ? imageRecord?.sourcePath.split("/").slice(0, -1).pop() ?? null
     : null;
+  const previewSrc = createThumbnailUrlForRecord(imageRecord);
   const suggestionObservations = entry?.observations.filter((observation) => observation.source !== "user") ?? [];
   const duplicateReferenceFilenames = useMemo(() => {
     if (!entry?.analysisSuggestions?.possibleDuplicateEntryIds?.length) {
@@ -585,10 +587,10 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
 
       <div className="entry-review-card" data-testid="entry-review-workspace">
         <div className="entry-review-preview" data-testid="entry-review-image-region">
-          {imageRecord?.thumbnailUrl ? (
+          {previewSrc ? (
             <img
-              src={imageRecord.thumbnailUrl}
-              alt={imageRecord.filename}
+              src={previewSrc}
+              alt={imageRecord?.filename ?? "Imported image"}
               className="entry-review-preview-image"
               data-testid="entry-review-main-image"
             />

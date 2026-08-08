@@ -19,6 +19,11 @@ import {
   saveArchiveState,
 } from "./utils/archivePersistence";
 import {
+  collectBlobThumbnailUrlsFromVisit,
+  hydrateArchiveStateThumbnails,
+  persistArchiveThumbnailBinaries,
+} from "./utils/archiveThumbnailStore";
+import {
   createDraftImportSummary,
   createDraftVisitFromState,
   loadDraftWorkspace,
@@ -28,9 +33,16 @@ import {
 import { discoverPlacesVisionSummary } from "./utils/discoverPlacesVisionEngine";
 import { mergeImportedVisit } from "./utils/mergeImportedVisit";
 import { createPublishReadyVisitOutput } from "./utils/publishReadyOutput";
+import { createThumbnailUrlForRecord } from "./utils/createThumbnailUrls";
 import type { VisionPlaceCandidateGroup } from "./utils/discoverPlacesVisionEngine";
 import type { ZipImportSummary } from "./utils/readZipImages";
 import "./App.css";
+
+declare global {
+  interface Window {
+    __BLOMZIP_DEBUG_THUMBNAILS__?: boolean;
+  }
+}
 
 type ViewFilter = "all" | "favorites" | "hero";
 
@@ -283,7 +295,7 @@ function createDraftGalleryImage(options: {
     hero: Boolean(entry.hero),
     notes: entry.notes,
     color: "linear-gradient(135deg, #6a7878, #d6d6c8)",
-    src: imageRecord?.thumbnailUrl ?? "",
+    src: createThumbnailUrlForRecord(imageRecord) ?? "",
     alt: filename,
     storyRole: entry.storySelected ? "Selected for Courtyard Story" : entry.reviewed ? "Reviewed import entry" : "Pending import entry",
     season: "Imported",
@@ -474,14 +486,45 @@ export function getGalleryCardDisplayTitle(image: ImageItem, imageRecord?: Pick<
   return image.title;
 }
 
-export function resolveGalleryThumbnailSrc(image: ImageItem, imageRecord?: Pick<ImageRecord, "thumbnailUrl"> | null) {
+export function resolveGalleryThumbnailSrc(
+  image: ImageItem,
+  imageRecord?: Pick<ImageRecord, "thumbnailUrl" | "filename"> | null
+) {
   const normalizedSrc = image.src?.trim();
 
   if (normalizedSrc) {
     return normalizedSrc;
   }
 
-  return imageRecord?.thumbnailUrl ?? "";
+  return createThumbnailUrlForRecord(imageRecord) ?? "";
+}
+
+function collectManagedBlobUrls(importVisit: Visit | null, workspace: DraftWorkspace): Set<string> {
+  const urls = new Set<string>();
+
+  for (const url of collectBlobThumbnailUrlsFromVisit(importVisit)) {
+    urls.add(url);
+  }
+
+  for (const draft of workspace.drafts) {
+    for (const url of collectBlobThumbnailUrlsFromVisit(draft.visit)) {
+      urls.add(url);
+    }
+  }
+
+  return urls;
+}
+
+function appThumbnailDebug(event: string, details: Record<string, unknown>) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (!import.meta.env?.DEV || !window.__BLOMZIP_DEBUG_THUMBNAILS__) {
+    return;
+  }
+
+  console.debug("[blomzip-app-thumbnails]", event, details);
 }
 
 function App() {
@@ -505,20 +548,44 @@ function App() {
   const [placeAssignmentFeedback, setPlaceAssignmentFeedback] = useState<string | null>(null);
   const hasAppliedStudioImagesRef = useRef(false);
   const sidebarImportSectionRef = useRef<HTMLElement | null>(null);
+  const managedThumbnailObjectUrlsRef = useRef<Set<string>>(new Set());
   const savedDrafts = draftWorkspace.drafts;
   const hasExportableArchive = Boolean(importVisit || savedDrafts.length > 0);
 
   useEffect(() => {
     let isCancelled = false;
 
-    void loadArchiveState().then((snapshot) => {
+    void loadArchiveState().then(async (snapshot) => {
       if (isCancelled) {
         return;
       }
 
       if (snapshot) {
-        setImportVisit(snapshot.importVisit);
-        setDraftWorkspace(snapshot.draftWorkspace);
+        let nextSnapshot = snapshot;
+
+        try {
+          const hydrated = await hydrateArchiveStateThumbnails(snapshot);
+          if (isCancelled) {
+            hydrated.objectUrls.forEach((url) => URL.revokeObjectURL(url));
+            return;
+          }
+
+          hydrated.objectUrls.forEach((url) => managedThumbnailObjectUrlsRef.current.add(url));
+          nextSnapshot = hydrated.value;
+          appThumbnailDebug("hydrate-applied", {
+            hydratedObjectUrlCount: hydrated.objectUrls.length,
+            importImageRecordCount: hydrated.value.importVisit?.imageRecords?.length ?? 0,
+            importThumbnailCount: hydrated.value.importVisit?.imageRecords?.filter((record) => Boolean(record.thumbnailUrl)).length ?? 0,
+          });
+        } catch {
+          // If thumbnail hydration fails, archive metadata still loads and placeholder thumbnails are used.
+          appThumbnailDebug("hydrate-failed", {
+            importImageRecordCount: snapshot.importVisit?.imageRecords?.length ?? 0,
+          });
+        }
+
+        setImportVisit(nextSnapshot.importVisit);
+        setDraftWorkspace(nextSnapshot.draftWorkspace);
       }
 
       setIsArchiveHydrated(true);
@@ -542,12 +609,50 @@ function App() {
       return;
     }
 
+    void persistArchiveThumbnailBinaries({ importVisit, draftWorkspace }).catch(() => {
+      // Archive metadata persistence still works when thumbnail binary storage is unavailable.
+    });
+  }, [draftWorkspace.drafts, importVisit?.imageRecords, isArchiveHydrated]);
+
+  useEffect(() => {
+    if (!isArchiveHydrated) {
+      return;
+    }
+
     if (!hasExportableArchive) {
       return;
     }
 
+    appThumbnailDebug("metadata-save", {
+      importImageRecordCount: importVisit?.imageRecords?.length ?? 0,
+      importThumbnailCount: importVisit?.imageRecords?.filter((record) => Boolean(record.thumbnailUrl)).length ?? 0,
+    });
+
     void saveArchiveState(createArchiveStateSnapshot({ importVisit, draftWorkspace }));
   }, [draftWorkspace, hasExportableArchive, importVisit, isArchiveHydrated]);
+
+  useEffect(() => {
+    const activeUrls = collectManagedBlobUrls(importVisit, draftWorkspace);
+
+    managedThumbnailObjectUrlsRef.current.forEach((url) => {
+      if (activeUrls.has(url)) {
+        return;
+      }
+
+      URL.revokeObjectURL(url);
+      managedThumbnailObjectUrlsRef.current.delete(url);
+    });
+  }, [draftWorkspace, importVisit]);
+
+  useEffect(() => {
+    return () => {
+      managedThumbnailObjectUrlsRef.current.forEach((url) => {
+        URL.revokeObjectURL(url);
+      });
+
+      managedThumbnailObjectUrlsRef.current.clear();
+    };
+  }, []);
 
   function handleImportEntryUpdated(updatedEntry: Entry) {
     setImportVisit((currentVisit) => {
@@ -618,8 +723,12 @@ function App() {
   }
 
   function handleLoadDraft(draftVisit: DraftVisit) {
+    const draftImages = draftVisit.studioImages.length > 0
+      ? draftVisit.studioImages
+      : createGalleryImagesFromVisit(draftVisit.visit);
+
     hasAppliedStudioImagesRef.current = true;
-    setImages(draftVisit.studioImages);
+    setImages(draftImages);
     setImportSummary(createDraftImportSummary(draftVisit));
     setImportVisit(withAutomaticAnalysisSuggestions(draftVisit.visit, overviewObservationEngine));
     setLatestImportedBatchIdForVision(null);
