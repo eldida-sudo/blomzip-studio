@@ -592,6 +592,146 @@ describe("App", () => {
     expect(summary?.textContent).toContain("hero candidates");
   });
 
+  it("renders representative and preview thumbnails for Vision candidate place groups", async () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const representativeImage = container.querySelector('[data-testid="vision-group-representative-vision-place-1"] img') as HTMLImageElement | null;
+    const previewImages = Array.from(container.querySelectorAll('[data-testid="vision-group-preview-strip-vision-place-1"] img')) as HTMLImageElement[];
+
+    expect(representativeImage).toBeTruthy();
+    expect(representativeImage?.src).toContain("data:image/gif;base64,");
+    expect(representativeImage?.getAttribute("data-object-fit")).toBe("contain");
+    expect(previewImages.length).toBeGreaterThan(0);
+    expect(previewImages[0]?.src).toContain("data:image/gif;base64,");
+    expect(previewImages[0]?.getAttribute("data-object-fit")).toBe("contain");
+  });
+
+  it("opens the representative Vision candidate photograph in Entry Review", async () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const representativeButton = container.querySelector('[data-testid="vision-group-representative-vision-place-1"]') as HTMLButtonElement | null;
+    expect(representativeButton).toBeTruthy();
+
+    act(() => {
+      representativeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Entry 2 of 2");
+    expect(container.textContent).toContain("courtyard-02.jpg");
+
+    const backButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Back to archive");
+    expect(backButton).toBeTruthy();
+
+    act(() => {
+      backButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector('[data-testid="vision-engine-summary"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="vision-group-card-vision-place-1"]')).toBeTruthy();
+  });
+
+  it("opens a preview-strip Vision candidate photograph in Entry Review", async () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const previewButton = container.querySelector('[data-testid="vision-group-preview-vision-place-1-image-1"]') as HTMLButtonElement | null;
+    expect(previewButton).toBeTruthy();
+
+    act(() => {
+      previewButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Entry 1 of 2");
+    expect(container.textContent).toContain("courtyard-01.jpg");
+  });
+
+  it("shows overflow indicator for large Vision candidate groups", async () => {
+    const expandedState = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
+    const totalImages = 7;
+
+    expandedState.summary.imageCount = totalImages;
+    expandedState.summary.totalImageSize = totalImages * 12;
+    expandedState.summary.imageFiles = Array.from({ length: totalImages }, (_, index) => `courtyard-${String(index + 1).padStart(2, "0")}.jpg`);
+
+    const baseTime = Date.parse("2026-07-08T08:00:00.000Z");
+    expandedState.visit.imageCount = totalImages;
+    expandedState.visit.imageRecords = Array.from({ length: totalImages }, (_, index) => ({
+      id: `image-${index + 1}`,
+      importBatchId: "batch-1",
+      filename: `courtyard-${String(index + 1).padStart(2, "0")}.jpg`,
+      fileSize: 12,
+      format: "jpeg",
+      sourcePath: `courtyard/courtyard-${String(index + 1).padStart(2, "0")}.jpg`,
+      width: 1600,
+      height: 1200,
+      orientation: "landscape" as const,
+      aspectRatio: 1.3333,
+      captureDate: new Date(baseTime + index * 60_000).toISOString(),
+      timelineIndex: index,
+      thumbnailUrl: "data:image/gif;base64,R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=",
+    }));
+
+    expandedState.visit.entries = Array.from({ length: totalImages }, (_, index) => ({
+      id: `entry-${index + 1}`,
+      imageRecordId: `image-${index + 1}`,
+      visitId: "visit-1",
+      status: "new" as const,
+      notes: "",
+      tags: [],
+      observations: [],
+      analysisSuggestions: {
+        engine: "mock-observation-engine" as const,
+        generatedAt: "2026-07-08T00:00:00.000Z",
+        confidence: 0.8,
+        categories: ["by-place", "needs-review"],
+      },
+      reviewed: false,
+      createdAt: "2026-07-08T00:00:00.000Z",
+      updatedAt: "2026-07-08T00:00:00.000Z",
+    }));
+
+    mockImportState = expandedState;
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const overflowBadge = container.querySelector('[data-testid="vision-group-preview-overflow-vision-place-1"]');
+    expect(overflowBadge?.textContent).toBe("+2");
+  });
+
+  it("uses SVG thumbnail fallback in Vision candidate cards when thumbnails are unavailable", async () => {
+    const fallbackState = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
+    fallbackState.visit.imageRecords = (fallbackState.visit.imageRecords ?? []).map((record) => {
+      const { thumbnailUrl: _thumbnailUrl, ...recordWithoutThumbnail } = record;
+      return recordWithoutThumbnail;
+    });
+    mockImportState = fallbackState;
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const representativeImage = container.querySelector('[data-testid="vision-group-representative-vision-place-1"] img') as HTMLImageElement | null;
+    expect(representativeImage).toBeTruthy();
+    expect(representativeImage?.src).toContain("data:image/svg+xml");
+  });
+
   it("approves a canonical place for a Vision candidate group and persists the assignment", async () => {
     act(() => {
       root.render(<App />);
@@ -795,6 +935,48 @@ describe("App", () => {
     });
 
     expect(container.textContent).not.toContain("Batch filter is active.");
+  });
+
+  it("defaults batch provenance to collapsed when multiple batches exist and allows expanding", () => {
+    mockImportState = {
+      summary: importedArchiveState.summary,
+      visit: {
+        ...importedArchiveState.visit,
+        importBatches: [
+          ...(importedArchiveState.visit.importBatches ?? []),
+          {
+            id: "batch-2",
+            fileName: "summer-part-2.zip",
+            importedAt: "2026-07-09T00:00:00.000Z",
+            imageCount: 0,
+          },
+          {
+            id: "batch-3",
+            fileName: "summer-part-3.zip",
+            importedAt: "2026-07-10T00:00:00.000Z",
+            imageCount: 0,
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    const toggle = container.querySelector('[data-testid="sidebar-batches-toggle"]') as HTMLButtonElement | null;
+    expect(toggle).toBeDefined();
+    expect(toggle?.textContent).toContain("Batch provenance (3)");
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector('[data-testid="sidebar-batch-list"]')).toBeNull();
+
+    act(() => {
+      toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(container.querySelector('[data-testid="sidebar-batch-list"]')).toBeDefined();
+    expect(container.textContent).toContain("draft.zip");
   });
 
   it("shows one clear primary action based on archive state", () => {

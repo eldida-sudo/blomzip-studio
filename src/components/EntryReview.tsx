@@ -47,6 +47,14 @@ function getSuggestionCategoryLabel(category: EntrySuggestionCategory): string {
   }
 }
 
+function getPlaceSuggestionLabel(sourcePath: string | undefined): string | null {
+  if (!sourcePath || !sourcePath.includes("/")) {
+    return null;
+  }
+
+  return sourcePath.split("/").slice(0, -1).pop() ?? null;
+}
+
 function getSuggestionReason(categories: EntrySuggestionCategory[]): string | null {
   if (categories.includes("story-candidate") || categories.includes("hero-candidate")) {
     return "High visual priority from AI scoring and composition signals.";
@@ -198,7 +206,10 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
   const suggestionCategories = entry?.analysisSuggestions?.categories ?? [];
   const suggestionReason = getSuggestionReason(suggestionCategories);
   const suggestionPlace = suggestionCategories.includes("by-place")
-    ? imageRecord?.sourcePath.split("/").slice(0, -1).pop() ?? null
+    ? getPlaceSuggestionLabel(imageRecord?.sourcePath)
+    : null;
+  const suggestionConfidence = typeof entry?.analysisSuggestions?.confidence === "number"
+    ? Math.round(entry.analysisSuggestions.confidence * 100)
     : null;
   const previewSrc = createThumbnailUrlForRecord(imageRecord);
   const suggestionObservations = entry?.observations.filter((observation) => observation.source !== "user") ?? [];
@@ -221,6 +232,38 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
       })
       .filter((filename): filename is string => Boolean(filename));
   }, [entries, entry?.analysisSuggestions?.possibleDuplicateEntryIds, visit.imageRecords]);
+
+  const aiSuggestionItems = useMemo(() => {
+    const items: Array<{ title: string; evidence?: string }> = [];
+
+    if (suggestionCategories.includes("hero-candidate")) {
+      items.push({ title: "Hero candidate" });
+    }
+
+    if (suggestionCategories.includes("story-candidate")) {
+      items.push({ title: "Story candidate" });
+    }
+
+    if (suggestionCategories.includes("favorite-candidate")) {
+      items.push({ title: "Favorite candidate" });
+    }
+
+    if (suggestionPlace) {
+      items.push({
+        title: "Place/group suggestion",
+        evidence: suggestionPlace,
+      });
+    }
+
+    if (suggestionObservations.length > 0) {
+      items.push({
+        title: "Suggested observations",
+        evidence: suggestionObservations.map((observation) => `${observation.type}: ${observation.value}`).join("; "),
+      });
+    }
+
+    return items;
+  }, [suggestionCategories, suggestionObservations, suggestionPlace]);
 
   const updateDraft = useCallback((update: Partial<EntryDraft>) => {
     if (!entry) return;
@@ -604,45 +647,25 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
             <h3>{imageRecord?.filename ?? "Imported image"}</h3>
           </section>
 
-          <section className="entry-review-meta" data-testid="panel-captured-date">
-            <p>
-              <strong>Captured:</strong> {formatCapturedDate(imageRecord?.captureDate)}
-            </p>
-          </section>
-
-          <section className="entry-review-meta" data-testid="panel-essential-metadata">
-            <div className="meta-list compact">
-              <p>
-                <strong>Format:</strong> {imageRecord?.format ?? "—"}
-              </p>
-              <p>
-                <strong>Size:</strong> {imageRecord?.fileSize ? `${imageRecord.fileSize} bytes` : "—"}
-              </p>
-              <p>
-                <strong>Dimensions:</strong> {imageRecord?.width && imageRecord?.height ? `${imageRecord.width} × ${imageRecord.height}` : "—"}
-              </p>
-              <p>
-                <strong>Orientation:</strong> {imageRecord?.orientation ?? "—"}
-              </p>
-            </div>
-          </section>
-
           {entry.analysisSuggestions ? (
             <section className="entry-review-ai-suggestions" data-testid="panel-ai-suggestions">
               <strong>AI suggestions</strong>
-              {suggestionPlace ? <p><strong>Suggested place:</strong> {suggestionPlace}</p> : null}
-              <p>
-                <strong>Categories:</strong> {suggestionCategories.map((category) => getSuggestionCategoryLabel(category)).join(", ")}
-              </p>
-              <p>
-                <strong>Confidence:</strong> {Math.round(entry.analysisSuggestions.confidence * 100)}%
-              </p>
-              {suggestionReason ? <p><strong>Reason:</strong> {suggestionReason}</p> : null}
-              {suggestionObservations.length > 0 ? (
+              <p className="entry-review-ai-note">AI proposes. You decide what enters the archive.</p>
+              {suggestionConfidence !== null ? <p><strong>Confidence:</strong> {suggestionConfidence}%</p> : null}
+              <div className="entry-review-ai-suggestion-list" data-testid="panel-ai-suggestion-items">
+                {aiSuggestionItems.map((item) => (
+                  <article key={item.title} className="entry-review-ai-suggestion-item">
+                    <strong>{item.title}</strong>
+                    {item.evidence ? <p>{item.evidence}</p> : null}
+                  </article>
+                ))}
+              </div>
+              {suggestionCategories.length > 0 ? (
                 <p>
-                  <strong>Suggested observations:</strong> {suggestionObservations.map((observation) => `${observation.type}: ${observation.value}`).join("; ")}
+                  <strong>Signal categories:</strong> {suggestionCategories.map((category) => getSuggestionCategoryLabel(category)).join(", ")}
                 </p>
               ) : null}
+              {suggestionReason ? <p><strong>Reason:</strong> {suggestionReason}</p> : null}
               {duplicateReferenceFilenames.length > 0 ? (
                 <p>
                   <strong>Possible duplicates:</strong> {duplicateReferenceFilenames.join(", ")}
@@ -650,6 +673,24 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
               ) : null}
             </section>
           ) : null}
+
+          <div className="entry-review-field entry-review-human-curation" data-testid="panel-curation-controls">
+            <span>Your curation decisions</span>
+            <p className="entry-review-human-curation-summary" data-testid="panel-curation-summary">
+              {draft.hero ? "Hero selected" : "Hero not selected"} · {draft.favorite ? "Favorite selected" : "Favorite not selected"} · {draft.storySelected ? "Story selected" : "Story not selected"}
+            </p>
+            <div className="entry-review-curation-row">
+              <button type="button" onClick={handleFavoriteToggle} aria-pressed={draft.favorite}>
+                {draft.favorite ? "Favorite ✓" : "Mark as favorite"}
+              </button>
+              <button type="button" onClick={handleHeroToggle} aria-pressed={draft.hero}>
+                {draft.hero ? "Hero ✓" : "Mark as hero"}
+              </button>
+              <button type="button" onClick={handleStorySelectionToggle} aria-pressed={draft.storySelected}>
+                {draft.storySelected ? "Selected for Story ✓" : "Select for Story"}
+              </button>
+            </div>
+          </div>
 
           <label className="entry-review-field" data-testid="panel-notes">
             <span>Notes</span>
@@ -668,21 +709,6 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
               placeholder="Add tags, separated by commas"
             />
           </label>
-
-          <div className="entry-review-field" data-testid="panel-curation-controls">
-            <span>Curation</span>
-            <div className="entry-review-curation-row">
-              <button type="button" onClick={handleFavoriteToggle} aria-pressed={draft.favorite}>
-                {draft.favorite ? "Favorite ✓" : "Mark as favorite"}
-              </button>
-              <button type="button" onClick={handleHeroToggle} aria-pressed={draft.hero}>
-                {draft.hero ? "Hero ✓" : "Mark as hero"}
-              </button>
-              <button type="button" onClick={handleStorySelectionToggle} aria-pressed={draft.storySelected}>
-                {draft.storySelected ? "Selected for Story ✓" : "Select for Story"}
-              </button>
-            </div>
-          </div>
 
           <div className="entry-review-field" data-testid="panel-observations">
             <span>Observations</span>
@@ -758,6 +784,29 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
               {isEntryReviewed ? "Reviewed" : "Mark entry reviewed"}
             </button>
           </div>
+
+          <section className="entry-review-meta" data-testid="panel-captured-date">
+            <p>
+              <strong>Captured:</strong> {formatCapturedDate(imageRecord?.captureDate)}
+            </p>
+          </section>
+
+          <section className="entry-review-meta" data-testid="panel-essential-metadata">
+            <div className="meta-list compact">
+              <p>
+                <strong>Format:</strong> {imageRecord?.format ?? "—"}
+              </p>
+              <p>
+                <strong>Size:</strong> {imageRecord?.fileSize ? `${imageRecord.fileSize} bytes` : "—"}
+              </p>
+              <p>
+                <strong>Dimensions:</strong> {imageRecord?.width && imageRecord?.height ? `${imageRecord.width} × ${imageRecord.height}` : "—"}
+              </p>
+              <p>
+                <strong>Orientation:</strong> {imageRecord?.orientation ?? "—"}
+              </p>
+            </div>
+          </section>
         </div>
       </div>
 

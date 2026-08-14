@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { initialImages, type ImageItem } from "./data/demoImages";
 import { getPlaceById, listCanonicalPlaces } from "./data/canonicalPlaces";
 import { EntryReview } from "./components/EntryReview";
@@ -538,16 +538,19 @@ function App() {
   const [importVisit, setImportVisit] = useState<Visit | null>(null);
   const [latestImportedBatchIdForVision, setLatestImportedBatchIdForVision] = useState<string | null>(null);
   const [activeBatchFilterId, setActiveBatchFilterId] = useState<string | null>(null);
+  const [isBatchProvenanceExpanded, setIsBatchProvenanceExpanded] = useState<boolean | null>(null);
   const [lastBatchImportFeedback, setLastBatchImportFeedback] = useState<BatchImportFeedback | null>(null);
   const [draftWorkspace, setDraftWorkspace] = useState<DraftWorkspace>(() => loadDraftWorkspace());
   const [isArchiveHydrated, setIsArchiveHydrated] = useState(false);
   const [isReviewingEntries, setIsReviewingEntries] = useState(false);
   const [reviewStartIndex, setReviewStartIndex] = useState(0);
+  const [activeVisionGroupId, setActiveVisionGroupId] = useState<string | null>(null);
   const [overviewObservationEngine] = useState<ObservationEngine>(() => new MockObservationEngine());
   const [selectedPlaceByVisionGroupId, setSelectedPlaceByVisionGroupId] = useState<Record<string, string>>({});
   const [placeAssignmentFeedback, setPlaceAssignmentFeedback] = useState<string | null>(null);
   const hasAppliedStudioImagesRef = useRef(false);
   const sidebarImportSectionRef = useRef<HTMLElement | null>(null);
+  const visionSummaryRef = useRef<HTMLElement | null>(null);
   const managedThumbnailObjectUrlsRef = useRef<Set<string>>(new Set());
   const savedDrafts = draftWorkspace.drafts;
   const hasExportableArchive = Boolean(importVisit || savedDrafts.length > 0);
@@ -897,6 +900,15 @@ function App() {
       });
   }, [importVisit]);
 
+  const isBatchProvenanceSectionExpanded = isBatchProvenanceExpanded ?? batchOverview.length <= 1;
+
+  const handleToggleBatchProvenance = useCallback(() => {
+    setIsBatchProvenanceExpanded((current) => {
+      const currentlyExpanded = current ?? batchOverview.length <= 1;
+      return !currentlyExpanded;
+    });
+  }, [batchOverview.length]);
+
   const timelineItems = useMemo(() => {
     let lastDateKey: string | null = null;
 
@@ -1163,6 +1175,43 @@ function App() {
     setIsReviewingEntries(true);
   }
 
+  function openReviewForImageRecord(imageRecordId: string, visionGroupId?: string) {
+    if (!importVisit) {
+      return;
+    }
+
+    const index = importVisit.entries.findIndex((entry) => entry.imageRecordId === imageRecordId);
+    if (index < 0) {
+      return;
+    }
+
+    if (visionGroupId) {
+      setActiveVisionGroupId(visionGroupId);
+    }
+
+    openReviewWithIndex(index);
+  }
+
+  function handleCloseEntryReview() {
+    setIsReviewingEntries(false);
+
+    if (!activeVisionGroupId) {
+      return;
+    }
+
+    const groupElement = document.querySelector(`[data-testid="vision-group-card-${activeVisionGroupId}"]`) as HTMLElement | null;
+    const fallbackTarget = visionSummaryRef.current;
+    const target = groupElement ?? fallbackTarget;
+
+    if (target) {
+      requestAnimationFrame(() => {
+        target.scrollIntoView({ behavior: "auto", block: "center" });
+      });
+    }
+
+    setActiveVisionGroupId(null);
+  }
+
   function startReviewQueue(mode: ReviewQueueMode) {
     const queue = mode === "story-first" ? storyFirstQueue : needsConfirmationQueue;
     if (queue.length === 0) {
@@ -1302,6 +1351,37 @@ function App() {
         <strong>{label}:</strong> {value}
       </p>
     );
+  }
+
+  function getVisionPreviewImageRecords(options: {
+    group: VisionPlaceCandidateGroup;
+    maxPreviewCount: number;
+  }): {
+    representativeRecord: ImageRecord | undefined;
+    representativeLabel: string;
+    previewRecords: ImageRecord[];
+    remainingCount: number;
+  } {
+    const orderedRecords = options.group.imageRecordIds
+      .map((recordId) => imageRecordsById.get(recordId))
+      .filter((record): record is ImageRecord => Boolean(record));
+
+    const representativeRecord = imageRecordsById.get(options.group.representativeImageRecordId) ?? orderedRecords[0];
+    const representativeLabel = representativeRecord?.filename ?? options.group.representativeImageRecordId;
+
+    const recordsExcludingRepresentative = representativeRecord
+      ? orderedRecords.filter((record) => record.id !== representativeRecord.id)
+      : orderedRecords;
+
+    const previewRecords = recordsExcludingRepresentative.slice(0, options.maxPreviewCount);
+    const remainingCount = Math.max(0, recordsExcludingRepresentative.length - previewRecords.length);
+
+    return {
+      representativeRecord,
+      representativeLabel,
+      previewRecords,
+      remainingCount,
+    };
   }
 
   function renderGalleryCard({ image, index }: { image: ImageItem; index: number }) {
@@ -1510,10 +1590,22 @@ function App() {
             {batchOverview.length > 0 ? (
               <section className="sidebar-card archive-batches-card" data-testid="sidebar-batches-section">
                 <div className="archive-batches-header">
-                  <div>
-                    <p className="eyebrow">Import batches</p>
-                    <h3>Batch provenance</h3>
-                  </div>
+                  <button
+                    type="button"
+                    className="archive-batches-toggle"
+                    onClick={handleToggleBatchProvenance}
+                    aria-expanded={isBatchProvenanceSectionExpanded}
+                    aria-controls="sidebar-batch-list"
+                    data-testid="sidebar-batches-toggle"
+                  >
+                    <span>
+                      <p className="eyebrow">Import batches</p>
+                      <h3>Batch provenance ({batchOverview.length})</h3>
+                    </span>
+                    <span className="archive-batches-toggle-state" aria-hidden="true">
+                      {isBatchProvenanceSectionExpanded ? "Hide" : "Show"}
+                    </span>
+                  </button>
                   {activeBatchFilterId ? (
                     <button type="button" className="secondary-action" onClick={() => setActiveBatchFilterId(null)}>
                       Clear filter
@@ -1521,25 +1613,27 @@ function App() {
                   ) : null}
                 </div>
 
-                <div className="batch-list">
-                  {batchOverview.map(({ batch, captureRange, reviewedCount, totalCount, reviewPercent }) => (
-                    <button
-                      key={batch.id}
-                      type="button"
-                      className={`batch-item ${activeBatchFilterId === batch.id ? "active" : ""}`}
-                      onClick={() => setActiveBatchFilterId((current) => (current === batch.id ? null : batch.id))}
-                      aria-pressed={activeBatchFilterId === batch.id}
-                    >
-                      <div className="batch-item-header">
-                        <strong>{batch.fileName}</strong>
-                        <span>{batch.imageCount} images</span>
-                      </div>
-                      <p>Imported {formatDateLabel(batch.importedAt)}</p>
-                      <p>Capture range: {captureRange}</p>
-                      <p>Review progress: {reviewedCount}/{totalCount} ({reviewPercent}%)</p>
-                    </button>
-                  ))}
-                </div>
+                {isBatchProvenanceSectionExpanded ? (
+                  <div className="batch-list" id="sidebar-batch-list" data-testid="sidebar-batch-list">
+                    {batchOverview.map(({ batch, captureRange, reviewedCount, totalCount, reviewPercent }) => (
+                      <button
+                        key={batch.id}
+                        type="button"
+                        className={`batch-item ${activeBatchFilterId === batch.id ? "active" : ""}`}
+                        onClick={() => setActiveBatchFilterId((current) => (current === batch.id ? null : batch.id))}
+                        aria-pressed={activeBatchFilterId === batch.id}
+                      >
+                        <div className="batch-item-header">
+                          <strong>{batch.fileName}</strong>
+                          <span>{batch.imageCount} images</span>
+                        </div>
+                        <p>Imported {formatDateLabel(batch.importedAt)}</p>
+                        <p>Capture range: {captureRange}</p>
+                        <p>Review progress: {reviewedCount}/{totalCount} ({reviewPercent}%)</p>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </section>
             ) : null}
 
@@ -1587,7 +1681,7 @@ function App() {
           <EntryReview
             visit={importVisit}
             initialEntryIndex={reviewStartIndex}
-            onClose={() => setIsReviewingEntries(false)}
+            onClose={handleCloseEntryReview}
             onEntryUpdated={handleImportEntryUpdated}
             onVisitFinalized={handleVisitFinalized}
           />
@@ -1636,7 +1730,7 @@ function App() {
               </div>
 
               {visionDiscoverySummary ? (
-                <section className="vision-engine-summary" data-testid="vision-engine-summary" aria-live="polite">
+                <section className="vision-engine-summary" data-testid="vision-engine-summary" aria-live="polite" ref={visionSummaryRef}>
                   <div className="vision-engine-summary-header">
                     <p className="eyebrow">Vision Engine v0.1</p>
                     <h4>Discover Places</h4>
@@ -1657,15 +1751,88 @@ function App() {
                   {visionDiscoverySummary.candidatePlaceGroups.length > 0 ? (
                     <div className="vision-engine-groups">
                       {visionDiscoverySummary.candidatePlaceGroups.map((group) => {
-                        const representativeRecord = imageRecordsById.get(group.representativeImageRecordId);
-                        const representativeLabel = representativeRecord?.filename ?? group.representativeImageRecordId;
+                        const {
+                          representativeRecord,
+                          representativeLabel,
+                          previewRecords,
+                          remainingCount,
+                        } = getVisionPreviewImageRecords({
+                          group,
+                          maxPreviewCount: 4,
+                        });
+                        const representativeThumbnailSrc = createThumbnailUrlForRecord(representativeRecord);
                         const selectedPlaceId = selectedPlaceByVisionGroupId[group.id] ?? "";
 
                         return (
-                          <article key={group.id} className="vision-engine-group-item">
-                            <div>
-                              <strong>{group.imageRecordIds.length} photographs</strong>
-                              <p className="result-count">Representative: {representativeLabel}</p>
+                          <article key={group.id} className="vision-engine-group-item" data-testid={`vision-group-card-${group.id}`}>
+                            <div className="vision-engine-group-image-column">
+                              <button
+                                type="button"
+                                className="vision-engine-group-image-button vision-engine-group-representative"
+                                data-testid={`vision-group-representative-${group.id}`}
+                                onClick={() => representativeRecord ? openReviewForImageRecord(representativeRecord.id, group.id) : undefined}
+                                disabled={!representativeRecord}
+                                aria-label={`Open representative ${representativeLabel}`}
+                              >
+                                {representativeThumbnailSrc ? (
+                                  <img src={representativeThumbnailSrc} alt={representativeLabel} data-object-fit="contain" />
+                                ) : (
+                                  <span>No preview</span>
+                                )}
+                              </button>
+                              <div className="vision-engine-group-preview-strip" data-testid={`vision-group-preview-strip-${group.id}`}>
+                                {previewRecords.map((record) => {
+                                  const previewSrc = createThumbnailUrlForRecord(record);
+
+                                  return previewSrc ? (
+                                    <button
+                                      key={record.id}
+                                      type="button"
+                                      className="vision-engine-group-image-button vision-engine-group-preview-button"
+                                      data-testid={`vision-group-preview-${group.id}-${record.id}`}
+                                      onClick={() => openReviewForImageRecord(record.id, group.id)}
+                                      aria-label={`Open ${record.filename}`}
+                                    >
+                                      <img
+                                        src={previewSrc}
+                                        alt={record.filename}
+                                        data-object-fit="contain"
+                                      />
+                                    </button>
+                                  ) : (
+                                    <button
+                                      key={record.id}
+                                      type="button"
+                                      className="vision-engine-group-image-button vision-engine-group-preview-button"
+                                      data-testid={`vision-group-preview-${group.id}-${record.id}`}
+                                      onClick={() => openReviewForImageRecord(record.id, group.id)}
+                                      aria-label={`Open ${record.filename}`}
+                                    >
+                                      <span>No preview</span>
+                                    </button>
+                                  );
+                                })}
+
+                                {remainingCount > 0 ? (
+                                  <span
+                                    className="vision-engine-group-preview-overflow"
+                                    data-testid={`vision-group-preview-overflow-${group.id}`}
+                                  >
+                                    +{remainingCount}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            <div className="vision-engine-group-details-column">
+                              <div className="vision-engine-group-primary-metadata">
+                                <strong>{group.imageRecordIds.length} photographs</strong>
+                                <div>
+                                  <span>Confidence</span>
+                                  <strong>{formatPercent(group.confidence)}</strong>
+                                </div>
+                              </div>
+
                               <label className="vision-engine-group-assign-label" htmlFor={`vision-place-select-${group.id}`}>
                                 Canonical place
                               </label>
@@ -1691,10 +1858,8 @@ function App() {
                               >
                                 Approve place
                               </button>
-                            </div>
-                            <div>
-                              <span>Confidence</span>
-                              <strong>{formatPercent(group.confidence)}</strong>
+
+                              <p className="result-count vision-engine-group-representative-label">Representative: {representativeLabel}</p>
                             </div>
                           </article>
                         );

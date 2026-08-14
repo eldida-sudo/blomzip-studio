@@ -147,15 +147,32 @@ describe("EntryReview", () => {
   });
 
   it("shows AI suggestions fields when analysis suggestions exist", () => {
-    const html = renderToStaticMarkup(<EntryReview visit={visit} />);
+    const aiRichVisit: Visit = {
+      ...visit,
+      entries: [
+        {
+          ...visit.entries[0],
+          analysisSuggestions: {
+            ...visit.entries[0].analysisSuggestions!,
+            categories: ["hero-candidate", "story-candidate", "favorite-candidate", "by-place", "possible-duplicates"],
+          },
+        },
+        visit.entries[1],
+      ],
+    };
+
+    const html = renderToStaticMarkup(<EntryReview visit={aiRichVisit} />);
 
     expect(html).toContain("AI suggestions");
-    expect(html).toContain("Suggested place");
-    expect(html).toContain("Categories");
+    expect(html).toContain("Hero candidate");
+    expect(html).toContain("Story candidate");
+    expect(html).toContain("Favorite candidate");
+    expect(html).toContain("Place/group suggestion");
     expect(html).toContain("Confidence");
     expect(html).toContain("Reason");
     expect(html).toContain("Suggested observations");
     expect(html).toContain("Possible duplicates");
+    expect(html).toContain("Your curation decisions");
   });
 
   it("does not show AI suggestion panel when no analysis suggestions exist", () => {
@@ -169,7 +186,56 @@ describe("EntryReview", () => {
     );
 
     expect(html).not.toContain("AI suggestions");
-    expect(html).not.toContain("Suggested place");
+    expect(html).not.toContain("Place/group suggestion");
+  });
+
+  it("shows confidence only when existing analysis data includes it", () => {
+    const noConfidenceVisit: Visit = {
+      ...visit,
+      entries: [
+        {
+          ...visit.entries[0],
+          analysisSuggestions: {
+            ...(visit.entries[0].analysisSuggestions as NonNullable<typeof visit.entries[0]["analysisSuggestions"]>),
+            confidence: undefined as unknown as number,
+          },
+        },
+        visit.entries[1],
+      ],
+    };
+
+    const html = renderToStaticMarkup(<EntryReview visit={noConfidenceVisit} />);
+    expect(html).toContain("AI suggestions");
+    expect(html).not.toContain("Confidence:");
+  });
+
+  it("keeps AI suggestions distinct from human curation state", () => {
+    const aiVisit: Visit = {
+      ...visit,
+      entries: [
+        {
+          ...visit.entries[0],
+          analysisSuggestions: {
+            ...visit.entries[0].analysisSuggestions!,
+            categories: ["hero-candidate", "story-candidate", "favorite-candidate"],
+          },
+          hero: false,
+          favorite: false,
+          storySelected: false,
+        },
+        visit.entries[1],
+      ],
+    };
+
+    const html = renderToStaticMarkup(<EntryReview visit={aiVisit} />);
+
+    expect(html).toContain("Hero candidate");
+    expect(html).toContain("Story candidate");
+    expect(html).toContain("Favorite candidate");
+    expect(html).toContain("Your curation decisions");
+    expect(html).toContain("Mark as hero");
+    expect(html).toContain("Mark as favorite");
+    expect(html).toContain("Select for Story");
   });
 
   it("keeps Previous and Next in one unified navigation region without duplication", () => {
@@ -196,14 +262,14 @@ describe("EntryReview", () => {
     const panel = container.querySelector('[data-testid="entry-review-panel"]') as HTMLElement | null;
     const sequence = [
       "panel-filename",
-      "panel-captured-date",
-      "panel-essential-metadata",
       "panel-ai-suggestions",
+      "panel-curation-controls",
       "panel-notes",
       "panel-tags",
-      "panel-curation-controls",
       "panel-observations",
       "panel-mark-reviewed",
+      "panel-captured-date",
+      "panel-essential-metadata",
     ].map((testId) => panel?.querySelector(`[data-testid="${testId}"]`) as HTMLElement | null);
 
     expect(sequence.every(Boolean)).toBe(true);
