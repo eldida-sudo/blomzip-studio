@@ -163,16 +163,120 @@ describe("EntryReview", () => {
 
     const html = renderToStaticMarkup(<EntryReview visit={aiRichVisit} />);
 
-    expect(html).toContain("AI suggestions");
+    expect(html).toContain("Editorial recommendations");
+    expect(html).toContain("Legacy AI suggestion: Hero candidate");
+    expect(html).toContain("Legacy AI suggestion: Story candidate");
+    expect(html).toContain("Legacy AI suggestion: Favorite candidate");
+    expect(html).toContain("Analysis signals");
     expect(html).toContain("Hero candidate");
     expect(html).toContain("Story candidate");
     expect(html).toContain("Favorite candidate");
     expect(html).toContain("Place/group suggestion");
-    expect(html).toContain("Confidence");
-    expect(html).toContain("Reason");
+    expect(html).toContain("Analysis confidence");
+    expect(html).toContain("General context");
     expect(html).toContain("Suggested observations");
     expect(html).toContain("Possible duplicates");
     expect(html).toContain("Your curation decisions");
+  });
+
+  it("renders v0.2 Story and Hero assessments with their own scores, reasons, and evidence", () => {
+    const recommendationVisit: Visit = {
+      ...visit,
+      entries: [
+        {
+          ...visit.entries[0],
+          analysisSuggestions: {
+            ...visit.entries[0].analysisSuggestions!,
+            recommendations: [
+              {
+                kind: "story",
+                score: 0.88,
+                reasons: ["Documents how the courtyard was used.", "Connects a social moment to this place."],
+                evidence: [
+                  { signal: "human-activity", detail: "People using the seating area" },
+                  { signal: "place-coverage", contribution: 0.3 },
+                ],
+                engine: "vision-engine-v0.2",
+                generatedAt: "2026-08-14T00:00:00.000Z",
+                analysisVersion: 2,
+              },
+              {
+                kind: "hero",
+                score: 0.74,
+                reasons: ["Clear spatial overview of the courtyard."],
+                evidence: [{ signal: "spatial-overview", detail: "Foreground and background remain readable" }],
+                engine: "vision-engine-v0.2",
+                generatedAt: "2026-08-14T00:00:00.000Z",
+                analysisVersion: 2,
+              },
+              {
+                kind: "favorite",
+                score: 0.6,
+                reasons: [],
+                evidence: [],
+                engine: "vision-engine-v0.2",
+                generatedAt: "2026-08-14T00:00:00.000Z",
+                analysisVersion: 2,
+              },
+            ],
+          },
+        },
+        visit.entries[1],
+      ],
+    };
+
+    const html = renderToStaticMarkup(<EntryReview visit={recommendationVisit} />);
+
+    expect(html).toContain("Editorial recommendations");
+    expect(html).toContain("Story");
+    expect(html).toContain("Score 88%");
+    expect(html).toContain("Documents how the courtyard was used.");
+    expect(html).toContain("More reasons (1)");
+    expect(html).toContain("Hero");
+    expect(html).toContain("Score 74%");
+    expect(html).toContain("Clear spatial overview of the courtyard.");
+    expect(html).toContain("Favorite");
+    expect(html).toContain("Score 60%");
+    expect(html).toContain("Why this recommendation?");
+    expect(html).toContain("Human activity");
+    expect(html).toContain("People using the seating area");
+    expect(html).toContain("Place coverage");
+    expect(html).toContain("Spatial overview");
+    expect(html).not.toContain("Analysis confidence:");
+    expect(html).not.toContain("General context:");
+    expect(html).not.toContain("High visual priority from AI scoring and composition signals.");
+  });
+
+  it("does not fabricate v0.2 reasons and treats an empty recommendation list as authoritative", () => {
+    const emptyRecommendationVisit: Visit = {
+      ...visit,
+      entries: [
+        {
+          ...visit.entries[0],
+          analysisSuggestions: {
+            ...visit.entries[0].analysisSuggestions!,
+            categories: ["story-candidate", "hero-candidate"],
+            recommendations: [],
+          },
+        },
+        visit.entries[1],
+      ],
+    };
+
+    const html = renderToStaticMarkup(<EntryReview visit={emptyRecommendationVisit} />);
+
+    expect(html).toContain("No Story recommendation from this analysis.");
+    expect(html).not.toContain("Legacy AI suggestion");
+    expect(html).not.toContain("High visual priority from AI scoring and composition signals.");
+  });
+
+  it("shows legacy editorial categories without a fabricated recommendation score or evidence", () => {
+    const html = renderToStaticMarkup(<EntryReview visit={visit} />);
+
+    expect(html).toContain("Legacy AI suggestion: Story candidate");
+    expect(html).toContain("Detailed recommendation evidence is not available for this analysis.");
+    expect(html).not.toContain("Score 87%");
+    expect(html).not.toContain("Why this recommendation?");
   });
 
   it("does not show AI suggestion panel when no analysis suggestions exist", () => {
@@ -205,8 +309,8 @@ describe("EntryReview", () => {
     };
 
     const html = renderToStaticMarkup(<EntryReview visit={noConfidenceVisit} />);
-    expect(html).toContain("AI suggestions");
-    expect(html).not.toContain("Confidence:");
+    expect(html).toContain("Analysis signals");
+    expect(html).not.toContain("Analysis confidence:");
   });
 
   it("keeps AI suggestions distinct from human curation state", () => {
@@ -262,6 +366,7 @@ describe("EntryReview", () => {
     const panel = container.querySelector('[data-testid="entry-review-panel"]') as HTMLElement | null;
     const sequence = [
       "panel-filename",
+      "panel-editorial-recommendations",
       "panel-ai-suggestions",
       "panel-curation-controls",
       "panel-notes",

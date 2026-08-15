@@ -1,4 +1,5 @@
 import type { Entry, ImageRecord, Visit } from "../models/blomzip";
+import { parseCaptureDate } from "./captureDate";
 import { orderImageRecordsForTimeline } from "./orderImageRecordsForTimeline";
 
 function inferVisitDateFromRecords(records: ImageRecord[], fallbackDate: string): string {
@@ -6,8 +7,7 @@ function inferVisitDateFromRecords(records: ImageRecord[], fallbackDate: string)
     .map((record) => record.captureDate)
     .filter((captureDate): captureDate is string => typeof captureDate === "string")
     .map((captureDate) => {
-      const parsed = Date.parse(captureDate);
-      return Number.isNaN(parsed) ? null : parsed;
+      return parseCaptureDate(captureDate)?.getTime() ?? null;
     })
     .filter((value): value is number => value !== null)
     .sort((left, right) => left - right);

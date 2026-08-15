@@ -1,3 +1,5 @@
+import { normalizeCaptureDate } from "./captureDate";
+
 export type ImageOrientation = "portrait" | "landscape" | "square";
 
 export interface ExtractedImageMetadata {
@@ -132,13 +134,13 @@ function extractJpegMetadata(data: Uint8Array) {
     }
 
     if (marker === 0xe1) {
-      metadata.captureDate = findCaptureDate(data.slice(segmentStart, segmentEnd));
+      metadata.captureDate = normalizeCaptureDate(findCaptureDate(data.slice(segmentStart, segmentEnd)));
     }
 
     index = segmentEnd;
   }
 
-  metadata.captureDate ??= findCaptureDate(data);
+  metadata.captureDate ??= normalizeCaptureDate(findCaptureDate(data));
 
   return metadata;
 }

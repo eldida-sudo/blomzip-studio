@@ -1,6 +1,7 @@
 import { type Entry, type ImageRecord, type Visit } from "../models/blomzip";
 import { extractImageMetadata } from "./extractImageMetadata";
 import { orderImageRecordsForTimeline } from "./orderImageRecordsForTimeline";
+import { parseCaptureDate } from "./captureDate";
 import { type ZipImportSummary } from "./readZipImages";
 import {
   findImageMetadataInSidecar,
@@ -48,12 +49,12 @@ function createEntries(imageRecords: ImageRecord[], visitId: string, importBatch
 }
 
 function normalizeToDateString(value: string): string | null {
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) {
+  const parsed = parseCaptureDate(value);
+  if (!parsed) {
     return null;
   }
 
-  return new Date(parsed).toISOString().slice(0, 10);
+  return parsed.toISOString().slice(0, 10);
 }
 
 function inferPrimaryDate(imageRecords: ImageRecord[]): string | null {
@@ -61,8 +62,7 @@ function inferPrimaryDate(imageRecords: ImageRecord[]): string | null {
     .map((record) => record.captureDate)
     .filter((captureDate): captureDate is string => typeof captureDate === "string")
     .map((captureDate) => {
-      const parsed = Date.parse(captureDate);
-      return Number.isNaN(parsed) ? null : parsed;
+      return parseCaptureDate(captureDate)?.getTime() ?? null;
     })
     .filter((value): value is number => value !== null)
     .sort((left, right) => left - right);

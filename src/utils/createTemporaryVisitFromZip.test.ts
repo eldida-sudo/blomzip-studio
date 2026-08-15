@@ -59,7 +59,7 @@ describe("createTemporaryVisitFromZip", () => {
         height: 400,
         aspectRatio: 1.5,
         orientation: "landscape",
-        captureDate: "2024:05:06 12:34:56",
+        captureDate: "2024-05-06T12:34:56.000Z",
         mimeType: "image/jpeg",
       })
     );

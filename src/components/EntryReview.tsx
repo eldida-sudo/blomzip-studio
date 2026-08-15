@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Entry, EntrySuggestionCategory, Observation, Visit } from "../models/blomzip";
+import type { Entry, EntryRecommendationEvidence, EntryRecommendationKind, EntrySuggestionCategory, Observation, Visit } from "../models/blomzip";
 import { createThumbnailUrlForRecord } from "../utils/createThumbnailUrls";
+import { getEntryEditorialRecommendations } from "../utils/entryRecommendations";
 import { MockObservationEngine, type ObservationEngine } from "./observationEngine";
 
 interface EntryReviewProps {
@@ -73,6 +74,32 @@ function getSuggestionReason(categories: EntrySuggestionCategory[]): string | nu
   }
 
   return categories.length > 0 ? "AI generated review hints from image metadata and signals." : null;
+}
+
+function getRecommendationKindLabel(kind: EntryRecommendationKind): string {
+  return kind.charAt(0).toUpperCase() + kind.slice(1);
+}
+
+function formatRecommendationScore(score: number): string | null {
+  if (!Number.isFinite(score)) {
+    return null;
+  }
+
+  return `${Math.round(Math.min(1, Math.max(0, score)) * 100)}%`;
+}
+
+function getEvidenceLabel(evidence: EntryRecommendationEvidence): string {
+  const knownLabels: Record<string, string> = {
+    "human-activity": "Human activity",
+    "place-coverage": "Place coverage",
+    "seasonal-event": "Seasonal event",
+    "meaningful-change": "Meaningful change",
+    "spatial-overview": "Spatial overview",
+    "negative-space": "Negative space",
+    "duplicate-penalty": "Duplicate similarity",
+  };
+
+  return knownLabels[evidence.signal] ?? evidence.signal.replace(/[-_]/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function formatCapturedDate(captureDate: string | undefined): string {
@@ -204,6 +231,8 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
   const currentPositionLabel = `${currentIndex + 1} of ${entries.length}`;
 
   const suggestionCategories = entry?.analysisSuggestions?.categories ?? [];
+  const editorialRecommendations = entry ? getEntryEditorialRecommendations(entry) : [];
+  const hasV02Recommendations = entry?.analysisSuggestions?.recommendations !== undefined;
   const suggestionReason = getSuggestionReason(suggestionCategories);
   const suggestionPlace = suggestionCategories.includes("by-place")
     ? getPlaceSuggestionLabel(imageRecord?.sourcePath)
@@ -235,18 +264,6 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
 
   const aiSuggestionItems = useMemo(() => {
     const items: Array<{ title: string; evidence?: string }> = [];
-
-    if (suggestionCategories.includes("hero-candidate")) {
-      items.push({ title: "Hero candidate" });
-    }
-
-    if (suggestionCategories.includes("story-candidate")) {
-      items.push({ title: "Story candidate" });
-    }
-
-    if (suggestionCategories.includes("favorite-candidate")) {
-      items.push({ title: "Favorite candidate" });
-    }
 
     if (suggestionPlace) {
       items.push({
@@ -648,10 +665,67 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
           </section>
 
           {entry.analysisSuggestions ? (
+            <section className="entry-review-editorial-recommendations" data-testid="panel-editorial-recommendations">
+              <strong>Editorial recommendations</strong>
+              {editorialRecommendations.length > 0 ? (
+                <div className="entry-review-editorial-recommendation-list">
+                  {editorialRecommendations.map((editorialRecommendation) => {
+                    if (editorialRecommendation.source === "legacy-category") {
+                      return (
+                        <article key={`legacy-${editorialRecommendation.kind}`} className="entry-review-editorial-recommendation legacy">
+                          <strong>Legacy AI suggestion: {getRecommendationKindLabel(editorialRecommendation.kind)} candidate</strong>
+                          <p>Detailed recommendation evidence is not available for this analysis.</p>
+                        </article>
+                      );
+                    }
+
+                    const { recommendation } = editorialRecommendation;
+                    const scoreLabel = formatRecommendationScore(recommendation.score);
+                    const [primaryReason, ...additionalReasons] = recommendation.reasons;
+
+                    return (
+                      <article key={`${recommendation.kind}-${recommendation.generatedAt}`} className="entry-review-editorial-recommendation">
+                        <div className="entry-review-editorial-recommendation-heading">
+                          <strong>{getRecommendationKindLabel(recommendation.kind)}</strong>
+                          {scoreLabel ? <span>Score {scoreLabel}</span> : null}
+                        </div>
+                        {primaryReason ? <p>{primaryReason}</p> : null}
+                        {additionalReasons.length > 0 ? (
+                          <details className="entry-review-editorial-details">
+                            <summary>More reasons ({additionalReasons.length})</summary>
+                            <ul>
+                              {additionalReasons.map((reason) => <li key={reason}>{reason}</li>)}
+                            </ul>
+                          </details>
+                        ) : null}
+                        {recommendation.evidence.length > 0 ? (
+                          <details className="entry-review-editorial-details">
+                            <summary>Why this recommendation?</summary>
+                            <ul>
+                              {recommendation.evidence.map((evidence, index) => (
+                                <li key={`${evidence.signal}-${index}`}>
+                                  <strong>{getEvidenceLabel(evidence)}</strong>
+                                  {evidence.detail ? ` - ${evidence.detail}` : null}
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
+                      </article>
+                    );
+                  })}
+                </div>
+              ) : hasV02Recommendations ? (
+                <p className="entry-review-editorial-empty">No Story recommendation from this analysis.</p>
+              ) : null}
+            </section>
+          ) : null}
+
+          {entry.analysisSuggestions ? (
             <section className="entry-review-ai-suggestions" data-testid="panel-ai-suggestions">
-              <strong>AI suggestions</strong>
+              <strong>Analysis signals</strong>
               <p className="entry-review-ai-note">AI proposes. You decide what enters the archive.</p>
-              {suggestionConfidence !== null ? <p><strong>Confidence:</strong> {suggestionConfidence}%</p> : null}
+              {!hasV02Recommendations && suggestionConfidence !== null ? <p><strong>Analysis confidence:</strong> {suggestionConfidence}%</p> : null}
               <div className="entry-review-ai-suggestion-list" data-testid="panel-ai-suggestion-items">
                 {aiSuggestionItems.map((item) => (
                   <article key={item.title} className="entry-review-ai-suggestion-item">
@@ -665,7 +739,7 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
                   <strong>Signal categories:</strong> {suggestionCategories.map((category) => getSuggestionCategoryLabel(category)).join(", ")}
                 </p>
               ) : null}
-              {suggestionReason ? <p><strong>Reason:</strong> {suggestionReason}</p> : null}
+              {!hasV02Recommendations && suggestionReason ? <p><strong>General context:</strong> {suggestionReason}</p> : null}
               {duplicateReferenceFilenames.length > 0 ? (
                 <p>
                   <strong>Possible duplicates:</strong> {duplicateReferenceFilenames.join(", ")}

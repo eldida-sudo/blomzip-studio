@@ -1,9 +1,17 @@
-import type { DraftWorkspace, Entry, ImageRecord, Observation, Visit } from "../models/blomzip";
+import type {
+  DraftWorkspace,
+  Entry,
+  EntryRecommendation,
+  ImageRecord,
+  Observation,
+  Visit,
+} from "../models/blomzip";
 import { ARCHIVE_STATE_STORE_NAME, openArchiveDatabase } from "./archiveIndexedDb";
 
 const ARCHIVE_STORAGE_KEY = "blomzip-studio:archive-state:v1";
 const ARCHIVE_SCHEMA = "blomzip.archive-state";
-const ARCHIVE_SCHEMA_VERSION = 1;
+const ARCHIVE_SCHEMA_VERSION = 2;
+const LEGACY_ARCHIVE_SCHEMA_VERSION = 1;
 
 export interface ArchiveState {
   schema: typeof ARCHIVE_SCHEMA;
@@ -19,6 +27,14 @@ function sanitizeObservationForPersistence(observation: Observation): Observatio
   };
 }
 
+function sanitizeRecommendationForPersistence(recommendation: EntryRecommendation): EntryRecommendation {
+  return {
+    ...recommendation,
+    reasons: [...recommendation.reasons],
+    evidence: recommendation.evidence.map((evidence) => ({ ...evidence })),
+  };
+}
+
 function sanitizeEntryForPersistence(entry: Entry): Entry {
   return {
     ...entry,
@@ -30,6 +46,9 @@ function sanitizeEntryForPersistence(entry: Entry): Entry {
           categories: [...entry.analysisSuggestions.categories],
           possibleDuplicateEntryIds: entry.analysisSuggestions.possibleDuplicateEntryIds
             ? [...entry.analysisSuggestions.possibleDuplicateEntryIds]
+            : undefined,
+          recommendations: entry.analysisSuggestions.recommendations
+            ? entry.analysisSuggestions.recommendations.map((recommendation) => sanitizeRecommendationForPersistence(recommendation))
             : undefined,
         }
       : undefined,
@@ -121,7 +140,10 @@ function migrateArchiveState(value: unknown): ArchiveState | null {
 
   const raw = value as Partial<ArchiveState> & { visit?: Visit; workspace?: DraftWorkspace };
 
-  if (raw.schema === ARCHIVE_SCHEMA && raw.schemaVersion === ARCHIVE_SCHEMA_VERSION) {
+  if (
+    raw.schema === ARCHIVE_SCHEMA &&
+    (raw.schemaVersion === ARCHIVE_SCHEMA_VERSION || raw.schemaVersion === LEGACY_ARCHIVE_SCHEMA_VERSION)
+  ) {
     if (!isDraftWorkspace(raw.draftWorkspace)) {
       return null;
     }

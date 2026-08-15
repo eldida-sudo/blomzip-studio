@@ -34,6 +34,9 @@ import { discoverPlacesVisionSummary } from "./utils/discoverPlacesVisionEngine"
 import { mergeImportedVisit } from "./utils/mergeImportedVisit";
 import { createPublishReadyVisitOutput } from "./utils/publishReadyOutput";
 import { createThumbnailUrlForRecord } from "./utils/createThumbnailUrls";
+import { parseCaptureDate } from "./utils/captureDate";
+import { getEntryEditorialRecommendations } from "./utils/entryRecommendations";
+import { applyStoryRecommendations } from "./utils/storyRecommendations";
 import type { VisionPlaceCandidateGroup } from "./utils/discoverPlacesVisionEngine";
 import type { ZipImportSummary } from "./utils/readZipImages";
 import "./App.css";
@@ -193,7 +196,6 @@ function createAutomaticSuggestions(options: {
   const categories = new Set<EntrySuggestionCategory>();
 
   if (confidence >= 0.7) {
-    categories.add("story-candidate");
     categories.add("favorite-candidate");
   }
 
@@ -367,16 +369,12 @@ function createGalleryImagesFromVisit(visit: Visit): ImageItem[] {
 }
 
 function formatDateLabel(value: string | undefined): string {
-  if (!value) {
-    return "Unknown";
+  const parsed = parseCaptureDate(value);
+  if (!parsed) {
+    return "Undated";
   }
 
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) {
-    return "Unknown";
-  }
-
-  return new Date(parsed).toLocaleDateString(undefined, {
+  return parsed.toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -400,16 +398,12 @@ function formatPercent(value: number): string {
 }
 
 function getDateKeyFromCaptureDate(captureDate?: string): string {
-  if (!captureDate) {
+  const parsed = parseCaptureDate(captureDate);
+  if (!parsed) {
     return "undated";
   }
 
-  const parsed = Date.parse(captureDate);
-  if (Number.isNaN(parsed)) {
-    return "undated";
-  }
-
-  return new Date(parsed).toISOString().slice(0, 10);
+  return parsed.toISOString().slice(0, 10);
 }
 
 function getDateHeaderLabel(dateKey: string): string {
@@ -832,8 +826,7 @@ function App() {
 
     const datedValues = importVisit.imageRecords
       .map((record) => {
-        const parsed = record.captureDate ? Date.parse(record.captureDate) : Number.NaN;
-        return Number.isNaN(parsed) ? null : new Date(parsed).toISOString().slice(0, 10);
+        return parseCaptureDate(record.captureDate)?.toISOString().slice(0, 10) ?? null;
       })
       .filter((value): value is string => value !== null)
       .sort((left, right) => left.localeCompare(right));
@@ -881,8 +874,7 @@ function App() {
         const records = (importVisit.imageRecords ?? []).filter((record) => record.importBatchId === batch.id);
         const datedValues = records
           .map((record) => {
-            const parsed = record.captureDate ? Date.parse(record.captureDate) : Number.NaN;
-            return Number.isNaN(parsed) ? null : new Date(parsed).toISOString().slice(0, 10);
+            return parseCaptureDate(record.captureDate)?.toISOString().slice(0, 10) ?? null;
           })
           .filter((value): value is string => value !== null)
           .sort((left, right) => left.localeCompare(right));
@@ -963,8 +955,12 @@ function App() {
     }> = [
       {
         key: "story-candidates",
-        title: "Story candidates",
-        matches: (entry) => entry.analysisSuggestions?.categories.includes("story-candidate") ?? false,
+        title: "Story recommendations",
+        matches: (entry) => getEntryEditorialRecommendations(entry).some((recommendation) =>
+          recommendation.source === "v0.2"
+            ? recommendation.recommendation.kind === "story"
+            : recommendation.kind === "story"
+        ),
       },
       {
         key: "hero-candidates",
@@ -1016,6 +1012,16 @@ function App() {
       .filter((group) => group.items.length > 0);
   }, [entryViewModels]);
 
+  const storyAnalysisSummary = useMemo(() => {
+    const assessedPhotographCount = importVisit?.entries.length ?? 0;
+    const recommendationCount = (importVisit?.entries ?? []).filter((entry) =>
+      entry.analysisSuggestions?.recommendations?.some((recommendation) => recommendation.kind === "story") ?? false
+    ).length;
+    const hasRun = (importVisit?.entries ?? []).some((entry) => entry.analysisSuggestions?.recommendations !== undefined);
+
+    return { assessedPhotographCount, recommendationCount, hasRun };
+  }, [importVisit]);
+
   const visionDiscoverySummary = useMemo(() => {
     if (!importVisit) {
       return null;
@@ -1050,11 +1056,13 @@ function App() {
     return entryViewModels
       .filter(({ entry }) => !entry.reviewed)
       .filter(({ entry }) => {
-        const categories = entry.analysisSuggestions?.categories ?? [];
+        const editorialRecommendations = getEntryEditorialRecommendations(entry);
         return (
-          categories.includes("story-candidate") ||
-          categories.includes("hero-candidate") ||
-          categories.includes("favorite-candidate")
+          editorialRecommendations.some((recommendation) =>
+            recommendation.source === "v0.2"
+              ? recommendation.recommendation.kind === "story" || recommendation.recommendation.kind === "hero" || recommendation.recommendation.kind === "favorite"
+              : recommendation.kind === "story" || recommendation.kind === "hero" || recommendation.kind === "favorite"
+          )
         );
       })
       .sort((left, right) => {
@@ -1168,6 +1176,10 @@ function App() {
         status: "Finalized",
       };
     });
+  }
+
+  function handleRunStoryAnalysis() {
+    setImportVisit((currentVisit) => currentVisit ? applyStoryRecommendations(currentVisit) : currentVisit);
   }
 
   function openReviewWithIndex(index: number) {
@@ -1391,7 +1403,7 @@ function App() {
     const displayTitle = getImageFilename(image, imageRecord);
     const thumbnailSrc = resolveGalleryThumbnailSrc(image, imageRecord);
     const suggestionCategories = entry?.analysisSuggestions?.categories ?? [];
-    const captureLabel = imageRecord?.captureDate ? formatDateLabel(imageRecord.captureDate) : importVisit ? formatDateLabel(importVisit.date) : "Demo image";
+    const captureLabel = importVisit ? formatDateLabel(imageRecord?.captureDate) : "Demo image";
     const prioritizedSuggestionCategories: EntrySuggestionCategory[] = [
       "story-candidate",
       "hero-candidate",
@@ -1404,9 +1416,20 @@ function App() {
       "low-confidence",
       "possible-duplicates",
     ];
-    const visibleSuggestionCategories = prioritizedSuggestionCategories
-      .filter((category) => suggestionCategories.includes(category))
-      .slice(0, 2);
+    const v02Recommendations = entry?.analysisSuggestions?.recommendations;
+    const editorialRecommendations = entry ? getEntryEditorialRecommendations(entry) : [];
+    const authoritativeRecommendations = v02Recommendations !== undefined
+      ? editorialRecommendations
+      : [];
+    const legacySuggestionCategories = v02Recommendations === undefined
+      ? prioritizedSuggestionCategories.filter((category) => suggestionCategories.includes(category))
+      : [];
+    const primaryV02Recommendation = authoritativeRecommendations[0];
+    const primarySuggestionCategory = legacySuggestionCategories[0];
+    const additionalSuggestionCount = Math.max(
+      (primaryV02Recommendation ? authoritativeRecommendations.length : legacySuggestionCategories.length) - 1,
+      0
+    );
     const placeLabel = importVisit
       ? imageRecord?.placeId
         ? getPlaceById(imageRecord.placeId)?.displayName ?? "Unknown"
@@ -1427,14 +1450,12 @@ function App() {
         >
           <div className="gallery-card-thumb">
             {thumbnailSrc ? <img src={thumbnailSrc} alt={image.alt} /> : <span>No preview</span>}
-            {image.hero ? <span className="gallery-card-badge gallery-card-badge-top-left">Hero</span> : null}
-            {image.favorite ? <span className="gallery-card-badge gallery-card-badge-top-right">Favorite</span> : null}
           </div>
 
           <div className="gallery-card-body">
             <div className="gallery-card-header">
               <strong>{displayTitle}</strong>
-              <span>#{index + 1}</span>
+              <span>Review · #{index + 1}</span>
             </div>
 
             <p className="gallery-card-meta">
@@ -1452,20 +1473,43 @@ function App() {
               )}
             </p>
 
-            <div className="gallery-card-statuses">
-              {image.favorite ? <span className="gallery-chip">Favorite</span> : null}
-              {image.hero ? <span className="gallery-chip">Hero</span> : null}
-              {entry?.storySelected ? <span className="gallery-chip active">Story</span> : null}
+            <div className="gallery-card-signals">
               {reviewed !== undefined ? (
-                <span className={`gallery-chip ${reviewed ? "active" : "muted"}`}>
+                <span
+                  className={`gallery-card-workflow ${reviewed ? "reviewed" : "pending"}`}
+                  data-testid={`gallery-workflow-${entry?.id ?? image.id}`}
+                >
                   {reviewed ? "Reviewed" : "Pending"}
                 </span>
               ) : null}
-              {visibleSuggestionCategories.map((category) => (
-                <span key={`${entry?.id ?? image.id}-${category}`} className="gallery-chip muted">
-                  {getSuggestionChipLabel(category)}
-                </span>
-              ))}
+
+              {(image.favorite || image.hero || entry?.storySelected) ? (
+                <div className="gallery-card-curation" data-testid={`gallery-curation-${entry?.id ?? image.id}`} aria-label="Curator selections">
+                  {image.favorite ? <span className="gallery-card-curation-chip">Favorite</span> : null}
+                  {image.hero ? <span className="gallery-card-curation-chip">Hero</span> : null}
+                  {entry?.storySelected ? <span className="gallery-card-curation-chip">Story</span> : null}
+                </div>
+              ) : null}
+
+              {primaryV02Recommendation?.source === "v0.2" ? (
+                <div className="gallery-card-recommendation" data-testid={`gallery-ai-recommendation-${entry?.id ?? image.id}`}>
+                  <span className="gallery-card-ai-chip">AI · {primaryV02Recommendation.recommendation.kind.charAt(0).toUpperCase()}{primaryV02Recommendation.recommendation.kind.slice(1)}</span>
+                  {additionalSuggestionCount > 0 ? (
+                    <span className="gallery-card-ai-count" title={`${additionalSuggestionCount} additional AI recommendations`}>
+                      +{additionalSuggestionCount} AI
+                    </span>
+                  ) : null}
+                </div>
+              ) : primarySuggestionCategory ? (
+                <div className="gallery-card-recommendation" data-testid={`gallery-ai-recommendation-${entry?.id ?? image.id}`}>
+                  <span className="gallery-card-ai-chip">{getSuggestionChipLabel(primarySuggestionCategory)}</span>
+                  {additionalSuggestionCount > 0 ? (
+                    <span className="gallery-card-ai-count" title={`${additionalSuggestionCount} additional AI recommendations`}>
+                      +{additionalSuggestionCount} AI
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </div>
         </button>
@@ -1571,7 +1615,9 @@ function App() {
                       });
                     }
 
-                    return mergedVisit ? withAutomaticAnalysisSuggestions(mergedVisit, overviewObservationEngine) : mergedVisit;
+                    return mergedVisit
+                      ? applyStoryRecommendations(withAutomaticAnalysisSuggestions(mergedVisit, overviewObservationEngine))
+                      : mergedVisit;
                   });
                 }}
               />
@@ -1732,7 +1778,7 @@ function App() {
               {visionDiscoverySummary ? (
                 <section className="vision-engine-summary" data-testid="vision-engine-summary" aria-live="polite" ref={visionSummaryRef}>
                   <div className="vision-engine-summary-header">
-                    <p className="eyebrow">Vision Engine v0.1</p>
+                    <p className="eyebrow">Vision Engine v0.1 · Place discovery</p>
                     <h4>Discover Places</h4>
                     <p className="result-count">
                       {visionDiscoverySummary.analyzedImageCount} photographs analyzed
@@ -1870,6 +1916,20 @@ function App() {
                   {placeAssignmentFeedback ? (
                     <p className="result-count" aria-live="polite">{placeAssignmentFeedback}</p>
                   ) : null}
+                </section>
+              ) : null}
+
+              {importVisit ? (
+                <section className="story-analysis-summary" data-testid="story-analysis-summary" aria-live="polite">
+                  <div>
+                    <p className="eyebrow">Vision Engine v0.2 · Story analysis</p>
+                    <h4>Story recommendations</h4>
+                    <p className="result-count">{storyAnalysisSummary.assessedPhotographCount} photographs assessed</p>
+                    <p className="result-count">{storyAnalysisSummary.recommendationCount} Story recommendations</p>
+                  </div>
+                  <button type="button" className="secondary-action story-analysis-run" data-testid="run-story-analysis" onClick={handleRunStoryAnalysis}>
+                    {storyAnalysisSummary.hasRun ? "Re-run Story analysis" : "Run Story analysis"}
+                  </button>
                 </section>
               ) : null}
 

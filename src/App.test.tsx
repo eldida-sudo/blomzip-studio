@@ -337,6 +337,149 @@ describe("App", () => {
     expect(container.textContent).not.toContain("R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=");
   });
 
+  it("displays parsed capture dates and semantic undated labels alongside assigned places", async () => {
+    const datedState = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
+    const imageRecords = datedState.visit.imageRecords ?? [];
+
+    imageRecords[0] = {
+      ...imageRecords[0],
+      captureDate: "2024:05:06 12:34:56",
+      placeId: "rock-garden",
+    };
+    imageRecords[1] = {
+      ...imageRecords[1],
+      placeId: "house-wall",
+    };
+    mockImportState = datedState;
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const cards = Array.from(container.querySelectorAll(".gallery-card"));
+    const exifDateCard = cards.find((card) => card.textContent?.includes("courtyard-01.jpg"));
+    const undatedCard = cards.find((card) => card.textContent?.includes("courtyard-02.jpg"));
+
+    expect(exifDateCard?.textContent).toContain(new Date(2024, 4, 6, 12, 34, 56).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    }));
+    expect(exifDateCard?.textContent).toContain("The Rock Garden");
+    expect(undatedCard?.textContent).toContain("Undated");
+    expect(undatedCard?.textContent).toContain("The House Wall");
+  });
+
+  it("separates workflow, curator selections, and a compact AI recommendation summary in gallery cards", async () => {
+    const hierarchyState = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
+    hierarchyState.visit.entries[0] = {
+      ...hierarchyState.visit.entries[0],
+      favorite: true,
+      hero: true,
+      storySelected: true,
+      reviewed: false,
+      analysisSuggestions: {
+        engine: "mock-observation-engine",
+        generatedAt: "2026-07-08T00:00:00.000Z",
+        confidence: 0.91,
+        categories: ["story-candidate", "hero-candidate", "favorite-candidate", "strong-change"],
+      },
+    };
+    hierarchyState.visit.entries[1] = {
+      ...hierarchyState.visit.entries[1],
+      reviewed: true,
+    };
+    mockImportState = hierarchyState;
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const firstCard = Array.from(container.querySelectorAll(".gallery-card")).find((card) => card.textContent?.includes("courtyard-01.jpg"));
+    const pendingWorkflow = firstCard?.querySelector('[data-testid="gallery-workflow-entry-1"]');
+    const curation = firstCard?.querySelector('[data-testid="gallery-curation-entry-1"]');
+    const reviewedWorkflow = container.querySelector('[data-testid="gallery-workflow-entry-2"]');
+
+    expect(pendingWorkflow?.textContent).toBe("Pending");
+    expect(pendingWorkflow?.className).toContain("gallery-card-workflow");
+    expect(pendingWorkflow?.className).toContain("pending");
+    expect(reviewedWorkflow?.textContent).toBe("Reviewed");
+    expect(reviewedWorkflow?.className).toContain("reviewed");
+    expect(curation?.textContent).toContain("Favorite");
+    expect(curation?.textContent).toContain("Hero");
+    expect(curation?.textContent).toContain("Story");
+    expect(firstCard?.querySelector('[data-testid="gallery-ai-recommendation-entry-1"]')).toBeNull();
+
+    act(() => {
+      firstCard?.querySelector(".preview-card-button")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Entry 1 of 2");
+  });
+
+  it("runs Story v0.2 analysis on the current archive and reports persisted recommendation counts", async () => {
+    const storyAnalysisState = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
+    const imageRecords = storyAnalysisState.visit.imageRecords ?? [];
+    imageRecords[0] = {
+      ...imageRecords[0],
+      placeId: "rock-garden",
+      captureDate: "2026-01-01T10:00:00.000Z",
+    };
+    imageRecords[1] = {
+      ...imageRecords[1],
+      placeId: "rock-garden",
+      captureDate: "2026-02-01T10:00:00.000Z",
+    };
+    mockImportState = storyAnalysisState;
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const storySummary = container.querySelector('[data-testid="story-analysis-summary"]');
+    expect(storySummary?.textContent).toContain("Vision Engine v0.2 · Story analysis");
+    expect(storySummary?.textContent).toContain("2 photographs assessed");
+    expect(storySummary?.textContent).toContain("2 Story recommendations");
+
+    act(() => {
+      container.querySelector('[data-testid="run-story-analysis"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(storySummary?.textContent).toContain("2 Story recommendations");
+    expect(container.querySelector('[data-testid="run-story-analysis"]')?.textContent).toBe("Re-run Story analysis");
+    expect((storyAnalysisState.visit.entries[0]?.analysisSuggestions?.recommendations ?? [])).toHaveLength(0);
+    expect(container.querySelector('[data-testid="gallery-ai-recommendation-entry-1"]')?.textContent).toContain("AI · Story");
+  });
+
+  it("suppresses stale legacy Story display when v0.2 recommendations are authoritative", async () => {
+    const v02State = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
+    v02State.visit.entries[0] = {
+      ...v02State.visit.entries[0],
+      analysisSuggestions: {
+        ...v02State.visit.entries[0]?.analysisSuggestions!,
+        categories: ["story-candidate"],
+        recommendations: [],
+      },
+    };
+    mockImportState = v02State;
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const firstRecommendation = container.querySelector('[data-testid="gallery-ai-recommendation-entry-1"]');
+
+    expect(firstRecommendation).toBeNull();
+  });
+
   it("falls back to imageRecord thumbnailUrl when gallery image src is empty", () => {
     const image = {
       ...initialImages[0],
@@ -753,6 +896,8 @@ describe("App", () => {
       placeSelect?.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
+    expect(approveButton?.disabled).toBe(false);
+
     act(() => {
       approveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
@@ -986,7 +1131,7 @@ describe("App", () => {
 
     const primaryButtons = container.querySelectorAll('[data-testid="primary-next-action"]');
     expect(primaryButtons).toHaveLength(1);
-    expect(primaryButtons[0]?.textContent).toContain("Select Story candidates");
+    expect(primaryButtons[0]?.textContent).toContain("Review AI suggestions");
   });
 
   it("keeps archive statistics in one place without sidebar duplication", () => {
@@ -1037,7 +1182,7 @@ describe("App", () => {
     });
 
     expect(container.querySelector('[data-testid="ai-inbox-main"]')).toBeDefined();
-    expect(container.textContent).toContain("Story candidates");
+    expect(container.textContent).toContain("Story recommendations");
 
     const inboxSuggestionButton = Array.from(container.querySelectorAll(".ai-suggestion-item")).find((button) =>
       button.textContent?.includes("courtyard-02.jpg")
@@ -1062,14 +1207,7 @@ describe("App", () => {
       button.textContent?.includes("Story-first queue")
     );
     expect(storyQueueButton).toBeDefined();
-
-    act(() => {
-      storyQueueButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    expect(container.textContent).toContain("Entry 2 of 2");
-    expect(container.textContent).toContain("courtyard-02.jpg");
-    expect(container.textContent).toContain("Back to archive");
+    expect(storyQueueButton?.disabled).toBe(true);
   });
 
   it("persists Favorite/Hero/Story through save draft and load draft", () => {
@@ -1081,7 +1219,7 @@ describe("App", () => {
       Array.from(container.querySelectorAll("button")).find((button) => button.textContent === text);
 
     act(() => {
-      container.querySelector('[data-testid="primary-next-action"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      container.querySelector(".preview-card-button")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     act(() => {
@@ -1109,12 +1247,6 @@ describe("App", () => {
 
     act(() => {
       loadDraftButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-    });
-
-    const nextButtonInReview = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Next");
-
-    act(() => {
-      nextButtonInReview?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(container.textContent).toContain("Back to archive");

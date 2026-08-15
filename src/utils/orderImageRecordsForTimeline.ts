@@ -1,4 +1,5 @@
 import type { ImageRecord } from "../models/blomzip";
+import { parseCaptureDate } from "./captureDate";
 
 export type TimelineOrderingStrategy = "captureDate" | "filename";
 
@@ -8,12 +9,7 @@ export interface TimelineOrderingResult {
 }
 
 function normalizeCaptureDate(value?: string) {
-  if (!value) {
-    return undefined;
-  }
-
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? undefined : parsed;
+  return parseCaptureDate(value)?.getTime();
 }
 
 export function orderImageRecordsForTimeline(records: ImageRecord[]): TimelineOrderingResult {

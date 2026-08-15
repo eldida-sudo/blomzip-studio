@@ -1,4 +1,5 @@
 import type { Entry, ImageRecord, Visit } from "../models/blomzip";
+import { parseCaptureDate } from "./captureDate";
 
 export interface VisionPlaceCandidateGroup {
   id: string;
@@ -128,12 +129,7 @@ function getPathCluster(sourcePath: string): string {
 }
 
 function parseCaptureTimestamp(captureDate: string | undefined): number | null {
-  if (!captureDate) {
-    return null;
-  }
-
-  const parsed = Date.parse(captureDate);
-  return Number.isNaN(parsed) ? null : parsed;
+  return parseCaptureDate(captureDate)?.getTime() ?? null;
 }
 
 function buildFeatureRows(visit: Visit, importBatchId?: string | null): FeatureRow[] {
@@ -448,7 +444,7 @@ function discoverNearDuplicateGroups(rows: FeatureRow[]): VisionNearDuplicateGro
 function buildHeroScore(row: FeatureRow, entry: Entry | undefined, duplicateRecordIds: Set<string>): number {
   const aiConfidence = entry?.analysisSuggestions?.confidence ?? 0.55;
   const heroHint = entry?.analysisSuggestions?.categories.includes("hero-candidate") ? 0.12 : 0;
-  const storyHint = entry?.analysisSuggestions?.categories.includes("story-candidate") ? 0.08 : 0;
+  const storyHint = entry?.analysisSuggestions?.categories.includes("story-candidate") || aiConfidence >= 0.7 ? 0.08 : 0;
   const reviewedBoost = entry?.reviewed ? 0.04 : 0;
 
   const megapixelScore = row.megapixels > 0

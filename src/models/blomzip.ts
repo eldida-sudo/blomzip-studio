@@ -105,12 +105,31 @@ export type EntrySuggestionCategory =
   | "low-confidence"
   | "possible-duplicates";
 
+export type EntryRecommendationKind = "story" | "hero" | "favorite";
+
+export interface EntryRecommendationEvidence {
+  signal: string;
+  contribution?: number;
+  detail?: string;
+}
+
+export interface EntryRecommendation {
+  kind: EntryRecommendationKind;
+  score: number;
+  reasons: string[];
+  evidence: EntryRecommendationEvidence[];
+  engine: string;
+  generatedAt: string;
+  analysisVersion: number;
+}
+
 export interface EntryAnalysisSuggestions {
   engine: "mock-observation-engine" | "future-vision-engine";
   generatedAt: string;
   confidence: number;
   categories: EntrySuggestionCategory[];
   possibleDuplicateEntryIds?: string[];
+  recommendations?: EntryRecommendation[];
 }
 
 export interface Observation {

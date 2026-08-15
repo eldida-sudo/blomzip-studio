@@ -606,6 +606,47 @@ textarea {
   font-size: 13px;
 }
 
+.vision-engine-summary .result-count,
+.vision-engine-summary .vision-engine-group-representative-label {
+  color: #314233;
+}
+
+.story-analysis-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(113, 91, 49, 0.28);
+  border-radius: 14px;
+  background: #f5ead2;
+  color: #3f331d;
+}
+
+.story-analysis-summary h4,
+.story-analysis-summary .result-count {
+  margin: 0;
+  color: #3f331d;
+}
+
+.story-analysis-summary h4 {
+  margin-bottom: 3px;
+  font-size: 16px;
+}
+
+.story-analysis-summary .eyebrow {
+  margin-bottom: 4px;
+  color: #715b31;
+}
+
+.story-analysis-run {
+  flex: 0 0 auto;
+  border-color: #715b31;
+  background: #715b31;
+  color: #fffaf0;
+  font-weight: 700;
+}
+
 .vision-engine-groups {
   display: grid;
   gap: 6px;
@@ -728,6 +769,30 @@ textarea {
 
 .vision-engine-group-approve {
   width: 100%;
+  border-color: #243126;
+  background: #243126;
+  color: #fffaf0;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.vision-engine-group-approve:not(:disabled):hover,
+.vision-engine-group-approve:not(:disabled):focus-visible {
+  border-color: #314233;
+  background: #314233;
+  box-shadow: 0 0 0 2px rgba(36, 49, 38, 0.2);
+}
+
+.vision-engine-group-approve:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.vision-engine-group-approve:disabled {
+  border-color: #c8c1b3;
+  background: #e3ddd1;
+  color: #687066;
+  cursor: not-allowed;
 }
 
 .vision-engine-group-image-button {
@@ -938,6 +1003,7 @@ textarea {
   display: grid;
   gap: 6px;
   min-width: 0;
+  overflow: hidden;
   align-content: start;
 }
 
@@ -980,53 +1046,73 @@ textarea {
   color: #9b9688;
 }
 
-.gallery-card-statuses {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  min-height: 22px;
+.gallery-card-signals {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
 }
 
-.gallery-chip {
+.gallery-card-workflow,
+.gallery-card-curation-chip,
+.gallery-card-ai-chip,
+.gallery-card-ai-count {
   display: inline-flex;
   align-items: center;
+  max-width: 100%;
   padding: 4px 7px;
   border-radius: 999px;
-  background: #e9e1d1;
-  color: #243126;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.03em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
-.gallery-chip.active {
-  background: #243126;
-  color: #fffaf0;
+.gallery-card-workflow {
+  justify-self: start;
+  border: 1px solid #d2c4a9;
+  background: #f5ead2;
+  color: #715b31;
 }
 
-.gallery-chip.muted {
-  background: rgba(36, 49, 38, 0.08);
-  color: #4f5f48;
+.gallery-card-workflow.reviewed {
+  border-color: #9bb894;
+  background: #e1eddd;
+  color: #315131;
 }
 
-.gallery-card-badge {
-  position: absolute;
-  top: 10px;
-  border-radius: 999px;
-  padding: 5px 8px;
-  background: rgba(255, 250, 240, 0.92);
-  color: #243126;
-  font-size: 11px;
-  font-weight: 800;
+.gallery-card-curation,
+.gallery-card-recommendation {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
 }
 
-.gallery-card-badge-top-left {
-  left: 10px;
+.gallery-card-curation {
+  flex-wrap: wrap;
 }
 
-.gallery-card-badge-top-right {
-  right: 10px;
+.gallery-card-curation-chip {
+  border: 1px solid #82987d;
+  background: #dce7d8;
+  color: #29402b;
+}
+
+.gallery-card-ai-chip {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #c8d0c3;
+  background: #edf0e9;
+  color: #4a5b48;
+  text-overflow: ellipsis;
+}
+
+.gallery-card-ai-count {
+  flex: 0 0 auto;
+  border: 1px solid #d5d0c3;
+  background: #f4f0e8;
+  color: #667060;
 }
 
 .gallery-card:hover {
@@ -1068,19 +1154,6 @@ textarea {
 .gallery-card.is-current .gallery-card-meta,
 .gallery-card.is-current .gallery-card-header span {
   color: #243126;
-}
-
-.gallery-card.is-current .gallery-chip {
-  background: #efe6d5;
-}
-
-.gallery-card.is-current .gallery-chip.active {
-  background: #172319;
-}
-
-.gallery-card.is-current .gallery-card-badge {
-  background: rgba(36, 49, 38, 0.92);
-  color: #fffaf0;
 }
 
 .gallery-card-action-row {
@@ -1475,6 +1548,87 @@ button {
   border-radius: 14px;
   border: 1px solid rgba(159, 181, 157, 0.5);
   background: rgba(159, 181, 157, 0.16);
+}
+
+.entry-review-editorial-recommendations {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(224, 197, 134, 0.52);
+  background: rgba(125, 103, 52, 0.2);
+}
+
+.entry-review-editorial-recommendations > strong {
+  color: #fff8ec;
+}
+
+.entry-review-editorial-recommendation-list {
+  display: grid;
+  gap: 7px;
+}
+
+.entry-review-editorial-recommendation {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  padding: 8px 9px;
+  border: 1px solid rgba(247, 244, 236, 0.22);
+  border-radius: 10px;
+  background: rgba(247, 244, 236, 0.08);
+}
+
+.entry-review-editorial-recommendation.legacy {
+  border-style: dashed;
+  background: rgba(247, 244, 236, 0.05);
+}
+
+.entry-review-editorial-recommendation p,
+.entry-review-editorial-empty {
+  margin: 0;
+  color: #f5f0e3;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.entry-review-editorial-recommendation-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.entry-review-editorial-recommendation-heading strong,
+.entry-review-editorial-recommendation.legacy > strong {
+  color: #fff8ec;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.entry-review-editorial-recommendation-heading span {
+  flex: 0 0 auto;
+  color: #f7e6b7;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.entry-review-editorial-details {
+  color: #f3eddf;
+  font-size: 12px;
+}
+
+.entry-review-editorial-details summary {
+  cursor: pointer;
+  color: #f7e6b7;
+  font-weight: 600;
+}
+
+.entry-review-editorial-details ul {
+  display: grid;
+  gap: 3px;
+  margin: 6px 0 0;
+  padding-left: 18px;
 }
 
 .entry-review-ai-suggestions strong {
@@ -2263,22 +2417,12 @@ button.active {
     font-size: 10px;
   }
 
-  .gallery-chip {
+  .gallery-card-workflow,
+  .gallery-card-curation-chip,
+  .gallery-card-ai-chip,
+  .gallery-card-ai-count {
     padding: 3px 6px;
     font-size: 9px;
-  }
-
-  .gallery-card-badge {
-    top: 8px;
-    padding: 4px 7px;
-  }
-
-  .gallery-card-badge-top-left {
-    left: 8px;
-  }
-
-  .gallery-card-badge-top-right {
-    right: 8px;
   }
 
   .gallery-card-button:hover {

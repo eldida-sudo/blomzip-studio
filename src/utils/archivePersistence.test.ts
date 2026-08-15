@@ -104,7 +104,7 @@ describe("archivePersistence", () => {
 
     expect(restored).toEqual(expect.objectContaining({
       schema: "blomzip.archive-state",
-      schemaVersion: 1,
+      schemaVersion: 2,
       importVisit: expect.objectContaining({
         id: visit.id,
         entries: expect.arrayContaining([
@@ -160,9 +160,94 @@ describe("archivePersistence", () => {
 
     expect(restored).toEqual(expect.objectContaining({
       schema: "blomzip.archive-state",
-      schemaVersion: 1,
+      schemaVersion: 2,
       importVisit: expect.objectContaining({ id: visit.id }),
     }));
+  });
+
+  it("migrates a schema v1 archive without recommendations", async () => {
+    window.localStorage.setItem(
+      "blomzip-studio:archive-state:v1",
+      JSON.stringify({
+        schema: "blomzip.archive-state",
+        schemaVersion: 1,
+        savedAt: "2026-07-10T12:00:00.000Z",
+        importVisit: {
+          ...visit,
+          entries: [{
+            ...visit.entries[0],
+            analysisSuggestions: {
+              engine: "mock-observation-engine",
+              generatedAt: "2026-07-10T00:00:00.000Z",
+              confidence: 0.91,
+              categories: ["story-candidate"],
+            },
+          }],
+        },
+        draftWorkspace,
+      })
+    );
+
+    const restored = await loadArchiveState();
+
+    expect(restored?.schemaVersion).toBe(2);
+    expect(restored?.importVisit?.entries[0]?.analysisSuggestions).toEqual(expect.objectContaining({
+      categories: ["story-candidate"],
+      recommendations: undefined,
+    }));
+  });
+
+  it("persists v0.2 recommendations with independent nested reasons and evidence", async () => {
+    const recommendationVisit: Visit = {
+      ...visit,
+      entries: [{
+        ...visit.entries[0],
+        analysisSuggestions: {
+          engine: "future-vision-engine",
+          generatedAt: "2026-08-14T00:00:00.000Z",
+          confidence: 0.8,
+          categories: ["story-candidate"],
+          recommendations: [
+            {
+              kind: "story",
+              score: 0.88,
+              reasons: ["Documents a seasonal change."],
+              evidence: [{ signal: "seasonal-event", contribution: 0.52, detail: "Flowering border" }],
+              engine: "vision-engine-v0.2",
+              generatedAt: "2026-08-14T00:00:00.000Z",
+              analysisVersion: 2,
+            },
+          ],
+        },
+      }],
+    };
+    const snapshot = createArchiveStateSnapshot({ importVisit: recommendationVisit, draftWorkspace });
+    const sourceRecommendation = recommendationVisit.entries[0]?.analysisSuggestions?.recommendations?.[0];
+    const persistedRecommendation = snapshot.importVisit?.entries[0]?.analysisSuggestions?.recommendations?.[0];
+
+    if (!sourceRecommendation || !persistedRecommendation) {
+      throw new Error("Expected v0.2 recommendation data");
+    }
+
+    sourceRecommendation.reasons[0] = "Changed after snapshot.";
+    sourceRecommendation.evidence[0]!.detail = "Changed after snapshot.";
+
+    expect(persistedRecommendation.reasons).toEqual(["Documents a seasonal change."]);
+    expect(persistedRecommendation.evidence).toEqual([
+      { signal: "seasonal-event", contribution: 0.52, detail: "Flowering border" },
+    ]);
+
+    await saveArchiveState(snapshot);
+    const restored = await loadArchiveState();
+
+    expect(restored?.importVisit?.entries[0]?.analysisSuggestions?.recommendations).toEqual([
+      expect.objectContaining({
+        kind: "story",
+        score: 0.88,
+        reasons: ["Documents a seasonal change."],
+        evidence: [{ signal: "seasonal-event", contribution: 0.52, detail: "Flowering border" }],
+      }),
+    ]);
   });
 
   it("migrates legacy snapshots with oversized thumbnail payloads and preserves metadata while using fallback thumbnails", async () => {
@@ -342,7 +427,7 @@ describe("archivePersistence", () => {
 
     expect(restored).toEqual(expect.objectContaining({
       schema: "blomzip.archive-state",
-      schemaVersion: 1,
+      schemaVersion: 2,
       savedAt: "2026-06-15T10:12:00.000Z",
     }));
 
