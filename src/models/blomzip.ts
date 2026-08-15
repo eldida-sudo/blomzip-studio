@@ -85,12 +85,42 @@ export interface Entry {
   tags: string[];
   observations: Observation[];
   analysisSuggestions?: EntryAnalysisSuggestions;
+  visualAnalysis?: VisualAnalysisResult;
   favorite?: boolean;
   hero?: boolean;
   storySelected?: boolean;
   reviewed?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+// Narrow set of genuine, pixel-grounded signals a vision provider can report.
+// "negative-space" and "focal-structure" are reserved for future Hero analysis
+// and are intentionally not consumed by Story v0.2.
+export type VisualEvidenceSignalId =
+  | "human-activity"
+  | "spatial-overview"
+  | "place-legibility"
+  | "visible-change-cue"
+  | "vegetation-state"
+  | "negative-space"
+  | "focal-structure";
+
+export interface VisualEvidenceSignal {
+  signal: VisualEvidenceSignalId;
+  confidence: number;
+  detail: string;
+  provider: string;
+  analysisVersion: number;
+}
+
+// Result of genuine, curator-triggered visual analysis of a single image.
+// Kept distinct from mock Observations and from editorial EntryRecommendation evidence.
+export interface VisualAnalysisResult {
+  signals: VisualEvidenceSignal[];
+  provider: string;
+  generatedAt: string;
+  analysisVersion: number;
 }
 
 export type EntrySuggestionCategory =

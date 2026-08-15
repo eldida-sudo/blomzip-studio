@@ -148,4 +148,150 @@ describe("ZipImportPanel", () => {
       ...(secondVisit.imageRecords ?? []),
     ]);
   });
+
+  it("allows selecting multiple ZIP files in one picker action", () => {
+    act(() => {
+      root.render(<ZipImportPanel />);
+    });
+
+    const input = container.querySelector("input[type='file']") as HTMLInputElement;
+    expect(input.multiple).toBe(true);
+    expect(input.accept).toBe(".zip,application/zip");
+  });
+
+  it("processes multiple selected ZIP files sequentially, not concurrently, and disables the picker while active", async () => {
+    let resolveFirstRead: ((summary: ZipImportSummary) => void) | undefined;
+    let resolveSecondRead: ((summary: ZipImportSummary) => void) | undefined;
+
+    const firstDeferred = new Promise<ZipImportSummary>((resolve) => {
+      resolveFirstRead = resolve;
+    });
+    const secondDeferred = new Promise<ZipImportSummary>((resolve) => {
+      resolveSecondRead = resolve;
+    });
+
+    mockReadZipImages
+      .mockImplementationOnce(() => firstDeferred)
+      .mockImplementationOnce(() => secondDeferred);
+    mockCreateTemporaryVisitFromZip.mockReturnValue(null);
+
+    const fileA = { name: "a.zip", arrayBuffer: vi.fn(async () => new ArrayBuffer(8)) } as unknown as File;
+    const fileB = { name: "b.zip", arrayBuffer: vi.fn(async () => new ArrayBuffer(8)) } as unknown as File;
+
+    act(() => {
+      root.render(<ZipImportPanel />);
+    });
+
+    const input = container.querySelector("input[type='file']") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [fileA, fileB] });
+
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    // Only the first ZIP should have started reading; the queue must not run concurrently.
+    expect(mockReadZipImages).toHaveBeenCalledTimes(1);
+    expect((container.querySelector("input[type='file']") as HTMLInputElement).disabled).toBe(true);
+    expect(container.textContent).toContain("Importing 1 of 2 ZIP archives");
+
+    await act(async () => {
+      resolveFirstRead?.({
+        fileName: "a.zip",
+        status: "ready",
+        imageCount: 1,
+        totalImageSize: 5,
+        imageFiles: ["one.jpg"],
+      });
+      await firstDeferred;
+    });
+
+    expect(mockReadZipImages).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolveSecondRead?.({
+        fileName: "b.zip",
+        status: "ready",
+        imageCount: 3,
+        totalImageSize: 15,
+        imageFiles: ["two.jpg", "three.jpg", "four.jpg"],
+      });
+      await secondDeferred;
+    });
+
+    expect(container.textContent).toContain("2 ZIP archives processed · 2 imported");
+    expect((container.querySelector("input[type='file']") as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it("isolates a failing ZIP so later ZIPs still import and shows per-file queue status", async () => {
+    const goodSummary: ZipImportSummary = {
+      fileName: "good.zip",
+      status: "ready",
+      imageCount: 2,
+      totalImageSize: 10,
+      imageFiles: ["a.jpg", "b.jpg"],
+    };
+    const badSummary: ZipImportSummary = {
+      fileName: "bad.zip",
+      status: "invalid",
+      imageCount: 0,
+      totalImageSize: 0,
+      imageFiles: [],
+      errorMessage: "Corrupted archive",
+    };
+    const thirdSummary: ZipImportSummary = {
+      fileName: "third.zip",
+      status: "ready",
+      imageCount: 1,
+      totalImageSize: 5,
+      imageFiles: ["c.jpg"],
+    };
+
+    mockReadZipImages
+      .mockResolvedValueOnce(goodSummary)
+      .mockResolvedValueOnce(badSummary)
+      .mockResolvedValueOnce(thirdSummary);
+    mockCreateTemporaryVisitFromZip.mockReturnValue({
+      id: "visit-x",
+      placeId: "temporary-import",
+      date: "2026-07-09",
+      entries: [],
+      imageRecords: [],
+    } satisfies Visit);
+
+    const onImportStateChange = vi.fn();
+    const fileA = { name: "good.zip", arrayBuffer: vi.fn(async () => new ArrayBuffer(8)) } as unknown as File;
+    const fileB = { name: "bad.zip", arrayBuffer: vi.fn(async () => new ArrayBuffer(8)) } as unknown as File;
+    const fileC = { name: "third.zip", arrayBuffer: vi.fn(async () => new ArrayBuffer(8)) } as unknown as File;
+
+    act(() => {
+      root.render(<ZipImportPanel onImportStateChange={onImportStateChange} />);
+    });
+
+    const input = container.querySelector("input[type='file']") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [fileA, fileB, fileC] });
+
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mockReadZipImages).toHaveBeenCalledTimes(3);
+    expect(onImportStateChange).toHaveBeenCalledTimes(3);
+    expect(onImportStateChange.mock.calls[1][0].visit).toBeNull();
+
+    expect(container.textContent).toContain("3 ZIP archives processed · 2 imported · 1 failed");
+
+    const failedItem = container.querySelector('[data-testid="zip-queue-item-bad.zip"]');
+    expect(failedItem?.textContent).toContain("Failed");
+    expect(failedItem?.textContent).toContain("Corrupted archive");
+
+    const goodItem = container.querySelector('[data-testid="zip-queue-item-good.zip"]');
+    expect(goodItem?.textContent).toContain("Imported");
+
+    const thirdItem = container.querySelector('[data-testid="zip-queue-item-third.zip"]');
+    expect(thirdItem?.textContent).toContain("Imported");
+  });
 });

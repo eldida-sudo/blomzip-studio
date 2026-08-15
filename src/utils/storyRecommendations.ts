@@ -1,9 +1,65 @@
-import type { Entry, EntryRecommendation, ImageRecord, Visit } from "../models/blomzip";
+import type { Entry, EntryRecommendation, ImageRecord, Visit, VisualEvidenceSignal } from "../models/blomzip";
 import { parseCaptureDate } from "./captureDate";
 
 const STORY_ANALYSIS_VERSION = 2;
 const MIN_CONTEXT_SPAN_MS = 14 * 24 * 60 * 60 * 1000;
 const MIN_TEMPORAL_SEPARATION_MS = 14 * 24 * 60 * 60 * 1000;
+
+// Conservative weights for genuine visual evidence. These only ever apply on top of an
+// already-eligible entry (see buildStoryRecommendation) so a single visual signal can never
+// make an image Story-worthy by itself. negative-space and focal-structure are reserved for
+// future Hero analysis and are intentionally excluded here.
+const VISUAL_SIGNAL_STORY_WEIGHT: Partial<Record<VisualEvidenceSignal["signal"], number>> = {
+  "human-activity": 0.16,
+  "spatial-overview": 0.12,
+  "place-legibility": 0.12,
+  "visible-change-cue": 0.14,
+};
+
+interface StoryVisualContribution {
+  signal: VisualEvidenceSignal;
+  contribution: number;
+  reason: string;
+}
+
+function getSupportedVisualContributions(signals: VisualEvidenceSignal[] | undefined): StoryVisualContribution[] {
+  if (!signals || signals.length === 0) {
+    return [];
+  }
+
+  const contributions: StoryVisualContribution[] = [];
+
+  const humanActivitySignal = signals.find((signal) => signal.signal === "human-activity");
+  if (humanActivitySignal) {
+    contributions.push({
+      signal: humanActivitySignal,
+      contribution: Math.round(VISUAL_SIGNAL_STORY_WEIGHT["human-activity"]! * humanActivitySignal.confidence * 100) / 100,
+      reason: "Shows human activity captured in the frame.",
+    });
+  }
+
+  const documentationSignal = signals
+    .filter((signal) => signal.signal === "spatial-overview" || signal.signal === "place-legibility")
+    .sort((left, right) => right.confidence - left.confidence)[0];
+  if (documentationSignal) {
+    contributions.push({
+      signal: documentationSignal,
+      contribution: Math.round(VISUAL_SIGNAL_STORY_WEIGHT[documentationSignal.signal]! * documentationSignal.confidence * 100) / 100,
+      reason: "Documents the spatial layout of the place.",
+    });
+  }
+
+  const changeCueSignal = signals.find((signal) => signal.signal === "visible-change-cue");
+  if (changeCueSignal) {
+    contributions.push({
+      signal: changeCueSignal,
+      contribution: Math.round(VISUAL_SIGNAL_STORY_WEIGHT["visible-change-cue"]! * changeCueSignal.confidence * 100) / 100,
+      reason: "Captures a visible change worth comparing over time.",
+    });
+  }
+
+  return contributions;
+}
 
 interface StoryRow {
   entry: Entry;
@@ -140,6 +196,16 @@ function buildStoryRecommendation(options: {
       detail: `${contextRows.length} photographs currently assigned to this place`,
     });
   }
+
+  getSupportedVisualContributions(row.entry.visualAnalysis?.signals).forEach(({ signal, contribution, reason }) => {
+    score += contribution;
+    reasons.push(reason);
+    evidence.push({
+      signal: signal.signal,
+      contribution,
+      detail: signal.detail,
+    });
+  });
 
   return {
     kind: "story",

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Entry, ImageRecord, Visit } from "../models/blomzip";
+import type { Entry, ImageRecord, VisualEvidenceSignal, Visit } from "../models/blomzip";
 import { rankEditorialRecommendations } from "./recommendationRanking";
 import { applyStoryRecommendations, generateStoryRecommendations } from "./storyRecommendations";
 
@@ -155,5 +155,111 @@ describe("generateStoryRecommendations", () => {
     expect(ranked).toHaveLength(2);
     expect(appliedVisit.entries[0]?.analysisSuggestions?.categories).not.toContain("story-candidate");
     expect(appliedVisit.entries[0]?.analysisSuggestions?.categories).toEqual(expect.arrayContaining(["hero-candidate", "favorite-candidate"]));
+  });
+});
+
+describe("generateStoryRecommendations with genuine visual evidence", () => {
+  function visualSignal(overrides: Partial<VisualEvidenceSignal>): VisualEvidenceSignal {
+    return {
+      signal: "human-activity",
+      confidence: 0.9,
+      detail: "Two people are interacting outdoors.",
+      provider: "fixture-vision-provider-dev",
+      analysisVersion: 1,
+      ...overrides,
+    };
+  }
+
+  it("does not let a single visual signal make an otherwise ineligible image Story-worthy", () => {
+    const records = [
+      createRecord({ id: "dense-1", placeId: "house-wall", captureDate: "2026-01-01T10:00:00.000Z", timelineIndex: 0 }),
+      createRecord({ id: "dense-2", placeId: "house-wall", captureDate: "2026-01-02T10:00:00.000Z", timelineIndex: 1 }),
+    ];
+    const entries = records.map((record, index) => createEntry(`entry-${index}`, record.id));
+    entries[0] = {
+      ...entries[0]!,
+      visualAnalysis: {
+        signals: [visualSignal({})],
+        provider: "fixture-vision-provider-dev",
+        generatedAt: "2026-08-14T00:00:00.000Z",
+        analysisVersion: 1,
+      },
+    };
+
+    const recommendations = generateStoryRecommendations(createVisit(records, entries));
+
+    expect(recommendations.has("entry-0")).toBe(false);
+  });
+
+  it("increases score and adds honest evidence for supported visual signals on an already-eligible entry", () => {
+    const records = [
+      createRecord({ id: "rock-early", placeId: "rock-garden", captureDate: "2026-01-01T10:00:00.000Z", timelineIndex: 0 }),
+      createRecord({ id: "rock-late", placeId: "rock-garden", captureDate: "2026-02-01T10:00:00.000Z", timelineIndex: 1 }),
+    ];
+    const entries = records.map((record, index) => createEntry(`entry-${index}`, record.id));
+    const baselineRecommendation = generateStoryRecommendations(createVisit(records, entries)).get("entry-0");
+
+    entries[0] = {
+      ...entries[0]!,
+      visualAnalysis: {
+        signals: [visualSignal({})],
+        provider: "fixture-vision-provider-dev",
+        generatedAt: "2026-08-14T00:00:00.000Z",
+        analysisVersion: 1,
+      },
+    };
+    const withVisualEvidence = generateStoryRecommendations(createVisit(records, entries)).get("entry-0");
+
+    expect(withVisualEvidence?.score).toBeGreaterThan(baselineRecommendation?.score ?? 0);
+    expect(withVisualEvidence?.reasons).toContain("Shows human activity captured in the frame.");
+    expect(withVisualEvidence?.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ signal: "human-activity", detail: "Two people are interacting outdoors." }),
+    ]));
+  });
+
+  it("does not use negative-space or focal-structure signals for Story", () => {
+    const records = [
+      createRecord({ id: "rock-early", placeId: "rock-garden", captureDate: "2026-01-01T10:00:00.000Z", timelineIndex: 0 }),
+      createRecord({ id: "rock-late", placeId: "rock-garden", captureDate: "2026-02-01T10:00:00.000Z", timelineIndex: 1 }),
+    ];
+    const entries = records.map((record, index) => createEntry(`entry-${index}`, record.id));
+    const baselineRecommendation = generateStoryRecommendations(createVisit(records, entries)).get("entry-0");
+
+    entries[0] = {
+      ...entries[0]!,
+      visualAnalysis: {
+        signals: [
+          visualSignal({ signal: "negative-space", detail: "Large empty foreground area." }),
+          visualSignal({ signal: "focal-structure", detail: "A stone bench anchors the composition." }),
+        ],
+        provider: "fixture-vision-provider-dev",
+        generatedAt: "2026-08-14T00:00:00.000Z",
+        analysisVersion: 1,
+      },
+    };
+    const withUnsupportedEvidence = generateStoryRecommendations(createVisit(records, entries)).get("entry-0");
+
+    expect(withUnsupportedEvidence?.score).toBe(baselineRecommendation?.score);
+    expect(withUnsupportedEvidence?.evidence.some((evidence) => evidence.signal === "negative-space" || evidence.signal === "focal-structure")).toBe(false);
+  });
+
+  it("re-running Story after visual analysis is deterministic", () => {
+    const records = [
+      createRecord({ id: "rock-early", placeId: "rock-garden", captureDate: "2026-01-01T10:00:00.000Z", timelineIndex: 0 }),
+      createRecord({ id: "rock-late", placeId: "rock-garden", captureDate: "2026-02-01T10:00:00.000Z", timelineIndex: 1 }),
+    ];
+    const entries = records.map((record, index) => createEntry(`entry-${index}`, record.id));
+    entries[0] = {
+      ...entries[0]!,
+      visualAnalysis: {
+        signals: [visualSignal({})],
+        provider: "fixture-vision-provider-dev",
+        generatedAt: "2026-08-14T00:00:00.000Z",
+        analysisVersion: 1,
+      },
+    };
+    const visit = createVisit(records, entries);
+
+    expect(generateStoryRecommendations(visit)).toEqual(generateStoryRecommendations(visit));
   });
 });

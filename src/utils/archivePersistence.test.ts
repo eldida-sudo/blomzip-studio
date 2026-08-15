@@ -250,6 +250,58 @@ describe("archivePersistence", () => {
     ]);
   });
 
+  it("persists genuine visual analysis independently of mock observations and legacy analysis signals", async () => {
+    const visualAnalysisVisit: Visit = {
+      ...visit,
+      entries: [{
+        ...visit.entries[0],
+        visualAnalysis: {
+          signals: [
+            {
+              signal: "human-activity",
+              confidence: 0.92,
+              detail: "Two people are interacting outdoors.",
+              provider: "fixture-vision-provider-dev",
+              analysisVersion: 1,
+            },
+          ],
+          provider: "fixture-vision-provider-dev",
+          generatedAt: "2026-08-14T00:00:00.000Z",
+          analysisVersion: 1,
+        },
+      }],
+    };
+    const snapshot = createArchiveStateSnapshot({ importVisit: visualAnalysisVisit, draftWorkspace });
+    const sourceSignal = visualAnalysisVisit.entries[0]?.visualAnalysis?.signals[0];
+    const persistedSignal = snapshot.importVisit?.entries[0]?.visualAnalysis?.signals[0];
+
+    if (!sourceSignal || !persistedSignal) {
+      throw new Error("Expected visual analysis data");
+    }
+
+    sourceSignal.detail = "Changed after snapshot.";
+    expect(persistedSignal.detail).toBe("Two people are interacting outdoors.");
+
+    await saveArchiveState(snapshot);
+    const restored = await loadArchiveState();
+
+    expect(restored?.importVisit?.entries[0]?.visualAnalysis).toEqual(expect.objectContaining({
+      provider: "fixture-vision-provider-dev",
+      analysisVersion: 1,
+      signals: [
+        expect.objectContaining({
+          signal: "human-activity",
+          confidence: 0.92,
+          detail: "Two people are interacting outdoors.",
+        }),
+      ],
+    }));
+    // Mock observations remain a separate array and are never conflated with genuine visual evidence.
+    expect(restored?.importVisit?.entries[0]?.observations).toEqual([
+      expect.objectContaining({ id: "obs-1", source: "user" }),
+    ]);
+  });
+
   it("migrates legacy snapshots with oversized thumbnail payloads and preserves metadata while using fallback thumbnails", async () => {
     const largeThumbnail = `data:image/jpeg;base64,${"A".repeat(150_000)}`;
     const legacyVisit: Visit = {

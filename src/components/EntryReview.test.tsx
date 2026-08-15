@@ -9,6 +9,7 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { useState } from "react";
 import { EntryReview } from "./EntryReview";
 import { MockObservationEngine } from "./observationEngine";
+import { FixtureVisionProvider, type VisionProvider } from "../utils/visionProvider";
 import type { Visit } from "../models/blomzip";
 
 const visit: Visit = {
@@ -703,5 +704,159 @@ describe("EntryReview", () => {
     expect(observations.length).toBeGreaterThan(0);
     expect(observations.every((observation) => observation.entryId === "entry-1")).toBe(true);
     expect(observations.every((observation) => observation.source === "mock-ai")).toBe(true);
+  });
+
+  it("shows Not analyzed by default and reveals inspectable signals separately from mock observations after a curator-triggered analysis", async () => {
+    const fixtureProvider = new FixtureVisionProvider();
+
+    await act(async () => {
+      root.render(<EntryReview visit={visit} visionProvider={fixtureProvider} />);
+    });
+
+    const statusBefore = container.querySelector('[data-testid="visual-analysis-status"]');
+    expect(statusBefore?.textContent).toContain("Not analyzed");
+
+    const analyzeButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Analyze image");
+
+    await act(async () => {
+      analyzeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const statusAfter = container.querySelector('[data-testid="visual-analysis-status"]');
+    expect(statusAfter?.textContent).toContain("Analysis available");
+
+    const signalsSection = container.querySelector('[data-testid="visual-analysis-signals"]');
+    expect(signalsSection?.textContent).toContain("Human activity");
+    expect(signalsSection?.textContent).toContain("92%");
+    expect(signalsSection?.textContent).toContain("Two people are interacting outdoors.");
+
+    // Distinct from the legacy mock "Analysis signals" panel driven by MockObservationEngine.
+    const legacyPanel = container.querySelector('[data-testid="panel-ai-suggestions"]');
+    expect(legacyPanel?.textContent).not.toContain("Two people are interacting outdoors.");
+  });
+
+  it("shows Analysis failed without corrupting the entry when the provider rejects", async () => {
+    const failingProvider: VisionProvider = {
+      id: "failing-test-provider",
+      analyzeImage: () => Promise.reject(new Error("No genuine image-analysis provider is configured.")),
+    };
+    const onEntryUpdated = vi.fn();
+
+    await act(async () => {
+      root.render(<EntryReview visit={visit} visionProvider={failingProvider} onEntryUpdated={onEntryUpdated} />);
+    });
+
+    const analyzeButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Analyze image");
+
+    await act(async () => {
+      analyzeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    const status = container.querySelector('[data-testid="visual-analysis-status"]');
+    expect(status?.textContent).toContain("Analysis failed");
+    expect(status?.textContent).toContain("No genuine image-analysis provider is configured.");
+    expect(onEntryUpdated).not.toHaveBeenCalled();
+  });
+
+  it("re-runs Story after visual analysis and shows the recomputed capped score honestly", async () => {
+    const storyVisit: Visit = {
+      id: "visit-story",
+      placeId: "rock-garden",
+      date: "2026-01-01",
+      entries: [
+        {
+          id: "entry-story-1",
+          imageRecordId: "image-story-1",
+          visitId: "visit-story",
+          status: "new",
+          notes: "",
+          tags: [],
+          observations: [],
+          analysisSuggestions: {
+            engine: "mock-observation-engine",
+            generatedAt: "2026-08-14T00:00:00.000Z",
+            confidence: 0.9,
+            categories: [],
+            recommendations: [
+              {
+                kind: "story",
+                score: 0.56,
+                reasons: ["Provides an early chronological reference for this place."],
+                evidence: [{ signal: "chronological-anchor", contribution: 0.38, detail: "31 days across available dated photographs" }],
+                engine: "vision-engine-v0.2-story-context",
+                generatedAt: "2026-08-14T00:00:00.000Z",
+                analysisVersion: 2,
+              },
+            ],
+          },
+          createdAt: "2026-08-14T00:00:00.000Z",
+          updatedAt: "2026-08-14T00:00:00.000Z",
+        },
+        {
+          id: "entry-story-2",
+          imageRecordId: "image-story-2",
+          visitId: "visit-story",
+          status: "new",
+          notes: "",
+          tags: [],
+          observations: [],
+          analysisSuggestions: {
+            engine: "mock-observation-engine",
+            generatedAt: "2026-08-14T00:00:00.000Z",
+            confidence: 0.9,
+            categories: [],
+          },
+          createdAt: "2026-08-14T00:00:00.000Z",
+          updatedAt: "2026-08-14T00:00:00.000Z",
+        },
+      ],
+      imageRecords: [
+        {
+          id: "image-story-1",
+          placeId: "rock-garden",
+          filename: "rock-early.jpg",
+          fileSize: 100_000,
+          format: "jpg",
+          sourcePath: "rock-early.jpg",
+          captureDate: "2026-01-01T10:00:00.000Z",
+          timelineIndex: 0,
+          width: 1200,
+          height: 800,
+        },
+        {
+          id: "image-story-2",
+          placeId: "rock-garden",
+          filename: "rock-late.jpg",
+          fileSize: 110_000,
+          format: "jpg",
+          sourcePath: "rock-late.jpg",
+          captureDate: "2026-02-01T10:00:00.000Z",
+          timelineIndex: 1,
+          width: 1200,
+          height: 800,
+        },
+      ],
+      imageCount: 2,
+      status: "Ready for AI",
+    };
+
+    await act(async () => {
+      root.render(<EntryReview visit={storyVisit} visionProvider={new FixtureVisionProvider()} />);
+    });
+
+    expect(container.textContent).toContain("Score 56%");
+
+    const analyzeButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Analyze image");
+
+    await act(async () => {
+      analyzeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    // Recomputing from full archive context (chronological anchor + temporal separation +
+    // place coverage = 0.88) plus the human-activity visual contribution (+0.14) caps at 100%.
+    expect(container.textContent).toContain("Score 100%");
   });
 });

@@ -4,6 +4,7 @@ import type {
   EntryRecommendation,
   ImageRecord,
   Observation,
+  VisualAnalysisResult,
   Visit,
 } from "../models/blomzip";
 import { ARCHIVE_STATE_STORE_NAME, openArchiveDatabase } from "./archiveIndexedDb";
@@ -35,6 +36,13 @@ function sanitizeRecommendationForPersistence(recommendation: EntryRecommendatio
   };
 }
 
+function sanitizeVisualAnalysisForPersistence(visualAnalysis: VisualAnalysisResult): VisualAnalysisResult {
+  return {
+    ...visualAnalysis,
+    signals: visualAnalysis.signals.map((signal) => ({ ...signal })),
+  };
+}
+
 function sanitizeEntryForPersistence(entry: Entry): Entry {
   return {
     ...entry,
@@ -52,6 +60,7 @@ function sanitizeEntryForPersistence(entry: Entry): Entry {
             : undefined,
         }
       : undefined,
+    visualAnalysis: entry.visualAnalysis ? sanitizeVisualAnalysisForPersistence(entry.visualAnalysis) : undefined,
   };
 }
 

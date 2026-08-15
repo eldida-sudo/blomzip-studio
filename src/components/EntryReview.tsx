@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Entry, EntryRecommendationEvidence, EntryRecommendationKind, EntrySuggestionCategory, Observation, Visit } from "../models/blomzip";
+import type { Entry, EntryRecommendationEvidence, EntryRecommendationKind, EntrySuggestionCategory, Observation, VisualEvidenceSignalId, Visit } from "../models/blomzip";
 import { createThumbnailUrlForRecord } from "../utils/createThumbnailUrls";
 import { getEntryEditorialRecommendations } from "../utils/entryRecommendations";
+import { applyStoryRecommendations } from "../utils/storyRecommendations";
+import { createVisionProvider, type VisionProvider } from "../utils/visionProvider";
 import { MockObservationEngine, type ObservationEngine } from "./observationEngine";
 
 interface EntryReviewProps {
@@ -10,6 +12,7 @@ interface EntryReviewProps {
   onClose?: () => void;
   onEntryUpdated?: (entry: Entry) => void;
   onVisitFinalized?: (visit: Visit) => void;
+  visionProvider?: VisionProvider;
 }
 
 interface EntryDraft {
@@ -20,6 +23,26 @@ interface EntryDraft {
   hero: boolean;
   storySelected: boolean;
 }
+
+interface VisualAnalysisStatus {
+  state: "analyzing" | "failed";
+  message?: string;
+}
+
+function getVisualEvidenceSignalLabel(signal: VisualEvidenceSignalId): string {
+  const knownLabels: Record<VisualEvidenceSignalId, string> = {
+    "human-activity": "Human activity",
+    "spatial-overview": "Spatial overview",
+    "place-legibility": "Place legibility",
+    "visible-change-cue": "Visible change cue",
+    "vegetation-state": "Vegetation state",
+    "negative-space": "Negative space",
+    "focal-structure": "Focal structure",
+  };
+
+  return knownLabels[signal];
+}
+
 
 function getSuggestionCategoryLabel(category: EntrySuggestionCategory): string {
   switch (category) {
@@ -115,7 +138,7 @@ function formatCapturedDate(captureDate: string | undefined): string {
   return parsed.toLocaleString();
 }
 
-export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpdated, onVisitFinalized }: EntryReviewProps) {
+export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpdated, onVisitFinalized, visionProvider: visionProviderProp }: EntryReviewProps) {
   const [currentEntryId, setCurrentEntryId] = useState<string | null>(() => {
     if (visit.entries.length === 0) {
       return null;
@@ -126,6 +149,8 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
   });
   const [entries, setEntries] = useState(visit.entries);
   const [observationEngine] = useState<ObservationEngine>(() => new MockObservationEngine());
+  const [visionProvider] = useState<VisionProvider>(() => visionProviderProp ?? createVisionProvider());
+  const [visualAnalysisStatusByEntryId, setVisualAnalysisStatusByEntryId] = useState<Record<string, VisualAnalysisStatus>>({});
   const [entrySaveFeedback, setEntrySaveFeedback] = useState<{ state: "saving" | "saved"; savedAt?: string } | null>(null);
   const lastResetRef = useRef<{ visitId: string; initialEntryIndex: number } | null>(null);
   const lastUpdatedEntryIdRef = useRef<string | null>(null);
@@ -233,6 +258,20 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
   const suggestionCategories = entry?.analysisSuggestions?.categories ?? [];
   const editorialRecommendations = entry ? getEntryEditorialRecommendations(entry) : [];
   const hasV02Recommendations = entry?.analysisSuggestions?.recommendations !== undefined;
+  const visualAnalysisStatus = entry ? visualAnalysisStatusByEntryId[entry.id] : undefined;
+  const visualAnalysisState: "not-analyzed" | "analyzing" | "available" | "failed" = visualAnalysisStatus?.state === "analyzing"
+    ? "analyzing"
+    : visualAnalysisStatus?.state === "failed"
+      ? "failed"
+      : entry?.visualAnalysis
+        ? "available"
+        : "not-analyzed";
+  const visualAnalysisStateLabel: Record<typeof visualAnalysisState, string> = {
+    "not-analyzed": "Not analyzed",
+    analyzing: "Analyzing...",
+    available: "Analysis available",
+    failed: "Analysis failed",
+  };
   const suggestionReason = getSuggestionReason(suggestionCategories);
   const suggestionPlace = suggestionCategories.includes("by-place")
     ? getPlaceSuggestionLabel(imageRecord?.sourcePath)
@@ -416,6 +455,44 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
       updatedAt: new Date().toISOString(),
     }));
   }, [applyEntryUpdate, entry, observationEngine]);
+
+  const handleAnalyzeImageVisually = useCallback(() => {
+    if (!entry || !imageRecord) return;
+
+    const targetEntryId = entry.id;
+
+    setVisualAnalysisStatusByEntryId((current) => ({ ...current, [targetEntryId]: { state: "analyzing" } }));
+
+    visionProvider
+      .analyzeImage({ imageRecordId: imageRecord.id, filename: imageRecord.filename })
+      .then((visualAnalysis) => {
+        setEntries((currentEntries) => {
+          const updatedEntries = currentEntries.map((currentEntry) =>
+            currentEntry.id === targetEntryId
+              ? { ...currentEntry, visualAnalysis, updatedAt: new Date().toISOString() }
+              : currentEntry
+          );
+
+          return applyStoryRecommendations({ ...visit, entries: updatedEntries }).entries;
+        });
+
+        lastUpdatedEntryIdRef.current = targetEntryId;
+
+        setVisualAnalysisStatusByEntryId((current) => {
+          const { [targetEntryId]: _removed, ...rest } = current;
+          return rest;
+        });
+      })
+      .catch((error: unknown) => {
+        setVisualAnalysisStatusByEntryId((current) => ({
+          ...current,
+          [targetEntryId]: {
+            state: "failed",
+            message: error instanceof Error ? error.message : "Visual analysis failed.",
+          },
+        }));
+      });
+  }, [entry, imageRecord, visionProvider, visit]);
 
   const handlePrevious = useCallback(() => {
     setCurrentEntryId((id) => {
@@ -720,6 +797,35 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
               ) : null}
             </section>
           ) : null}
+
+          <section className="entry-review-visual-analysis" data-testid="panel-visual-analysis">
+            <strong>Visual analysis</strong>
+            <p className="entry-review-visual-analysis-status" data-testid="visual-analysis-status">
+              {visualAnalysisStateLabel[visualAnalysisState]}
+              {visualAnalysisState === "failed" && visualAnalysisStatus?.message ? ` — ${visualAnalysisStatus.message}` : null}
+            </p>
+            <button
+              type="button"
+              className="entry-review-visual-analysis-button"
+              onClick={handleAnalyzeImageVisually}
+              disabled={visualAnalysisState === "analyzing"}
+            >
+              {visualAnalysisState === "analyzing" ? "Analyzing..." : "Analyze image"}
+            </button>
+            {entry.visualAnalysis ? (
+              <ul className="entry-review-visual-analysis-signal-list" data-testid="visual-analysis-signals">
+                {entry.visualAnalysis.signals.map((signal) => (
+                  <li key={signal.signal} className="entry-review-visual-analysis-signal">
+                    <div className="entry-review-visual-analysis-signal-heading">
+                      <strong>{getVisualEvidenceSignalLabel(signal.signal)}</strong>
+                      <span>{Math.round(signal.confidence * 100)}%</span>
+                    </div>
+                    <p>{signal.detail}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
 
           {entry.analysisSuggestions ? (
             <section className="entry-review-ai-suggestions" data-testid="panel-ai-suggestions">
