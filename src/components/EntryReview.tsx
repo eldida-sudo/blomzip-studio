@@ -464,7 +464,11 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
     setVisualAnalysisStatusByEntryId((current) => ({ ...current, [targetEntryId]: { state: "analyzing" } }));
 
     visionProvider
-      .analyzeImage({ imageRecordId: imageRecord.id, filename: imageRecord.filename })
+      .analyzeImage({
+        imageRecordId: imageRecord.id,
+        filename: imageRecord.filename,
+        imageUrl: previewSrc,
+      })
       .then((visualAnalysis) => {
         setEntries((currentEntries) => {
           const updatedEntries = currentEntries.map((currentEntry) =>
