@@ -116,8 +116,33 @@ export interface VisualEvidenceSignal {
 
 // Result of genuine, curator-triggered visual analysis of a single image.
 // Kept distinct from mock Observations and from editorial EntryRecommendation evidence.
+export type HeroAssessmentRole =
+  | "place_hero"
+  | "story_hero"
+  | "both"
+  | "neither";
+
+export interface HeroEmotionalConnection {
+  score: number;
+  quality: string;
+  evidence: string;
+}
+
+export interface HeroAssessment {
+  score: number;
+  role: HeroAssessmentRole;
+  focalClarity: number;
+  composition: number;
+  atmosphere: number;
+  placeLegibility: number;
+  editorialUsability: number;
+  emotionalConnection: HeroEmotionalConnection;
+  reason: string;
+}
+
 export interface VisualAnalysisResult {
   signals: VisualEvidenceSignal[];
+  heroAssessment?: HeroAssessment;
   provider: string;
   generatedAt: string;
   analysisVersion: number;

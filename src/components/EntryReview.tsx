@@ -817,17 +817,69 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
               {visualAnalysisState === "analyzing" ? "Analyzing..." : "Analyze image"}
             </button>
             {entry.visualAnalysis ? (
-              <ul className="entry-review-visual-analysis-signal-list" data-testid="visual-analysis-signals">
-                {entry.visualAnalysis.signals.map((signal) => (
-                  <li key={signal.signal} className="entry-review-visual-analysis-signal">
+              <>
+                <ul className="entry-review-visual-analysis-signal-list" data-testid="visual-analysis-signals">
+                  {entry.visualAnalysis.signals.map((signal) => (
+                    <li key={signal.signal} className="entry-review-visual-analysis-signal">
+                      <div className="entry-review-visual-analysis-signal-heading">
+                        <strong>{getVisualEvidenceSignalLabel(signal.signal)}</strong>
+                        <span>{Math.round(signal.confidence * 100)}%</span>
+                      </div>
+                      <p>{signal.detail}</p>
+                    </li>
+                  ))}
+                </ul>
+
+                {entry.visualAnalysis.heroAssessment ? (
+                  <article
+                    className="entry-review-hero-assessment"
+                    data-testid="visual-analysis-hero-assessment"
+                  >
                     <div className="entry-review-visual-analysis-signal-heading">
-                      <strong>{getVisualEvidenceSignalLabel(signal.signal)}</strong>
-                      <span>{Math.round(signal.confidence * 100)}%</span>
+                      <strong>Hero v0.2</strong>
+                      <span>{Math.round(entry.visualAnalysis.heroAssessment.score * 100)}%</span>
                     </div>
-                    <p>{signal.detail}</p>
-                  </li>
-                ))}
-              </ul>
+
+                    <p>
+                      <strong>Role:</strong>{" "}
+                      {entry.visualAnalysis.heroAssessment.role.replaceAll("_", " ")}
+                    </p>
+
+                    <p>{entry.visualAnalysis.heroAssessment.reason}</p>
+
+                    <p>
+                      <strong>Focal clarity:</strong>{" "}
+                      {Math.round(entry.visualAnalysis.heroAssessment.focalClarity * 100)}%
+                      {" · "}
+                      <strong>Composition:</strong>{" "}
+                      {Math.round(entry.visualAnalysis.heroAssessment.composition * 100)}%
+                      {" · "}
+                      <strong>Atmosphere:</strong>{" "}
+                      {Math.round(entry.visualAnalysis.heroAssessment.atmosphere * 100)}%
+                    </p>
+
+                    <p>
+                      <strong>Place legibility:</strong>{" "}
+                      {Math.round(entry.visualAnalysis.heroAssessment.placeLegibility * 100)}%
+                      {" · "}
+                      <strong>Editorial usability:</strong>{" "}
+                      {Math.round(entry.visualAnalysis.heroAssessment.editorialUsability * 100)}%
+                    </p>
+
+                    <p>
+                      <strong>Emotional connection:</strong>{" "}
+                      {Math.round(entry.visualAnalysis.heroAssessment.emotionalConnection.score * 100)}%
+                      {" — "}
+                      {entry.visualAnalysis.heroAssessment.emotionalConnection.quality}
+                    </p>
+
+                    <p>
+                      <strong>Evidence:</strong>{" "}
+                      {entry.visualAnalysis.heroAssessment.emotionalConnection.evidence}
+                    </p>
+                  </article>
+                ) : null}
+              </>
             ) : null}
           </section>
 

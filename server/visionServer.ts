@@ -179,8 +179,22 @@ app.post("/api/vision/analyze", async (req, res) => {
           }
         }
       },
-      max_output_tokens: 1200,
+      max_output_tokens: 2400,
     });
+
+    if (response.status === "incomplete") {
+      return res.status(502).json({
+        error: `Vision response incomplete: ${response.incomplete_details?.reason ?? "unknown reason"}`,
+        usage: response.usage,
+      });
+    }
+
+    if (!response.output_text) {
+      return res.status(502).json({
+        error: "Vision response contained no output text.",
+        usage: response.usage,
+      });
+    }
 
     res.json({
       filename,

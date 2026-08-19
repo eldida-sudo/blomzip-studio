@@ -1,4 +1,10 @@
-import type { VisualAnalysisResult, VisualEvidenceSignal, VisualEvidenceSignalId } from "../models/blomzip";
+import type {
+  HeroAssessment,
+  HeroAssessmentRole,
+  VisualAnalysisResult,
+  VisualEvidenceSignal,
+  VisualEvidenceSignalId,
+} from "../models/blomzip";
 
 export const VISION_ANALYSIS_VERSION = 1;
 
@@ -14,6 +20,17 @@ const VISUAL_EVIDENCE_SIGNAL_IDS: ReadonlySet<VisualEvidenceSignalId> = new Set(
 
 function isVisualEvidenceSignalId(value: string): value is VisualEvidenceSignalId {
   return VISUAL_EVIDENCE_SIGNAL_IDS.has(value as VisualEvidenceSignalId);
+}
+
+const HERO_ASSESSMENT_ROLES: ReadonlySet<HeroAssessmentRole> = new Set([
+  "place_hero",
+  "story_hero",
+  "both",
+  "neither",
+]);
+
+function isHeroAssessmentRole(value: string): value is HeroAssessmentRole {
+  return HERO_ASSESSMENT_ROLES.has(value as HeroAssessmentRole);
 }
 
 export interface VisionAnalysisRequest {
@@ -150,12 +167,36 @@ export class ProxyVisionProvider implements VisionProvider {
       }),
     });
 
-    const payload = await response.json();
+    const responseText = await response.text();
+
+    if (!responseText) {
+      throw new Error(
+        `Vision proxy returned an empty HTTP response (status ${response.status}).`
+      );
+    }
+
+    let payload: {
+      error?: string;
+      outputText?: string;
+      [key: string]: unknown;
+    };
+
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      throw new Error(
+        `Vision proxy returned invalid HTTP JSON (status ${response.status}): ${responseText.slice(0, 160)}`
+      );
+    }
 
     if (!response.ok) {
       throw new Error(
-        payload?.error ?? `Visual analysis failed with status ${response.status}.`
+        payload.error ?? `Visual analysis failed with status ${response.status}.`
       );
+    }
+
+    if (typeof payload.outputText !== "string") {
+      throw new Error("Vision proxy response did not contain outputText.");
     }
 
     let parsed: {
@@ -164,6 +205,21 @@ export class ProxyVisionProvider implements VisionProvider {
         confidence: number;
         detail: string;
       }>;
+      hero_assessment?: {
+        score: number;
+        role: string;
+        focal_clarity: number;
+        composition: number;
+        atmosphere: number;
+        place_legibility: number;
+        editorial_usability: number;
+        emotional_connection: {
+          score: number;
+          quality: string;
+          evidence: string;
+        };
+        reason: string;
+      };
     };
 
     try {
@@ -184,8 +240,32 @@ export class ProxyVisionProvider implements VisionProvider {
         analysisVersion: VISION_ANALYSIS_VERSION,
       }));
 
+    let heroAssessment: HeroAssessment | undefined;
+
+    if (
+      parsed.hero_assessment &&
+      isHeroAssessmentRole(parsed.hero_assessment.role)
+    ) {
+      heroAssessment = {
+        score: parsed.hero_assessment.score,
+        role: parsed.hero_assessment.role,
+        focalClarity: parsed.hero_assessment.focal_clarity,
+        composition: parsed.hero_assessment.composition,
+        atmosphere: parsed.hero_assessment.atmosphere,
+        placeLegibility: parsed.hero_assessment.place_legibility,
+        editorialUsability: parsed.hero_assessment.editorial_usability,
+        emotionalConnection: {
+          score: parsed.hero_assessment.emotional_connection.score,
+          quality: parsed.hero_assessment.emotional_connection.quality,
+          evidence: parsed.hero_assessment.emotional_connection.evidence,
+        },
+        reason: parsed.hero_assessment.reason,
+      };
+    }
+
     return {
       signals: validatedSignals,
+      heroAssessment,
       provider: this.id,
       generatedAt: new Date().toISOString(),
       analysisVersion: VISION_ANALYSIS_VERSION,
