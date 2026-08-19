@@ -1,6 +1,20 @@
-import type { VisualAnalysisResult, VisualEvidenceSignal } from "../models/blomzip";
+import type { VisualAnalysisResult, VisualEvidenceSignal, VisualEvidenceSignalId } from "../models/blomzip";
 
 export const VISION_ANALYSIS_VERSION = 1;
+
+const VISUAL_EVIDENCE_SIGNAL_IDS: ReadonlySet<VisualEvidenceSignalId> = new Set([
+  "human-activity",
+  "spatial-overview",
+  "place-legibility",
+  "visible-change-cue",
+  "vegetation-state",
+  "negative-space",
+  "focal-structure",
+]);
+
+function isVisualEvidenceSignalId(value: string): value is VisualEvidenceSignalId {
+  return VISUAL_EVIDENCE_SIGNAL_IDS.has(value as VisualEvidenceSignalId);
+}
 
 export interface VisionAnalysisRequest {
   imageRecordId: string;
@@ -160,14 +174,18 @@ export class ProxyVisionProvider implements VisionProvider {
 
     const signals = Array.isArray(parsed.signals) ? parsed.signals : [];
 
-    return {
-      signals: signals.map((signal) => ({
-        signal: signal.signal,
+    const validatedSignals: VisualEvidenceSignal[] = signals
+      .filter((signal) => isVisualEvidenceSignalId(signal.signal))
+      .map((signal): VisualEvidenceSignal => ({
+        signal: signal.signal as VisualEvidenceSignalId,
         confidence: signal.confidence,
         detail: signal.detail,
         provider: this.id,
         analysisVersion: VISION_ANALYSIS_VERSION,
-      })),
+      }));
+
+    return {
+      signals: validatedSignals,
       provider: this.id,
       generatedAt: new Date().toISOString(),
       analysisVersion: VISION_ANALYSIS_VERSION,
