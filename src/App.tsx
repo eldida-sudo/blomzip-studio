@@ -37,6 +37,7 @@ import { createThumbnailUrlForRecord } from "./utils/createThumbnailUrls";
 import { parseCaptureDate } from "./utils/captureDate";
 import { getEntryEditorialRecommendations } from "./utils/entryRecommendations";
 import { applyStoryRecommendations } from "./utils/storyRecommendations";
+import { createVisionProvider } from "./utils/visionProvider";
 import type { VisionPlaceCandidateGroup } from "./utils/discoverPlacesVisionEngine";
 import type { ZipImportSummary } from "./utils/readZipImages";
 import "./App.css";
@@ -540,6 +541,13 @@ function App() {
   const [reviewStartIndex, setReviewStartIndex] = useState(0);
   const [activeVisionGroupId, setActiveVisionGroupId] = useState<string | null>(null);
   const [overviewObservationEngine] = useState<ObservationEngine>(() => new MockObservationEngine());
+  const [visionProvider] = useState(() => createVisionProvider());
+  const [batchVisionProgress, setBatchVisionProgress] = useState<{
+    completed: number;
+    total: number;
+    failed: number;
+    running: boolean;
+  } | null>(null);
   const [selectedPlaceByVisionGroupId, setSelectedPlaceByVisionGroupId] = useState<Record<string, string>>({});
   const [placeAssignmentFeedback, setPlaceAssignmentFeedback] = useState<string | null>(null);
   const hasAppliedStudioImagesRef = useRef(false);
@@ -1180,6 +1188,80 @@ function App() {
 
   function handleRunStoryAnalysis() {
     setImportVisit((currentVisit) => currentVisit ? applyStoryRecommendations(currentVisit) : currentVisit);
+  }
+
+  async function handleAnalyzeLatestBatch() {
+    if (!importVisit || !latestImportBatch || batchVisionProgress?.running) {
+      return;
+    }
+
+    const entriesByImageRecordId = new Map(
+      importVisit.entries.map((entry) => [entry.imageRecordId, entry])
+    );
+
+    const targets = (importVisit.imageRecords ?? [])
+      .filter((imageRecord) => imageRecord.importBatchId === latestImportBatch.id)
+      .map((imageRecord) => ({
+        imageRecord,
+        entry: entriesByImageRecordId.get(imageRecord.id),
+      }))
+      .filter(
+        (target): target is { imageRecord: ImageRecord; entry: Entry } =>
+          Boolean(target.entry) && !target.entry?.visualAnalysis
+      );
+
+    setBatchVisionProgress({
+      completed: 0,
+      total: targets.length,
+      failed: 0,
+      running: targets.length > 0,
+    });
+
+    if (targets.length === 0) {
+      return;
+    }
+
+    let workingVisit = importVisit;
+    let completed = 0;
+    let failed = 0;
+
+    for (const { imageRecord, entry } of targets) {
+      try {
+        const visualAnalysis = await visionProvider.analyzeImage({
+          imageRecordId: imageRecord.id,
+          filename: imageRecord.filename,
+          imageUrl: createThumbnailUrlForRecord(imageRecord),
+        });
+
+        workingVisit = {
+          ...workingVisit,
+          entries: workingVisit.entries.map((currentEntry) =>
+            currentEntry.id === entry.id
+              ? {
+                  ...currentEntry,
+                  visualAnalysis,
+                  updatedAt: new Date().toISOString(),
+                }
+              : currentEntry
+          ),
+        };
+
+        workingVisit = applyStoryRecommendations(workingVisit);
+        setImportVisit(workingVisit);
+      } catch (error) {
+        failed += 1;
+        console.error(`Vision analysis failed for ${imageRecord.filename}`, error);
+      }
+
+      completed += 1;
+
+      setBatchVisionProgress({
+        completed,
+        total: targets.length,
+        failed,
+        running: completed < targets.length,
+      });
+    }
   }
 
   function openReviewWithIndex(index: number) {
@@ -1927,9 +2009,40 @@ function App() {
                     <p className="result-count">{storyAnalysisSummary.assessedPhotographCount} photographs assessed</p>
                     <p className="result-count">{storyAnalysisSummary.recommendationCount} Story recommendations</p>
                   </div>
-                  <button type="button" className="secondary-action story-analysis-run" data-testid="run-story-analysis" onClick={handleRunStoryAnalysis}>
-                    {storyAnalysisSummary.hasRun ? "Re-run Story analysis" : "Run Story analysis"}
-                  </button>
+                  <div>
+                    <button
+                      type="button"
+                      className="secondary-action story-analysis-run"
+                      data-testid="analyze-latest-batch"
+                      onClick={() => void handleAnalyzeLatestBatch()}
+                      disabled={batchVisionProgress?.running}
+                    >
+                      {batchVisionProgress?.running
+                        ? `Analyzing ${batchVisionProgress.completed} / ${batchVisionProgress.total}`
+                        : "Analyze latest batch"}
+                    </button>
+
+                    {batchVisionProgress && !batchVisionProgress.running ? (
+                      <p className="result-count" data-testid="batch-vision-result">
+                        {batchVisionProgress.total === 0
+                          ? "Latest batch already analyzed"
+                          : `${batchVisionProgress.completed - batchVisionProgress.failed} analyzed${
+                              batchVisionProgress.failed > 0
+                                ? ` · ${batchVisionProgress.failed} failed`
+                                : ""
+                            }`}
+                      </p>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      className="secondary-action story-analysis-run"
+                      data-testid="run-story-analysis"
+                      onClick={handleRunStoryAnalysis}
+                    >
+                      {storyAnalysisSummary.hasRun ? "Re-run Story analysis" : "Run Story analysis"}
+                    </button>
+                  </div>
                 </section>
               ) : null}
 
