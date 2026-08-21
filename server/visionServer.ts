@@ -63,7 +63,7 @@ app.post("/api/vision/analyze", async (req, res) => {
           ],
         },
       ],
-      reasoning: { effort: "low" },
+      reasoning: { effort: "minimal" },
       text: {
         format: {
           type: "json_schema",
@@ -179,7 +179,7 @@ app.post("/api/vision/analyze", async (req, res) => {
           }
         }
       },
-      max_output_tokens: 2400,
+      max_output_tokens: 4000,
     });
 
     if (response.status === "incomplete") {
