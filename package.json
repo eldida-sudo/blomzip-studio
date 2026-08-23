@@ -4,11 +4,13 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k -n WEB,VISION \"npm:dev:web\" \"npm:dev:vision\"",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "import-images": "node scripts/import-images.mjs"
+    "import-images": "node scripts/import-images.mjs",
+    "dev:web": "vite --host 0.0.0.0",
+    "dev:vision": "tsx server/visionServer.ts"
   },
   "dependencies": {
     "cors": "^2.8.6",
@@ -27,6 +29,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/react-test-renderer": "^19.1.0",
     "@vitejs/plugin-react": "^6.0.3",
+    "concurrently": "^10.0.5",
     "jsdom": "^29.1.1",
     "oxlint": "^1.71.0",
     "react-test-renderer": "^19.2.7",
