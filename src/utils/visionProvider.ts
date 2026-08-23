@@ -37,6 +37,8 @@ export interface VisionAnalysisRequest {
   imageRecordId: string;
   filename: string;
   imageUrl?: string;
+  canonicalPlaceId?: string;
+  canonicalPlaceName?: string;
 }
 
 // Provider boundary: real image analysis must be implemented behind this interface
@@ -164,6 +166,8 @@ export class ProxyVisionProvider implements VisionProvider {
       body: JSON.stringify({
         filename: request.filename,
         imageDataUrl,
+        canonicalPlaceId: request.canonicalPlaceId,
+        canonicalPlaceName: request.canonicalPlaceName,
       }),
     });
 

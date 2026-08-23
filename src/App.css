@@ -2490,3 +2490,132 @@ button.active {
     transform: none;
   }
 }
+/* Editorial recommendation previews */
+
+.story-recommendation-previews {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.story-recommendation-preview {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  text-align: left;
+  border: 1px solid rgba(113, 91, 49, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 250, 240, 0.72);
+  color: #3f331d;
+  cursor: pointer;
+}
+
+.story-recommendation-preview:hover,
+.story-recommendation-preview:focus-visible {
+  border-color: rgba(113, 91, 49, 0.55);
+}
+
+.story-recommendation-image {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  background: rgba(113, 91, 49, 0.08);
+}
+
+.story-recommendation-image img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.story-recommendation-copy {
+  display: grid;
+  gap: 3px;
+  padding: 7px 8px 8px;
+}
+
+.story-recommendation-copy strong {
+  overflow: hidden;
+  font-size: 11px;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.story-recommendation-copy small {
+  color: #715b31;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.story-recommendation-preview.is-hero-recommendation {
+  border: 2px solid #715b31;
+}
+
+.hero-recommendation-badge {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #715b31;
+  color: #fffaf0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+@media (max-width: 760px) {
+  .story-analysis-summary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .story-recommendation-previews {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.vision-engine-group-preview-wrapper {
+  position: relative;
+}
+
+.vision-engine-group-remove-image {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  background: rgba(45, 42, 35, 0.78);
+  color: white;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.vision-engine-group-remove-image:hover,
+.vision-engine-group-remove-image:focus-visible {
+  background: rgba(45, 42, 35, 0.95);
+}
+
+.vision-engine-group-representative-wrapper {
+  position: relative;
+}
+
+.vision-engine-group-remove-representative {
+  top: 8px;
+  right: 8px;
+}

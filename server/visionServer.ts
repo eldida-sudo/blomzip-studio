@@ -19,7 +19,22 @@ app.get("/health", (_req, res) => {
 
 app.post("/api/vision/analyze", async (req, res) => {
   try {
-    const { filename, imageDataUrl } = req.body ?? {};
+    const {
+      filename,
+      imageDataUrl,
+      canonicalPlaceId,
+      canonicalPlaceName,
+    } = req.body ?? {};
+
+    const placeContext = canonicalPlaceId
+      ? `The archive has a human-confirmed canonical place for this photograph: ${canonicalPlaceName ?? canonicalPlaceId} (${canonicalPlaceId}). Treat this as trusted archive context. Do not reclassify or contradict the confirmed place. Do not emit place_candidate for this photograph. `
+      : `This photograph does not yet have a human-confirmed canonical place. You may emit place_candidate when visually justified. `;
+
+    console.log("Vision place context:", {
+      filename,
+      canonicalPlaceId,
+      canonicalPlaceName,
+    });
 
     if (!filename || !imageDataUrl) {
       return res.status(400).json({
@@ -41,6 +56,7 @@ app.post("/api/vision/analyze", async (req, res) => {
                 "Only report conclusions that are visually supported by this image; do not invent history or context. " +
                 "Use these Blomzip signal types when relevant: " +
                 "place_candidate, plant_or_subject, story_potential, hero_potential, before_after_potential, visual_character. " +
+                placeContext +
                 "For place_candidate, prefer one of the current canonical places when visually justified: " +
                 "parking, raised-bed, seating-area, central-lawn, shade-corner, rock-garden, garden-border, house-wall, entrance. " +
                 "If none is sufficiently supported, say that instead of forcing a place. " +

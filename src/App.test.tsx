@@ -443,8 +443,8 @@ describe("App", () => {
     await waitForArchiveHydration();
 
     const storySummary = container.querySelector('[data-testid="story-analysis-summary"]');
-    expect(storySummary?.textContent).toContain("Vision Engine v0.2 · Story analysis");
-    expect(storySummary?.textContent).toContain("2 photographs assessed");
+    expect(storySummary?.textContent).toContain("Image Analysis");
+    expect(storySummary?.textContent).toContain("2 analyzed images");
     expect(storySummary?.textContent).toContain("2 Story recommendations");
 
     act(() => {
@@ -452,7 +452,7 @@ describe("App", () => {
     });
 
     expect(storySummary?.textContent).toContain("2 Story recommendations");
-    expect(container.querySelector('[data-testid="run-story-analysis"]')?.textContent).toBe("Re-run Story analysis");
+    expect(container.querySelector('[data-testid="run-story-analysis"]')?.textContent).toBe("Update Story recommendations");
     expect((storyAnalysisState.visit.entries[0]?.analysisSuggestions?.recommendations ?? [])).toHaveLength(0);
     expect(container.querySelector('[data-testid="gallery-ai-recommendation-entry-1"]')?.textContent).toContain("AI · Story");
   });
@@ -721,7 +721,7 @@ describe("App", () => {
     expect(container.textContent).toContain("Story");
   });
 
-  it("shows Vision Engine Discover Places summary after ZIP import", () => {
+  it("shows Place Discovery summary after ZIP import", () => {
     act(() => {
       root.render(<App />);
     });
@@ -729,10 +729,9 @@ describe("App", () => {
     const summary = container.querySelector('[data-testid="vision-engine-summary"]');
 
     expect(summary).toBeDefined();
-    expect(summary?.textContent).toContain("Discover Places");
-    expect(summary?.textContent).toContain("candidate place groups");
-    expect(summary?.textContent).toContain("near duplicates");
-    expect(summary?.textContent).toContain("hero candidates");
+    expect(summary?.textContent).toContain("Place Discovery");
+    expect(summary?.textContent).toContain("2 images processed for place discovery");
+    expect(summary?.textContent).toContain("1 candidate place groups");
   });
 
   it("renders representative and preview thumbnails for Vision candidate place groups", async () => {
@@ -991,7 +990,7 @@ describe("App", () => {
 
     await waitForArchiveHydration();
 
-    expect(container.textContent).toContain("2 photographs analyzed");
+    expect(container.textContent).toContain("2 images processed for place discovery");
 
     const placeSelect = container.querySelector('[data-testid="vision-place-select-vision-place-1"]') as HTMLSelectElement | null;
     const approveButton = container.querySelector('[data-testid="vision-place-approve-vision-place-1"]') as HTMLButtonElement | null;
@@ -1013,7 +1012,7 @@ describe("App", () => {
 
     expect(container.textContent).toContain("Assigned The House Wall to 2 photographs.");
     expect(container.textContent).toContain("The House Wall");
-    expect(container.textContent).toContain("0 photographs analyzed");
+    expect(container.textContent).toContain("0 images processed for place discovery");
 
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));

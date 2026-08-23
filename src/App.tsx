@@ -105,7 +105,7 @@ type TimelineRow =
 
 const SUGGESTION_FILTER_OPTIONS: Array<{ value: SuggestionFilter; label: string }> = [
   { value: "all", label: "All AI categories" },
-  { value: "story-candidate", label: "Story candidates" },
+  { value: "story-candidate", label: "Story recommendations" },
   { value: "hero-candidate", label: "Hero candidates" },
   { value: "favorite-candidate", label: "Favorite candidates" },
   { value: "strong-change", label: "Strong change / comparison value" },
@@ -549,6 +549,7 @@ function App() {
     running: boolean;
   } | null>(null);
   const [selectedPlaceByVisionGroupId, setSelectedPlaceByVisionGroupId] = useState<Record<string, string>>({});
+  const [excludedImageIdsByVisionGroupId, setExcludedImageIdsByVisionGroupId] = useState<Record<string, string[]>>({});
   const [placeAssignmentFeedback, setPlaceAssignmentFeedback] = useState<string | null>(null);
   const hasAppliedStudioImagesRef = useRef(false);
   const sidebarImportSectionRef = useRef<HTMLElement | null>(null);
@@ -1132,8 +1133,8 @@ function App() {
     if (storyFirstQueue.length > 0 && storySelectedEntryCount === 0) {
       return {
         type: "story",
-        label: "Select Story candidates",
-        hint: "AI has identified Story-worthy images. Start there.",
+        label: "Review Story recommendations",
+        hint: "AI has recommended images with Story potential. Review and curate them.",
       };
     }
 
@@ -1380,6 +1381,13 @@ function App() {
     }));
   }
 
+  function handleExcludeImageFromVisionGroup(groupId: string, imageRecordId: string) {
+    setExcludedImageIdsByVisionGroupId((current) => ({
+      ...current,
+      [groupId]: Array.from(new Set([...(current[groupId] ?? []), imageRecordId])),
+    }));
+  }
+
   function handleApproveVisionGroupPlace(group: VisionPlaceCandidateGroup) {
     if (!importVisit) {
       return;
@@ -1396,9 +1404,19 @@ function App() {
       return;
     }
 
+    const excludedImageIds = new Set(excludedImageIdsByVisionGroupId[group.id] ?? []);
+    const correctedGroup: VisionPlaceCandidateGroup = {
+      ...group,
+      imageRecordIds: group.imageRecordIds.filter((id) => !excludedImageIds.has(id)),
+      entryIds: group.entryIds.filter((entryId) => {
+        const entry = importVisit.entries.find((candidate) => candidate.id === entryId);
+        return entry ? !excludedImageIds.has(entry.imageRecordId) : true;
+      }),
+    };
+
     const assignment = assignCanonicalPlaceToVisionGroup({
       visit: importVisit,
-      group,
+      group: correctedGroup,
       canonicalPlaceId: canonicalPlace.id,
     });
 
@@ -1456,7 +1474,12 @@ function App() {
     previewRecords: ImageRecord[];
     remainingCount: number;
   } {
+    const excludedImageIds = new Set(
+      excludedImageIdsByVisionGroupId[options.group.id] ?? []
+    );
+
     const orderedRecords = options.group.imageRecordIds
+      .filter((recordId) => !excludedImageIds.has(recordId))
       .map((recordId) => imageRecordsById.get(recordId))
       .filter((record): record is ImageRecord => Boolean(record));
 
@@ -1687,6 +1710,7 @@ function App() {
                     const mergedVisit = mergeImportedVisit(currentVisit, analyzedIncomingVisit);
 
                     setLatestImportedBatchIdForVision(incomingBatchId);
+                    setBatchVisionProgress(null);
 
                      if (summary?.status === "ready") {
                       setLastBatchImportFeedback({
@@ -1850,6 +1874,18 @@ function App() {
               </div>
             </section>
 
+            <nav className="studio-workflow" aria-label="Studio workflow" data-testid="studio-workflow">
+              <span>Import images</span>
+              <span aria-hidden="true">→</span>
+              <span>Place Discovery</span>
+              <span aria-hidden="true">→</span>
+              <span>Image Analysis</span>
+              <span aria-hidden="true">→</span>
+              <span>Editorial Recommendations</span>
+              <span aria-hidden="true">→</span>
+              <span>Review &amp; Curate</span>
+            </nav>
+
             <section className="archive-attention-card" data-testid="archive-next-action">
               <div>
                 <p className="eyebrow">Next useful action</p>
@@ -1860,21 +1896,16 @@ function App() {
               {visionDiscoverySummary ? (
                 <section className="vision-engine-summary" data-testid="vision-engine-summary" aria-live="polite" ref={visionSummaryRef}>
                   <div className="vision-engine-summary-header">
-                    <p className="eyebrow">Vision Engine v0.1 · Place discovery</p>
-                    <h4>Discover Places</h4>
+                    <p className="eyebrow">Place Discovery</p>
                     <p className="result-count">
-                      {visionDiscoverySummary.analyzedImageCount} photographs analyzed
+                      {visionDiscoverySummary.analyzedImageCount} images processed for place discovery
                       {visionDiscoverySummary.analysisScope === "import-batch" ? " (latest import)" : " (full archive)"}
                     </p>
                   </div>
 
-                  <p className="result-count">Vision Engine discovered:</p>
-
-                  <ul className="vision-engine-summary-list">
-                    <li>{visionDiscoverySummary.candidatePlaceGroupCount} candidate place groups</li>
-                    <li>{visionDiscoverySummary.nearDuplicateCount} near duplicates</li>
-                    <li>{visionDiscoverySummary.heroCandidateCount} hero candidates</li>
-                  </ul>
+                  <p className="result-count">
+                    {visionDiscoverySummary.candidatePlaceGroupCount} candidate place groups
+                  </p>
 
                   {visionDiscoverySummary.candidatePlaceGroups.length > 0 ? (
                     <div className="vision-engine-groups">
@@ -1894,50 +1925,71 @@ function App() {
                         return (
                           <article key={group.id} className="vision-engine-group-item" data-testid={`vision-group-card-${group.id}`}>
                             <div className="vision-engine-group-image-column">
-                              <button
-                                type="button"
-                                className="vision-engine-group-image-button vision-engine-group-representative"
-                                data-testid={`vision-group-representative-${group.id}`}
-                                onClick={() => representativeRecord ? openReviewForImageRecord(representativeRecord.id, group.id) : undefined}
-                                disabled={!representativeRecord}
-                                aria-label={`Open representative ${representativeLabel}`}
-                              >
-                                {representativeThumbnailSrc ? (
-                                  <img src={representativeThumbnailSrc} alt={representativeLabel} data-object-fit="contain" />
-                                ) : (
-                                  <span>No preview</span>
-                                )}
-                              </button>
+                              <div className="vision-engine-group-representative-wrapper">
+                                <button
+                                  type="button"
+                                  className="vision-engine-group-image-button vision-engine-group-representative"
+                                  data-testid={`vision-group-representative-${group.id}`}
+                                  onClick={() => representativeRecord ? openReviewForImageRecord(representativeRecord.id, group.id) : undefined}
+                                  disabled={!representativeRecord}
+                                  aria-label={`Open representative ${representativeLabel}`}
+                                >
+                                  {representativeThumbnailSrc ? (
+                                    <img src={representativeThumbnailSrc} alt={representativeLabel} data-object-fit="contain" />
+                                  ) : (
+                                    <span>No preview</span>
+                                  )}
+                                </button>
+
+                                {representativeRecord ? (
+                                  <button
+                                    type="button"
+                                    className="vision-engine-group-remove-image vision-engine-group-remove-representative"
+                                    onClick={() => handleExcludeImageFromVisionGroup(group.id, representativeRecord.id)}
+                                    aria-label={`Remove ${representativeLabel} from this place group`}
+                                    title="Remove from group"
+                                  >
+                                    ×
+                                  </button>
+                                ) : null}
+                              </div>
                               <div className="vision-engine-group-preview-strip" data-testid={`vision-group-preview-strip-${group.id}`}>
                                 {previewRecords.map((record) => {
                                   const previewSrc = createThumbnailUrlForRecord(record);
 
-                                  return previewSrc ? (
-                                    <button
+                                  return (
+                                    <div
                                       key={record.id}
-                                      type="button"
-                                      className="vision-engine-group-image-button vision-engine-group-preview-button"
-                                      data-testid={`vision-group-preview-${group.id}-${record.id}`}
-                                      onClick={() => openReviewForImageRecord(record.id, group.id)}
-                                      aria-label={`Open ${record.filename}`}
+                                      className="vision-engine-group-preview-wrapper"
                                     >
-                                      <img
-                                        src={previewSrc}
-                                        alt={record.filename}
-                                        data-object-fit="contain"
-                                      />
-                                    </button>
-                                  ) : (
-                                    <button
-                                      key={record.id}
-                                      type="button"
-                                      className="vision-engine-group-image-button vision-engine-group-preview-button"
-                                      data-testid={`vision-group-preview-${group.id}-${record.id}`}
-                                      onClick={() => openReviewForImageRecord(record.id, group.id)}
-                                      aria-label={`Open ${record.filename}`}
-                                    >
-                                      <span>No preview</span>
-                                    </button>
+                                      <button
+                                        type="button"
+                                        className="vision-engine-group-image-button vision-engine-group-preview-button"
+                                        data-testid={`vision-group-preview-${group.id}-${record.id}`}
+                                        onClick={() => openReviewForImageRecord(record.id, group.id)}
+                                        aria-label={`Open ${record.filename}`}
+                                      >
+                                        {previewSrc ? (
+                                          <img
+                                            src={previewSrc}
+                                            alt={record.filename}
+                                            data-object-fit="contain"
+                                          />
+                                        ) : (
+                                          <span>No preview</span>
+                                        )}
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        className="vision-engine-group-remove-image"
+                                        onClick={() => handleExcludeImageFromVisionGroup(group.id, record.id)}
+                                        aria-label={`Remove ${record.filename} from this place group`}
+                                        title="Remove from group"
+                                      >
+                                        ×
+                                      </button>
+                                    </div>
                                   );
                                 })}
 
@@ -2004,10 +2056,43 @@ function App() {
               {importVisit ? (
                 <section className="story-analysis-summary" data-testid="story-analysis-summary" aria-live="polite">
                   <div>
-                    <p className="eyebrow">Vision Engine v0.2 · Story analysis</p>
-                    <h4>Story recommendations</h4>
-                    <p className="result-count">{storyAnalysisSummary.assessedPhotographCount} photographs assessed</p>
+                    <p className="eyebrow">Image Analysis</p>
+                    <h4>Editorial Recommendations</h4>
+                    <p className="result-count">{storyAnalysisSummary.assessedPhotographCount} analyzed images</p>
                     <p className="result-count">{storyAnalysisSummary.recommendationCount} Story recommendations</p>
+
+                    {storyFirstQueue.length > 0 ? (
+                      <div className="story-recommendation-previews" data-testid="story-recommendation-previews">
+                        {storyFirstQueue.slice(0, 3).map(({ entry, imageRecord, filename, index }) => {
+                          const storyRecommendation = entry.analysisSuggestions?.recommendations?.find(
+                            (recommendation) => recommendation.kind === "story"
+                          );
+                          const heroRecommendation = entry.analysisSuggestions?.recommendations?.find(
+                            (recommendation) => recommendation.kind === "hero"
+                          );
+                          const thumbnailSrc = createThumbnailUrlForRecord(imageRecord);
+                          const explanation = storyRecommendation?.reasons?.[0];
+
+                          return (
+                            <button
+                              key={entry.id}
+                              type="button"
+                              className={`story-recommendation-preview${heroRecommendation ? " is-hero-recommendation" : ""}`}
+                              onClick={() => openReviewWithIndex(index)}
+                            >
+                              <span className="story-recommendation-image">
+                                {thumbnailSrc ? <img src={thumbnailSrc} alt={filename} /> : <span>No preview</span>}
+                                {heroRecommendation ? <span className="hero-recommendation-badge">Hero</span> : null}
+                              </span>
+                              <span className="story-recommendation-copy">
+                                <strong>{filename}</strong>
+                                {explanation ? <small>{explanation}</small> : null}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                   <div>
                     <button
@@ -2019,14 +2104,14 @@ function App() {
                     >
                       {batchVisionProgress?.running
                         ? `Analyzing ${batchVisionProgress.completed} / ${batchVisionProgress.total}`
-                        : "Analyze latest batch"}
+                        : "Analyze new images"}
                     </button>
 
                     {batchVisionProgress && !batchVisionProgress.running ? (
                       <p className="result-count" data-testid="batch-vision-result">
                         {batchVisionProgress.total === 0
-                          ? "Latest batch already analyzed"
-                          : `${batchVisionProgress.completed - batchVisionProgress.failed} analyzed${
+                          ? "All new images analyzed"
+                          : `${batchVisionProgress.completed - batchVisionProgress.failed} images analyzed${
                               batchVisionProgress.failed > 0
                                 ? ` · ${batchVisionProgress.failed} failed`
                                 : ""
@@ -2040,7 +2125,7 @@ function App() {
                       data-testid="run-story-analysis"
                       onClick={handleRunStoryAnalysis}
                     >
-                      {storyAnalysisSummary.hasRun ? "Re-run Story analysis" : "Run Story analysis"}
+                      Update Story recommendations
                     </button>
                   </div>
                 </section>
