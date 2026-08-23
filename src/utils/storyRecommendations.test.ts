@@ -134,6 +134,25 @@ describe("generateStoryRecommendations", () => {
     expect(recommendations.has("entry-1")).toBe(false);
   });
 
+  it("ignores hidden entries for recommendation generation and context", () => {
+    const records = [
+      createRecord({ id: "visible-early", placeId: "rock-garden", captureDate: "2026-01-01T10:00:00.000Z", timelineIndex: 0 }),
+      createRecord({ id: "hidden-middle", placeId: "rock-garden", captureDate: "2026-01-15T10:00:00.000Z", timelineIndex: 1 }),
+      createRecord({ id: "visible-late", placeId: "rock-garden", captureDate: "2026-02-01T10:00:00.000Z", timelineIndex: 2 }),
+    ];
+    const entries = [
+      createEntry("entry-0", "visible-early"),
+      { ...createEntry("entry-1", "hidden-middle"), hidden: true },
+      createEntry("entry-2", "visible-late"),
+    ];
+    const recommendations = generateStoryRecommendations(createVisit(records, entries));
+
+    expect(recommendations.has("entry-0")).toBe(true);
+    expect(recommendations.has("entry-1")).toBe(false);
+    expect(recommendations.has("entry-2")).toBe(true);
+    expect(recommendations.size).toBe(2);
+  });
+
   it("is deterministic, does not recommend every entry, and integrates with archive ranking", () => {
     const records = [
       createRecord({ id: "anchor-1", placeId: "rock-garden", captureDate: "2026-01-01T10:00:00.000Z", timelineIndex: 0 }),

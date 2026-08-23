@@ -248,6 +248,57 @@ describe("EntryReview", () => {
     expect(html).not.toContain("High visual priority from AI scoring and composition signals.");
   });
 
+  it("can hide and unhide an entry while clearing story/favorite/hero selections", () => {
+    const onEntryUpdated = vi.fn();
+    const hiddenVisit: Visit = {
+      ...visit,
+      entries: [
+        {
+          ...visit.entries[0],
+          favorite: true,
+          hero: true,
+          storySelected: true,
+          hidden: false,
+        },
+        visit.entries[1],
+      ],
+    };
+
+    act(() => {
+      root.render(<EntryReview visit={hiddenVisit} onEntryUpdated={onEntryUpdated} />);
+    });
+
+    const hideButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Hide"));
+    expect(hideButton).toBeTruthy();
+
+    act(() => {
+      hideButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onEntryUpdated).toHaveBeenLastCalledWith(expect.objectContaining({
+      id: "entry-1",
+      hidden: true,
+      favorite: false,
+      hero: false,
+      storySelected: false,
+    }));
+
+    const unhideButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent?.includes("Unhide"));
+    expect(unhideButton).toBeTruthy();
+
+    act(() => {
+      unhideButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onEntryUpdated).toHaveBeenLastCalledWith(expect.objectContaining({
+      id: "entry-1",
+      hidden: false,
+      favorite: false,
+      hero: false,
+      storySelected: false,
+    }));
+  });
+
   it("does not fabricate v0.2 reasons and treats an empty recommendation list as authoritative", () => {
     const emptyRecommendationVisit: Visit = {
       ...visit,

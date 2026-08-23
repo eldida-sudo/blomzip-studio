@@ -84,6 +84,7 @@ describe("createPublishReadyVisitOutput", () => {
 
     expect(output.counts).toEqual({
       totalEntries: 2,
+      hiddenEntries: 0,
       reviewedEntries: 1,
       pendingEntries: 1,
       exportedEntries: 2,
@@ -154,6 +155,81 @@ describe("createPublishReadyVisitOutput", () => {
     expect(output.entries[1]?.image).toBeNull();
     expect(output.storyReady.selectedEntries).toHaveLength(1);
     expect(output.storyReady.selectedEntries[0]?.id).toBe("entry-1");
+  });
+
+  it("excludes hidden entries from export and story-ready output while keeping rawVisit intact", () => {
+    const visit: Visit = {
+      id: "visit-hidden",
+      placeId: "place-hidden",
+      date: "2026-07-09",
+      entries: [
+        {
+          id: "visible-1",
+          imageRecordId: "image-1",
+          visitId: "visit-hidden",
+          status: "new",
+          notes: "visible",
+          tags: [],
+          favorite: false,
+          hero: false,
+          storySelected: true,
+          observations: [],
+          reviewed: true,
+          createdAt: "2026-07-09T00:00:00.000Z",
+          updatedAt: "2026-07-09T00:00:00.000Z",
+        },
+        {
+          id: "hidden-1",
+          imageRecordId: "image-2",
+          visitId: "visit-hidden",
+          status: "new",
+          notes: "hidden",
+          tags: [],
+          favorite: true,
+          hero: true,
+          storySelected: true,
+          hidden: true,
+          observations: [],
+          reviewed: true,
+          createdAt: "2026-07-09T00:00:00.000Z",
+          updatedAt: "2026-07-09T00:00:00.000Z",
+        },
+        {
+          id: "visible-2",
+          imageRecordId: "image-3",
+          visitId: "visit-hidden",
+          status: "new",
+          notes: "pending",
+          tags: [],
+          favorite: false,
+          hero: false,
+          storySelected: false,
+          observations: [],
+          reviewed: false,
+          createdAt: "2026-07-09T00:00:00.000Z",
+          updatedAt: "2026-07-09T00:00:00.000Z",
+        },
+      ],
+      imageRecords: [
+        { id: "image-1", filename: "a.jpg", fileSize: 10, format: "jpeg", sourcePath: "a.jpg" },
+        { id: "image-2", filename: "b.jpg", fileSize: 10, format: "jpeg", sourcePath: "b.jpg" },
+        { id: "image-3", filename: "c.jpg", fileSize: 10, format: "jpeg", sourcePath: "c.jpg" },
+      ],
+    };
+
+    const output = createPublishReadyVisitOutput(visit);
+
+    expect(output.entries.map((entry) => entry.id)).toEqual(["visible-1", "visible-2"]);
+    expect(output.storyReady.selectedEntries.map((entry) => entry.id)).toEqual(["visible-1"]);
+    expect(output.rawVisit.entries.map((entry) => entry.id)).toEqual(["visible-1", "hidden-1", "visible-2"]);
+    expect(output.counts).toEqual({
+      totalEntries: 3,
+      hiddenEntries: 1,
+      reviewedEntries: 1,
+      pendingEntries: 1,
+      exportedEntries: 2,
+      storySelectedEntries: 1,
+    });
   });
 
   it("returns cloned values for nested payloads", () => {

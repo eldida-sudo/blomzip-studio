@@ -22,6 +22,7 @@ interface EntryDraft {
   favorite: boolean;
   hero: boolean;
   storySelected: boolean;
+  hidden: boolean;
 }
 
 interface VisualAnalysisStatus {
@@ -166,6 +167,7 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
       favorite: Boolean(entry.favorite),
       hero: Boolean(entry.hero),
       storySelected: Boolean(entry.storySelected),
+      hidden: Boolean(entry.hidden),
     }))
   );
 
@@ -180,6 +182,7 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
         favorite: Boolean(entry.favorite),
         hero: Boolean(entry.hero),
         storySelected: Boolean(entry.storySelected),
+        hidden: Boolean(entry.hidden),
       }))
     );
 
@@ -440,6 +443,39 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
     applyEntryUpdate((currentEntry) => ({
       ...currentEntry,
       storySelected,
+      updatedAt: new Date().toISOString(),
+    }));
+  }, [applyEntryUpdate, draft, entry, updateDraft]);
+
+  const handleHideToggle = useCallback(() => {
+    if (!entry || !draft) return;
+
+    const hidden = !draft.hidden;
+
+    if (hidden) {
+      updateDraft({
+        hidden: true,
+        favorite: false,
+        hero: false,
+        storySelected: false,
+      });
+
+      applyEntryUpdate((currentEntry) => ({
+        ...currentEntry,
+        hidden: true,
+        favorite: false,
+        hero: false,
+        storySelected: false,
+        updatedAt: new Date().toISOString(),
+      }));
+      return;
+    }
+
+    updateDraft({ hidden: false });
+
+    applyEntryUpdate((currentEntry) => ({
+      ...currentEntry,
+      hidden: false,
       updatedAt: new Date().toISOString(),
     }));
   }, [applyEntryUpdate, draft, entry, updateDraft]);
@@ -924,6 +960,9 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
               </button>
               <button type="button" onClick={handleStorySelectionToggle} aria-pressed={draft.storySelected}>
                 {draft.storySelected ? "Selected for Story ✓" : "Select for Story"}
+              </button>
+              <button type="button" onClick={handleHideToggle} aria-pressed={draft.hidden}>
+                {draft.hidden ? "Unhide" : "Hide"}
               </button>
             </div>
           </div>

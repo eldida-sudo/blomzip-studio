@@ -7,6 +7,7 @@ export interface PublishReadyVisitOutput {
   exportedAt: string;
   counts: {
     totalEntries: number;
+    hiddenEntries: number;
     reviewedEntries: number;
     pendingEntries: number;
     exportedEntries: number;
@@ -78,8 +79,11 @@ export function createPublishReadyVisitOutput(
   visit: Visit,
   exportedAt: string = new Date().toISOString()
 ): PublishReadyVisitOutput {
+  const totalEntries = visit.entries.length;
+  const hiddenEntries = visit.entries.filter((entry) => entry.hidden).length;
+  const exportedEntryRecords = visit.entries.filter((entry) => !entry.hidden);
   const imageRecordsById = new Map((visit.imageRecords ?? []).map((record) => [record.id, record]));
-  const entries = visit.entries.map((entry): PublishReadyEntry => {
+  const entries = exportedEntryRecords.map((entry): PublishReadyEntry => {
     const imageRecord = imageRecordsById.get(entry.imageRecordId);
 
     return {
@@ -123,8 +127,7 @@ export function createPublishReadyVisitOutput(
     };
   });
   const reviewedEntries = entries.filter((entry) => entry.review.reviewed).length;
-  const totalEntries = entries.length;
-  const pendingEntries = totalEntries - reviewedEntries;
+  const pendingEntries = entries.length - reviewedEntries;
   const storySelectedEntries = entries.filter((entry) => entry.curation.storySelected).length;
 
   return {
@@ -134,6 +137,7 @@ export function createPublishReadyVisitOutput(
     exportedAt,
     counts: {
       totalEntries,
+      hiddenEntries,
       reviewedEntries,
       pendingEntries,
       exportedEntries: entries.length,

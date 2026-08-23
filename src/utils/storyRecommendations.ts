@@ -223,8 +223,9 @@ function buildStoryRecommendation(options: {
  * should be regenerated after imports or canonical-place changes; ranks remain derived.
  */
 export function generateStoryRecommendations(visit: Visit): Map<string, EntryRecommendation> {
+  const visibleEntries = visit.entries.filter((entry) => !entry.hidden);
   const imageRecordById = new Map((visit.imageRecords ?? []).map((imageRecord) => [imageRecord.id, imageRecord]));
-  const rows = visit.entries
+  const rows = visibleEntries
     .map((entry, index) => {
       const imageRecord = imageRecordById.get(entry.imageRecordId);
       if (!imageRecord) return null;

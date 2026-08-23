@@ -89,6 +89,7 @@ export interface Entry {
   favorite?: boolean;
   hero?: boolean;
   storySelected?: boolean;
+  hidden?: boolean;
   reviewed?: boolean;
   createdAt: string;
   updatedAt: string;
