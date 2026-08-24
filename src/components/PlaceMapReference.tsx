@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { listCanonicalPlaces } from "../data/canonicalPlaces";
-import { calibratePlaceHotspot, getPlaceHotspot, isPlaceCalibrated } from "../data/placeHotspots";
+import { calibratePlaceHotspot, getPlaceHotspot, isPlaceCalibrated, listPlaceHotspots } from "../data/placeHotspots";
 
 interface PlaceMapReferenceProps {
   selectedPlaceId?: string;
@@ -89,15 +89,23 @@ export function PlaceMapReference({ selectedPlaceId, onClose }: PlaceMapReferenc
             height={LIVING_MAP_HEIGHT}
             preserveAspectRatio="none"
           />
-          {selectedHotspot && isCalibrated && (
-            <circle
-              cx={selectedHotspot.x * LIVING_MAP_WIDTH}
-              cy={selectedHotspot.y * LIVING_MAP_HEIGHT}
-              r={selectedHotspot.radius * LIVING_MAP_WIDTH * 0.42}
-              className="place-map-hotspot place-map-hotspot-active"
-              aria-label={`Selected place location`}
-            />
-          )}
+          {listPlaceHotspots()
+            .filter((hotspot) => hotspot.calibrated)
+            .map((hotspot) => {
+              const isSelected = hotspot.placeId === activePlaceId;
+
+              return (
+                <circle
+                  key={hotspot.placeId}
+                  cx={hotspot.x * LIVING_MAP_WIDTH}
+                  cy={hotspot.y * LIVING_MAP_HEIGHT}
+                  r={hotspot.radius * LIVING_MAP_WIDTH * (isSelected ? 0.42 : 0.33)}
+                  className={isSelected ? "place-map-hotspot place-map-hotspot-active" : "place-map-hotspot"}
+                  aria-label={isSelected ? "Selected place location" : "Calibrated place location"}
+                  data-testid={`place-map-hotspot-${hotspot.placeId}`}
+                />
+              );
+            })}
           {IS_DEVELOPMENT && calibrationCoordinates && (
             <circle
               cx={calibrationCoordinates.x * LIVING_MAP_WIDTH}

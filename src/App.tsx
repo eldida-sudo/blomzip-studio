@@ -530,6 +530,7 @@ function App() {
   const [collectionFilter, setCollectionFilter] = useState("All");
   const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
   const [suggestionFilter, setSuggestionFilter] = useState<SuggestionFilter>("all");
+  const [archivePlaceFilter, setArchivePlaceFilter] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<ImageItem | null>(null);
   const [importSummary, setImportSummary] = useState<ZipImportSummary | null>(null);
   const [importVisit, setImportVisit] = useState<Visit | null>(null);
@@ -827,8 +828,9 @@ function App() {
       suggestionFilter === "all" || entrySuggestionCategories.includes(suggestionFilter);
 
     const matchesBatchFilter = !activeBatchFilterId || imageRecord?.importBatchId === activeBatchFilterId;
+    const matchesPlaceFilter = archivePlaceFilter === null || imageRecord?.placeId === archivePlaceFilter;
 
-    return matchesSearch && matchesCollection && matchesViewFilter && matchesSuggestionFilter && matchesBatchFilter;
+    return matchesSearch && matchesCollection && matchesViewFilter && matchesSuggestionFilter && matchesBatchFilter && matchesPlaceFilter;
   });
 
   const archiveDateRange = useMemo(() => {
@@ -1889,7 +1891,7 @@ function App() {
               <span>Review &amp; Curate</span>
             </nav>
 
-            <LivingMapPanel />
+            <LivingMapPanel selectedPlaceId={archivePlaceFilter} onPlaceSelect={setArchivePlaceFilter} />
 
             <section className="archive-attention-card" data-testid="archive-next-action">
               <div>

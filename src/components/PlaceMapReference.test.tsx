@@ -59,6 +59,7 @@ describe("PlaceMapReference calibration", () => {
     );
     expect(container.querySelector("[data-testid='pending-hotspot']")).toBeTruthy();
     expect(saveButton.disabled).toBe(false);
+    expect(container.querySelectorAll("[data-testid^='place-map-hotspot-']")).toHaveLength(3);
   });
 
   it("keeps the full map extent and offers every canonical place for calibration", () => {
@@ -67,6 +68,16 @@ describe("PlaceMapReference calibration", () => {
     expect(map.getAttribute("viewBox")).toBe("0 0 1934 1304");
     expect(map.querySelector("image")?.getAttribute("preserveAspectRatio")).toBe("none");
     expect(container.querySelectorAll("[data-testid='calibration-place-select'] option")).toHaveLength(10);
+  });
+
+  it("renders every calibrated hotspot while leaving uncalibrated places marker-free", () => {
+    renderMap("garden-border");
+
+    expect(container.querySelectorAll("[data-testid^='place-map-hotspot-']")).toHaveLength(3);
+    expect(container.querySelector("[data-testid='place-map-hotspot-parking']")).toBeNull();
+    expect(container.querySelector("[data-testid='place-map-hotspot-house-wall']")).toBeTruthy();
+    expect(container.querySelector("[data-testid='place-map-hotspot-rock-garden']")).toBeTruthy();
+    expect(container.querySelector("[data-testid='place-map-hotspot-seating-area']")).toBeTruthy();
   });
 
   it("makes the hotspot appear after saving its position", () => {
@@ -85,6 +96,18 @@ describe("PlaceMapReference calibration", () => {
     expect(Number(hotspot?.getAttribute("cy"))).toBeCloseTo(0.4 * 1304);
     expect(Number(hotspot?.getAttribute("r"))).toBeCloseTo(0.08 * 1934 * 0.42);
     expect(container.querySelector("[data-testid='pending-hotspot']")).toBeNull();
+  });
+
+  it("emphasizes the selected calibrated hotspot without hiding the others", () => {
+    renderMap("house-wall");
+
+    expect(container.querySelector("[data-testid='place-map-hotspot-house-wall']")?.getAttribute("class")).toContain(
+      "place-map-hotspot-active"
+    );
+    expect(container.querySelector("[data-testid='place-map-hotspot-seating-area']")?.getAttribute("class")).not.toContain(
+      "place-map-hotspot-active"
+    );
+    expect(container.querySelectorAll("[data-testid^='place-map-hotspot-']").length).toBeGreaterThanOrEqual(3);
   });
 
   it("recalibration replaces the previous coordinate", () => {

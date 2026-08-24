@@ -7,17 +7,28 @@ const LIVING_MAP_IMAGE = "/images/living-map.png";
 const LIVING_MAP_WIDTH = 1934;
 const LIVING_MAP_HEIGHT = 1304;
 
+interface LivingMapPanelProps {
+  selectedPlaceId?: string | null;
+  onPlaceSelect?: (placeId: string | null) => void;
+}
+
 /**
  * Full-aspect Living Map shown above the archive image timeline.
  * Hovering/focusing/clicking a place name or hotspot highlights the other;
  * clicking the banner (or the "Open map" affordance) opens the full, uncropped map.
  */
-export function LivingMapPanel() {
+export function LivingMapPanel({ selectedPlaceId: controlledPlaceId, onPlaceSelect }: LivingMapPanelProps = {}) {
   const [hoveredPlaceId, setHoveredPlaceId] = useState<string | null>(null);
-  const [selectedPlaceId, setSelectedPlaceId] = useState<string | null>(null);
+  const [localSelectedPlaceId, setLocalSelectedPlaceId] = useState<string | null>(null);
   const [isFullMapOpen, setIsFullMapOpen] = useState(false);
   const places = listCanonicalPlaces();
+  const selectedPlaceId = controlledPlaceId === undefined ? localSelectedPlaceId : controlledPlaceId;
   const activePlaceId = hoveredPlaceId ?? selectedPlaceId;
+
+  function selectPlace(placeId: string | null) {
+    setLocalSelectedPlaceId(placeId);
+    onPlaceSelect?.(placeId);
+  }
 
   function clearHoverIfMatches(placeId: string) {
     setHoveredPlaceId((current) => (current === placeId ? null : current));
@@ -70,13 +81,13 @@ export function LivingMapPanel() {
                   data-testid={`living-map-hotspot-${place.id}`}
                   onClick={(event) => {
                     event.stopPropagation();
-                    setSelectedPlaceId(place.id);
+                    selectPlace(place.id);
                   }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
                       event.stopPropagation();
-                      setSelectedPlaceId(place.id);
+                      selectPlace(place.id);
                     }
                   }}
                   onMouseEnter={() => setHoveredPlaceId(place.id)}
@@ -102,6 +113,16 @@ export function LivingMapPanel() {
         </div>
 
         <ul className="living-map-banner-places">
+          <li>
+            <button
+              type="button"
+              className={activePlaceId === null ? "living-map-banner-place is-active" : "living-map-banner-place"}
+              onClick={() => selectPlace(null)}
+              data-testid="living-map-place-all"
+            >
+              All places
+            </button>
+          </li>
           {places.map((place) => (
             <li key={place.id}>
               <button
@@ -111,7 +132,7 @@ export function LivingMapPanel() {
                 onMouseLeave={() => clearHoverIfMatches(place.id)}
                 onFocus={() => setHoveredPlaceId(place.id)}
                 onBlur={() => clearHoverIfMatches(place.id)}
-                onClick={() => setSelectedPlaceId(place.id)}
+                onClick={() => selectPlace(place.id)}
                 data-testid={`living-map-place-${place.id}`}
               >
                 {place.displayName}

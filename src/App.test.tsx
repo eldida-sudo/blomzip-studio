@@ -616,6 +616,43 @@ describe("App", () => {
     expect(container.textContent).toContain("Review progress");
   });
 
+  it("filters the archive by Living Map place and restores all places", async () => {
+    const assignedState = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
+    assignedState.visit.imageRecords![0].placeId = "house-wall";
+    assignedState.visit.imageRecords![1].placeId = "seating-area";
+    mockImportState = assignedState;
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const getFilenames = () => Array.from(container.querySelectorAll(".gallery-card")).map((card) => card.textContent ?? "");
+    expect(container.querySelector("[data-testid='living-map-place-all']")?.className).toContain("is-active");
+    expect(getFilenames()).toHaveLength(2);
+
+    act(() => {
+      (container.querySelector("[data-testid='living-map-hotspot-house-wall']") as SVGCircleElement).dispatchEvent(
+        new MouseEvent("click", { bubbles: true })
+      );
+    });
+    expect(getFilenames()).toHaveLength(1);
+    expect(getFilenames()[0]).toContain("courtyard-01.jpg");
+    expect(container.querySelector("[data-testid='living-map-place-house-wall']")?.className).toContain("is-active");
+
+    act(() => {
+      (container.querySelector("[data-testid='living-map-place-seating-area']") as HTMLButtonElement).click();
+    });
+    expect(getFilenames()).toHaveLength(1);
+    expect(getFilenames()[0]).toContain("courtyard-02.jpg");
+
+    act(() => {
+      (container.querySelector("[data-testid='living-map-place-all']") as HTMLButtonElement).click();
+    });
+    expect(getFilenames()).toHaveLength(2);
+  });
+
   it("shows finalize readiness after all entries are reviewed and allows finalizing from gallery", () => {
     const reviewedState = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
     reviewedState.visit.entries = reviewedState.visit.entries.map((entry) => ({
