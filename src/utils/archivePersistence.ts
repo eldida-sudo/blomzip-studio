@@ -61,6 +61,7 @@ function sanitizeEntryForPersistence(entry: Entry): Entry {
         }
       : undefined,
     visualAnalysis: entry.visualAnalysis ? sanitizeVisualAnalysisForPersistence(entry.visualAnalysis) : undefined,
+    privacyStatus: entry.privacyStatus,
   };
 }
 

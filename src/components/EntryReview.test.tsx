@@ -299,6 +299,40 @@ describe("EntryReview", () => {
     }));
   });
 
+  it("shows a privacy blocker and resolves it by excluding the image", () => {
+    const onEntryUpdated = vi.fn();
+    const privacyVisit: Visit = {
+      ...visit,
+      entries: [{
+        ...visit.entries[0],
+        visualAnalysis: {
+          signals: [{ signal: "face-detected" as never, confidence: 0.99, detail: "Identifiable face detected", provider: "test", analysisVersion: 1 }],
+          provider: "test",
+          generatedAt: "2026-01-01T00:00:00.000Z",
+          analysisVersion: 1,
+        },
+        privacyStatus: "review-required",
+      }],
+    };
+
+    act(() => {
+      root.render(<EntryReview visit={privacyVisit} onEntryUpdated={onEntryUpdated} />);
+    });
+
+    expect(container.querySelector("[data-testid='panel-privacy-status']")?.textContent).toContain("blocked from publication");
+    const excludeButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Exclude from publication");
+    expect(excludeButton).toBeTruthy();
+
+    act(() => {
+      excludeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onEntryUpdated).toHaveBeenLastCalledWith(expect.objectContaining({
+      hidden: true,
+      privacyStatus: "privacy-safe",
+    }));
+  });
+
   it("does not fabricate v0.2 reasons and treats an empty recommendation list as authoritative", () => {
     const emptyRecommendationVisit: Visit = {
       ...visit,

@@ -56,6 +56,7 @@ app.post("/api/vision/analyze", async (req, res) => {
                 "Only report conclusions that are visually supported by this image; do not invent history or context. " +
                 "Use these Blomzip signal types when relevant: " +
                 "place_candidate, plant_or_subject, story_potential, hero_potential, before_after_potential, visual_character. " +
+                "Also report person-detected, face-detected, or readable-registration-plate when an identifiable person/face or readable vehicle registration plate is visibly present. " +
                 placeContext +
                 "For place_candidate, prefer one of the current canonical places when visually justified: " +
                 "parking, raised-bed, seating-area, central-lawn, shade-corner, rock-garden, garden-border, house-wall, entrance. " +
@@ -101,7 +102,10 @@ app.post("/api/vision/analyze", async (req, res) => {
                         "story_potential",
                         "hero_potential",
                         "before_after_potential",
-                        "visual_character"
+                        "visual_character",
+                        "person-detected",
+                        "face-detected",
+                        "readable-registration-plate"
                       ]
                     },
                     confidence: {
@@ -195,7 +199,7 @@ app.post("/api/vision/analyze", async (req, res) => {
           }
         }
       },
-      max_output_tokens: 4000,
+      max_output_tokens: 8000,
     });
 
     if (response.status === "incomplete") {

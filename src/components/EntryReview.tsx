@@ -3,6 +3,7 @@ import type { Entry, EntryRecommendationEvidence, EntryRecommendationKind, Entry
 import { createThumbnailUrlForRecord } from "../utils/createThumbnailUrls";
 import { getEntryEditorialRecommendations } from "../utils/entryRecommendations";
 import { applyStoryRecommendations } from "../utils/storyRecommendations";
+import { getEntryPrivacyStatus, isEntryPrivacyBlocked, visualAnalysisRequiresPrivacyReview } from "../utils/privacy";
 import { createVisionProvider, type VisionProvider } from "../utils/visionProvider";
 import { MockObservationEngine, type ObservationEngine } from "./observationEngine";
 
@@ -39,6 +40,9 @@ function getVisualEvidenceSignalLabel(signal: VisualEvidenceSignalId): string {
     "vegetation-state": "Vegetation state",
     "negative-space": "Negative space",
     "focal-structure": "Focal structure",
+    "person-detected": "Person detected",
+    "face-detected": "Face detected",
+    "readable-registration-plate": "Readable registration plate",
   };
 
   return knownLabels[signal];
@@ -247,7 +251,9 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
   const reviewedEntryCount = entries.filter((entryItem) => entryItem.reviewed).length;
   const totalEntryCount = entries.length;
   const percentReviewed = totalEntryCount > 0 ? Math.round((reviewedEntryCount / totalEntryCount) * 100) : 0;
-  const canFinalizeVisit = totalEntryCount > 0 && reviewedEntryCount === totalEntryCount;
+  const privacyBlockedEntryCount = entries.filter((entryItem) => isEntryPrivacyBlocked(entryItem)).length;
+  const canFinalizeVisit = totalEntryCount > 0 && reviewedEntryCount === totalEntryCount && privacyBlockedEntryCount === 0;
+  const privacyBlocked = entry ? isEntryPrivacyBlocked(entry) : false;
   const isFinalizeVisible = canFinalizeVisit || visit.status === "Finalized";
   const saveStatusLabel = entrySaveFeedback
     ? entrySaveFeedback.state === "saving"
@@ -476,6 +482,22 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
     applyEntryUpdate((currentEntry) => ({
       ...currentEntry,
       hidden: false,
+      privacyStatus: visualAnalysisRequiresPrivacyReview(currentEntry.visualAnalysis) ? "review-required" as const : "clear" as const,
+      updatedAt: new Date().toISOString(),
+    }));
+  }, [applyEntryUpdate, draft, entry, updateDraft]);
+
+  const handleExcludeForPrivacy = useCallback(() => {
+    if (!entry || !draft) return;
+
+    updateDraft({ hidden: true, favorite: false, hero: false, storySelected: false });
+    applyEntryUpdate((currentEntry) => ({
+      ...currentEntry,
+      hidden: true,
+      privacyStatus: "privacy-safe",
+      favorite: false,
+      hero: false,
+      storySelected: false,
       updatedAt: new Date().toISOString(),
     }));
   }, [applyEntryUpdate, draft, entry, updateDraft]);
@@ -509,7 +531,12 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
         setEntries((currentEntries) => {
           const updatedEntries = currentEntries.map((currentEntry) =>
             currentEntry.id === targetEntryId
-              ? { ...currentEntry, visualAnalysis, updatedAt: new Date().toISOString() }
+              ? {
+                  ...currentEntry,
+                  visualAnalysis,
+                  privacyStatus: visualAnalysisRequiresPrivacyReview(visualAnalysis) ? "review-required" as const : "clear" as const,
+                  updatedAt: new Date().toISOString(),
+                }
               : currentEntry
           );
 
@@ -779,6 +806,21 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
         <div className="entry-review-body" data-testid="entry-review-panel">
           <section className="entry-review-meta" data-testid="panel-filename">
             <h3>{imageRecord?.filename ?? "Imported image"}</h3>
+          </section>
+
+          <section
+            className={`entry-review-privacy-status ${privacyBlocked ? "is-blocked" : "is-clear"}`}
+            data-testid="panel-privacy-status"
+          >
+            <strong>Privacy: {getEntryPrivacyStatus(entry ?? ({} as Entry))}</strong>
+            {privacyBlocked ? (
+              <>
+                <p>This image may contain an identifiable person, face, or readable registration plate. It is blocked from publication until resolved.</p>
+                <button type="button" className="entry-review-privacy-action" onClick={handleExcludeForPrivacy}>
+                  Exclude from publication
+                </button>
+              </>
+            ) : null}
           </section>
 
           {entry.analysisSuggestions ? (

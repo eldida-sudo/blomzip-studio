@@ -41,6 +41,7 @@ const visit: Visit = {
       hero: true,
       storySelected: true,
       reviewed: true,
+      privacyStatus: "review-required",
       createdAt: "2026-07-10T00:00:00.000Z",
       updatedAt: "2026-07-10T00:00:00.000Z",
     },
@@ -114,6 +115,7 @@ describe("archivePersistence", () => {
             hero: true,
             storySelected: true,
             reviewed: true,
+            privacyStatus: "review-required",
             notes: "Persisted note",
             observations: expect.arrayContaining([
               expect.objectContaining({

@@ -35,6 +35,7 @@ import {
 import { discoverPlacesVisionSummary } from "./utils/discoverPlacesVisionEngine";
 import { mergeImportedVisit } from "./utils/mergeImportedVisit";
 import { createPublishReadyVisitOutput } from "./utils/publishReadyOutput";
+import { isEntryPrivacyBlocked } from "./utils/privacy";
 import { createThumbnailUrlForRecord } from "./utils/createThumbnailUrls";
 import { parseCaptureDate } from "./utils/captureDate";
 import { getEntryEditorialRecommendations } from "./utils/entryRecommendations";
@@ -942,7 +943,9 @@ function App() {
   const latestImportBatch = importVisit?.importBatches?.[importVisit.importBatches.length - 1] ?? null;
   const activeGalleryImageId = selectedImage?.id ?? (!isReviewingEntries && importVisit ? gallerySourceImages[reviewStartIndex]?.id : null);
   const canFinalizeVisit = totalImportedEntries > 0 && reviewedEntryCount === totalImportedEntries;
-  const isVisitFinalized = importVisit?.status === "Finalized";
+  const privacyBlockedEntryCount = importVisit?.entries.filter((entry) => isEntryPrivacyBlocked(entry)).length ?? 0;
+  const canFinalizePrivacySafe = canFinalizeVisit && privacyBlockedEntryCount === 0;
+  const isVisitFinalized = importVisit?.status === "Finalized" && privacyBlockedEntryCount === 0;
 
   const entryViewModels = useMemo(() => {
     if (!importVisit) {
@@ -1127,7 +1130,7 @@ function App() {
       };
     }
 
-    if (canFinalizeVisit) {
+    if (canFinalizePrivacySafe) {
       return {
         type: "finalize",
         label: "Finalize archive review",
@@ -1157,7 +1160,7 @@ function App() {
       hint: "Continue reviewing entries to enrich your archive.",
     };
   }, [
-    canFinalizeVisit,
+    canFinalizePrivacySafe,
     importVisit,
     isVisitFinalized,
     needsConfirmationQueue.length,
@@ -1179,7 +1182,8 @@ function App() {
 
       const reviewedCount = currentVisit.entries.filter((entry) => entry.reviewed).length;
       const totalEntries = currentVisit.entries.length;
-      const readyToFinalize = totalEntries > 0 && reviewedCount === totalEntries;
+      const readyToFinalize = totalEntries > 0 && reviewedCount === totalEntries &&
+        currentVisit.entries.every((entry) => !isEntryPrivacyBlocked(entry));
 
       if (!readyToFinalize) {
         return currentVisit;
@@ -1361,7 +1365,7 @@ function App() {
   }
 
   function handleDownloadPublishReadyOutput() {
-    if (!importVisit || !isVisitFinalized) {
+    if (!importVisit || !isVisitFinalized || importVisit.entries.some((entry) => isEntryPrivacyBlocked(entry))) {
       return;
     }
 

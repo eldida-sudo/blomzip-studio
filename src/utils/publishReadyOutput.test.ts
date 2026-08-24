@@ -232,6 +232,50 @@ describe("createPublishReadyVisitOutput", () => {
     });
   });
 
+  it("excludes entries blocked by unresolved privacy review", () => {
+    const visit: Visit = {
+      id: "visit-privacy",
+      placeId: "place-privacy",
+      date: "2026-01-01",
+      entries: [
+        {
+          id: "entry-privacy",
+          imageRecordId: "image-privacy",
+          visitId: "visit-privacy",
+          status: "new",
+          notes: "",
+          tags: [],
+          observations: [],
+          reviewed: true,
+          visualAnalysis: {
+            signals: [{ signal: "face-detected" as never, confidence: 0.98, detail: "Identifiable face", provider: "test", analysisVersion: 1 }],
+            provider: "test",
+            generatedAt: "2026-01-01T00:00:00.000Z",
+            analysisVersion: 1,
+          },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+        {
+          id: "entry-clear",
+          imageRecordId: "image-clear",
+          visitId: "visit-privacy",
+          status: "new",
+          notes: "",
+          tags: [],
+          observations: [],
+          reviewed: true,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        },
+      ],
+    };
+
+    const output = createPublishReadyVisitOutput(visit);
+    expect(output.entries.map((entry) => entry.id)).toEqual(["entry-clear"]);
+    expect(output.rawVisit.entries).toHaveLength(2);
+  });
+
   it("returns cloned values for nested payloads", () => {
     const visit: Visit = {
       id: "visit-2",

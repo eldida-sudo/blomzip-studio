@@ -1,4 +1,5 @@
 import type { Entry, ImportBatch, Location, Observation, Visit, Weather } from "../models/blomzip";
+import { isEntryPrivacyBlocked } from "./privacy";
 
 export interface PublishReadyVisitOutput {
   schema: "blomzip.publish-ready.visit";
@@ -81,7 +82,7 @@ export function createPublishReadyVisitOutput(
 ): PublishReadyVisitOutput {
   const totalEntries = visit.entries.length;
   const hiddenEntries = visit.entries.filter((entry) => entry.hidden).length;
-  const exportedEntryRecords = visit.entries.filter((entry) => !entry.hidden);
+  const exportedEntryRecords = visit.entries.filter((entry) => !entry.hidden && !isEntryPrivacyBlocked(entry));
   const imageRecordsById = new Map((visit.imageRecords ?? []).map((record) => [record.id, record]));
   const entries = exportedEntryRecords.map((entry): PublishReadyEntry => {
     const imageRecord = imageRecordsById.get(entry.imageRecordId);

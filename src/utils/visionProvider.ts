@@ -16,6 +16,9 @@ const VISUAL_EVIDENCE_SIGNAL_IDS: ReadonlySet<VisualEvidenceSignalId> = new Set(
   "vegetation-state",
   "negative-space",
   "focal-structure",
+  "person-detected",
+  "face-detected",
+  "readable-registration-plate",
 ]);
 
 function isVisualEvidenceSignalId(value: string): value is VisualEvidenceSignalId {

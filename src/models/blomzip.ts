@@ -90,10 +90,13 @@ export interface Entry {
   hero?: boolean;
   storySelected?: boolean;
   hidden?: boolean;
+  privacyStatus?: PrivacyStatus;
   reviewed?: boolean;
   createdAt: string;
   updatedAt: string;
 }
+
+export type PrivacyStatus = "clear" | "review-required" | "privacy-safe";
 
 // Narrow set of genuine, pixel-grounded signals a vision provider can report.
 // "negative-space" and "focal-structure" are reserved for future Hero analysis
@@ -105,7 +108,10 @@ export type VisualEvidenceSignalId =
   | "visible-change-cue"
   | "vegetation-state"
   | "negative-space"
-  | "focal-structure";
+  | "focal-structure"
+  | "person-detected"
+  | "face-detected"
+  | "readable-registration-plate";
 
 export interface VisualEvidenceSignal {
   signal: VisualEvidenceSignalId;
