@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { initialImages, type ImageItem } from "./data/demoImages";
 import { getPlaceById, listCanonicalPlaces } from "./data/canonicalPlaces";
 import { EntryReview } from "./components/EntryReview";
+import { PlaceMapReference } from "./components/PlaceMapReference";
 import { MockObservationEngine, type ObservationEngine } from "./components/observationEngine";
 import { ZipImportPanel } from "./components/ZipImportPanel";
 import type {
@@ -551,6 +552,7 @@ function App() {
   const [selectedPlaceByVisionGroupId, setSelectedPlaceByVisionGroupId] = useState<Record<string, string>>({});
   const [excludedImageIdsByVisionGroupId, setExcludedImageIdsByVisionGroupId] = useState<Record<string, string[]>>({});
   const [placeAssignmentFeedback, setPlaceAssignmentFeedback] = useState<string | null>(null);
+  const [openPlaceMapGroupId, setOpenPlaceMapGroupId] = useState<string | null>(null);
   const hasAppliedStudioImagesRef = useRef(false);
   const sidebarImportSectionRef = useRef<HTMLElement | null>(null);
   const visionSummaryRef = useRef<HTMLElement | null>(null);
@@ -2016,19 +2018,34 @@ function App() {
                               <label className="vision-engine-group-assign-label" htmlFor={`vision-place-select-${group.id}`}>
                                 Canonical place
                               </label>
-                              <select
-                                id={`vision-place-select-${group.id}`}
-                                data-testid={`vision-place-select-${group.id}`}
-                                value={selectedPlaceId}
-                                onChange={(event) => handleVisionGroupPlaceSelection(group.id, event.target.value)}
-                              >
-                                <option value="">Select place...</option>
-                                {canonicalPlaces.map((place) => (
-                                  <option key={place.id} value={place.id}>
-                                    {place.displayName}
-                                  </option>
-                                ))}
-                              </select>
+                              <div className="vision-engine-group-assign-row">
+                                <div className="vision-engine-group-assign-select-column">
+                                  <select
+                                    id={`vision-place-select-${group.id}`}
+                                    data-testid={`vision-place-select-${group.id}`}
+                                    value={selectedPlaceId}
+                                    onChange={(event) => handleVisionGroupPlaceSelection(group.id, event.target.value)}
+                                  >
+                                    <option value="">Select place...</option>
+                                    {canonicalPlaces.map((place) => (
+                                      <option key={place.id} value={place.id}>
+                                        {place.displayName}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                {selectedPlaceId && (
+                                  <button
+                                    type="button"
+                                    className="place-map-toggle"
+                                    onClick={() => setOpenPlaceMapGroupId(openPlaceMapGroupId === group.id ? null : group.id)}
+                                    data-testid={`vision-place-map-toggle-${group.id}`}
+                                    title="Show place map reference"
+                                  >
+                                    {openPlaceMapGroupId === group.id ? "Hide map" : "Show map"}
+                                  </button>
+                                )}
+                              </div>
                               <button
                                 type="button"
                                 className="secondary-action vision-engine-group-approve"
@@ -2038,6 +2055,20 @@ function App() {
                               >
                                 Approve place
                               </button>
+
+                              {openPlaceMapGroupId === group.id && selectedPlaceId && (
+                                <div className="place-map-overlay" onClick={() => setOpenPlaceMapGroupId(null)}>
+                                  <div
+                                    className="place-map-popover"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <PlaceMapReference
+                                      selectedPlaceId={selectedPlaceId}
+                                      onClose={() => setOpenPlaceMapGroupId(null)}
+                                    />
+                                  </div>
+                                </div>
+                              )}
 
                               <p className="result-count vision-engine-group-representative-label">Representative: {representativeLabel}</p>
                             </div>

@@ -1045,6 +1045,124 @@ describe("App", () => {
     expect(placeByFilename.get("courtyard-03.jpg")).toBe("house-wall");
   });
 
+  it("uses living-map.png as the place discovery map reference", async () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const placeSelect = container.querySelector('[data-testid="vision-place-select-vision-place-1"]') as HTMLSelectElement | null;
+
+    act(() => {
+      if (placeSelect) {
+        placeSelect.value = "seating-area";
+      }
+      placeSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const showMapButton = container.querySelector('[data-testid="vision-place-map-toggle-vision-place-1"]') as HTMLButtonElement | null;
+    act(() => {
+      showMapButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const mapImage = container.querySelector(".place-map-svg image") as SVGImageElement | null;
+    expect(mapImage).toBeTruthy();
+    const href = mapImage?.getAttribute("href") || mapImage?.getAttributeNS("http://www.w3.org/1999/xlink", "href");
+    expect(href).toBe("/images/living-map.png");
+  });
+
+  it("highlights calibrated canonical place hotspot on the map", async () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const placeSelect = container.querySelector('[data-testid="vision-place-select-vision-place-1"]') as HTMLSelectElement | null;
+
+    // Select a calibrated place (house-wall is marked calibrated: true)
+    act(() => {
+      if (placeSelect) {
+        placeSelect.value = "house-wall";
+      }
+      placeSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const showMapButton = container.querySelector('[data-testid="vision-place-map-toggle-vision-place-1"]') as HTMLButtonElement | null;
+    act(() => {
+      showMapButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    // Look for the active hotspot circle for calibrated place
+    const activeHotspot = container.querySelector(".place-map-hotspot-active");
+    expect(activeHotspot).toBeTruthy();
+
+    // No calibration notice should appear for calibrated place
+    const calibrationNotice = container.querySelector(".place-map-calibration-notice");
+    expect(calibrationNotice).toBeFalsy();
+  });
+
+  it("shows calibration notice for uncalibrated canonical place", async () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const placeSelect = container.querySelector('[data-testid="vision-place-select-vision-place-1"]') as HTMLSelectElement | null;
+
+    // Select an uncalibrated place (parking is marked calibrated: false)
+    act(() => {
+      if (placeSelect) {
+        placeSelect.value = "parking";
+      }
+      placeSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const showMapButton = container.querySelector('[data-testid="vision-place-map-toggle-vision-place-1"]') as HTMLButtonElement | null;
+    act(() => {
+      showMapButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    // Hotspot should NOT be active for uncalibrated place
+    const activeHotspot = container.querySelector(".place-map-hotspot-active");
+    expect(activeHotspot).toBeFalsy();
+
+    // Calibration notice should appear
+    const calibrationNotice = container.querySelector(".place-map-calibration-notice");
+    expect(calibrationNotice).toBeTruthy();
+    expect(calibrationNotice?.textContent).toBe("Click the map to choose a position. Save to calibrate this place.");
+  });
+
+  it("allows place approval regardless of calibration status", async () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const placeSelect = container.querySelector('[data-testid="vision-place-select-vision-place-1"]') as HTMLSelectElement | null;
+
+    // Select an uncalibrated place
+    act(() => {
+      if (placeSelect) {
+        placeSelect.value = "parking";
+      }
+      placeSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const approveButton = container.querySelector('[data-testid="vision-place-approve-vision-place-1"]') as HTMLButtonElement | null;
+    expect(approveButton?.disabled).toBe(false);
+
+    act(() => {
+      approveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    // Should approve successfully even though parking is not yet calibrated
+    expect(container.textContent).toContain("Assigned The Parking Edge");
+  });
+
   it("keeps unassigned photographs backward compatible with Unknown place labels", () => {
     act(() => {
       root.render(<App />);
