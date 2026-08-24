@@ -1082,6 +1082,35 @@ describe("App", () => {
     expect(placeByFilename.get("courtyard-03.jpg")).toBe("house-wall");
   });
 
+  it("shows a resolved state instead of approval when all group photographs are already assigned", async () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const removeButtons = Array.from(container.querySelectorAll('[data-testid^="vision-group-preview-vision-place-1-"]'))
+      .map((preview) => preview.parentElement?.querySelector(".vision-engine-group-remove-image") as HTMLButtonElement | null)
+      .filter((button): button is HTMLButtonElement => Boolean(button));
+    const representativeRemoveButton = container.querySelector(
+      '[data-testid="vision-group-card-vision-place-1"] .vision-engine-group-remove-representative'
+    ) as HTMLButtonElement | null;
+
+    act(() => {
+      representativeRemoveButton?.click();
+      removeButtons.forEach((button) => button.click());
+    });
+
+    const placeSelect = container.querySelector('[data-testid="vision-place-select-vision-place-1"]') as HTMLSelectElement | null;
+    act(() => {
+      if (placeSelect) placeSelect.value = "rock-garden";
+      placeSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(container.querySelector('[data-testid="vision-place-approve-vision-place-1"]')).toBeNull();
+    expect(container.querySelector('[data-testid="vision-place-approval-resolved-vision-place-1"]')?.textContent).toBe("Already assigned");
+  });
+
   it("uses living-map.png as the place discovery map reference", async () => {
     act(() => {
       root.render(<App />);

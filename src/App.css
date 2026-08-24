@@ -795,6 +795,19 @@ textarea {
   cursor: not-allowed;
 }
 
+.vision-engine-group-approval-resolved {
+  width: 100%;
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(108, 125, 101, 0.5);
+  border-radius: 999px;
+  background: rgba(159, 181, 157, 0.18);
+  color: #314233;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
 .vision-engine-group-image-button {
   border: 0;
   background: transparent;

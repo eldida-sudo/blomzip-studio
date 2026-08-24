@@ -1932,6 +1932,11 @@ function App() {
                         });
                         const representativeThumbnailSrc = createThumbnailUrlForRecord(representativeRecord);
                         const selectedPlaceId = selectedPlaceByVisionGroupId[group.id] ?? "";
+                        const excludedImageIds = new Set(excludedImageIdsByVisionGroupId[group.id] ?? []);
+                        const unassignedImageCount = group.imageRecordIds.filter((recordId) => {
+                          const record = imageRecordsById.get(recordId);
+                          return Boolean(record && !record.placeId && !excludedImageIds.has(recordId));
+                        }).length;
 
                         return (
                           <article key={group.id} className="vision-engine-group-item" data-testid={`vision-group-card-${group.id}`}>
@@ -2055,15 +2060,24 @@ function App() {
                                   </button>
                                 )}
                               </div>
-                              <button
-                                type="button"
-                                className="secondary-action vision-engine-group-approve"
-                                data-testid={`vision-place-approve-${group.id}`}
-                                onClick={() => handleApproveVisionGroupPlace(group)}
-                                disabled={!selectedPlaceId}
-                              >
-                                Approve place
-                              </button>
+                              {unassignedImageCount > 0 ? (
+                                <button
+                                  type="button"
+                                  className="secondary-action vision-engine-group-approve"
+                                  data-testid={`vision-place-approve-${group.id}`}
+                                  onClick={() => handleApproveVisionGroupPlace(group)}
+                                  disabled={!selectedPlaceId}
+                                >
+                                  Approve place
+                                </button>
+                              ) : (
+                                <p
+                                  className="vision-engine-group-approval-resolved"
+                                  data-testid={`vision-place-approval-resolved-${group.id}`}
+                                >
+                                  Already assigned
+                                </p>
+                              )}
 
                               {openPlaceMapGroupId === group.id && selectedPlaceId && (
                                 <div className="place-map-overlay" onClick={() => setOpenPlaceMapGroupId(null)}>
