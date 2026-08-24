@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { initialImages, type ImageItem } from "./data/demoImages";
 import { getPlaceById, listCanonicalPlaces } from "./data/canonicalPlaces";
 import { EntryReview } from "./components/EntryReview";
+import { LivingMapPanel } from "./components/LivingMapPanel";
 import { PlaceMapReference } from "./components/PlaceMapReference";
 import { MockObservationEngine, type ObservationEngine } from "./components/observationEngine";
 import { ZipImportPanel } from "./components/ZipImportPanel";
@@ -1887,6 +1888,8 @@ function App() {
               <span aria-hidden="true">→</span>
               <span>Review &amp; Curate</span>
             </nav>
+
+            <LivingMapPanel />
 
             <section className="archive-attention-card" data-testid="archive-next-action">
               <div>

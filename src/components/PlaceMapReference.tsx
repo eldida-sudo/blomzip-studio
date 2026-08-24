@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { listCanonicalPlaces } from "../data/canonicalPlaces";
 import { calibratePlaceHotspot, getPlaceHotspot, isPlaceCalibrated } from "../data/placeHotspots";
 
 interface PlaceMapReferenceProps {
@@ -7,15 +8,19 @@ interface PlaceMapReferenceProps {
 }
 
 const COURTYARD_MAP_IMAGE = "/images/living-map.png";
+const LIVING_MAP_WIDTH = 1934;
+const LIVING_MAP_HEIGHT = 1304;
 const IS_DEVELOPMENT = import.meta.env.DEV;
 
 export function PlaceMapReference({ selectedPlaceId, onClose }: PlaceMapReferenceProps) {
+  const [calibrationPlaceId, setCalibrationPlaceId] = useState(selectedPlaceId ?? "");
   const [calibrationCoordinates, setCalibrationCoordinates] = useState<{ x: number; y: number } | null>(null);
-  
-  const selectedHotspot = selectedPlaceId ? getPlaceHotspot(selectedPlaceId) : null;
-  const isCalibrated = selectedPlaceId ? isPlaceCalibrated(selectedPlaceId) : false;
+  const activePlaceId = calibrationPlaceId || undefined;
+  const selectedHotspot = activePlaceId ? getPlaceHotspot(activePlaceId) : null;
+  const isCalibrated = activePlaceId ? isPlaceCalibrated(activePlaceId) : false;
 
   useEffect(() => {
+    setCalibrationPlaceId(selectedPlaceId ?? "");
     setCalibrationCoordinates(null);
   }, [selectedPlaceId]);
 
@@ -34,9 +39,9 @@ export function PlaceMapReference({ selectedPlaceId, onClose }: PlaceMapReferenc
   }
 
   function handleSaveCalibration() {
-    if (!IS_DEVELOPMENT || !selectedPlaceId || !calibrationCoordinates) return;
+    if (!IS_DEVELOPMENT || !activePlaceId || !calibrationCoordinates) return;
 
-    calibratePlaceHotspot(selectedPlaceId, calibrationCoordinates);
+    calibratePlaceHotspot(activePlaceId, calibrationCoordinates);
     setCalibrationCoordinates(null);
   }
 
@@ -48,10 +53,30 @@ export function PlaceMapReference({ selectedPlaceId, onClose }: PlaceMapReferenc
 
   return (
     <div className="place-map-reference">
+      {IS_DEVELOPMENT && (
+        <label className="place-map-calibration-place">
+          Calibrate canonical place
+          <select
+            value={calibrationPlaceId}
+            onChange={(event) => {
+              setCalibrationPlaceId(event.target.value);
+              setCalibrationCoordinates(null);
+            }}
+            data-testid="calibration-place-select"
+          >
+            <option value="">Select a place</option>
+            {listCanonicalPlaces().map((place) => (
+              <option key={place.id} value={place.id}>
+                {place.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="place-map-container">
         <svg
           className="place-map-svg"
-          viewBox="0 0 1 1"
+          viewBox={`0 0 ${LIVING_MAP_WIDTH} ${LIVING_MAP_HEIGHT}`}
           preserveAspectRatio="xMidYMid meet"
           onClick={handleMapClick}
           style={IS_DEVELOPMENT ? { cursor: "crosshair" } : undefined}
@@ -60,24 +85,24 @@ export function PlaceMapReference({ selectedPlaceId, onClose }: PlaceMapReferenc
             href={COURTYARD_MAP_IMAGE}
             x="0"
             y="0"
-            width="1"
-            height="1"
-            preserveAspectRatio="xMidYMid slice"
+            width={LIVING_MAP_WIDTH}
+            height={LIVING_MAP_HEIGHT}
+            preserveAspectRatio="none"
           />
           {selectedHotspot && isCalibrated && (
             <circle
-              cx={selectedHotspot.x}
-              cy={selectedHotspot.y}
-              r={selectedHotspot.radius}
+              cx={selectedHotspot.x * LIVING_MAP_WIDTH}
+              cy={selectedHotspot.y * LIVING_MAP_HEIGHT}
+              r={selectedHotspot.radius * LIVING_MAP_WIDTH * 0.42}
               className="place-map-hotspot place-map-hotspot-active"
               aria-label={`Selected place location`}
             />
           )}
           {IS_DEVELOPMENT && calibrationCoordinates && (
             <circle
-              cx={calibrationCoordinates.x}
-              cy={calibrationCoordinates.y}
-              r={selectedHotspot?.radius ?? 0.07}
+              cx={calibrationCoordinates.x * LIVING_MAP_WIDTH}
+              cy={calibrationCoordinates.y * LIVING_MAP_HEIGHT}
+              r={(selectedHotspot?.radius ?? 0.07) * LIVING_MAP_WIDTH * 0.33}
               className="place-map-hotspot place-map-hotspot-pending"
               aria-label="Pending hotspot position"
               data-testid="pending-hotspot"
@@ -86,7 +111,7 @@ export function PlaceMapReference({ selectedPlaceId, onClose }: PlaceMapReferenc
         </svg>
       </div>
 
-      {!isCalibrated && selectedPlaceId && (
+      {!isCalibrated && activePlaceId && (
         <p className="place-map-calibration-notice">
           Click the map to choose a position. Save to calibrate this place.
         </p>
@@ -98,11 +123,11 @@ export function PlaceMapReference({ selectedPlaceId, onClose }: PlaceMapReferenc
         </p>
       )}
 
-      {IS_DEVELOPMENT && selectedPlaceId && (
+      {IS_DEVELOPMENT && activePlaceId && (
         <div className="place-map-calibration-actions">
           <button
             type="button"
-            className="secondary-action"
+            className="place-map-save"
             onClick={handleSaveCalibration}
             disabled={!calibrationCoordinates}
             data-testid="save-hotspot-position"

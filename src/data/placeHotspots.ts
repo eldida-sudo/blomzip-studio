@@ -39,7 +39,7 @@ export interface PlaceHotspot {
  * - garden-border: Planted border along the garden edge
  * - entrance: Entrance threshold to the courtyard
  */
-const PLACE_HOTSPOTS: PlaceHotspot[] = [
+const BASELINE_PLACE_HOTSPOTS: PlaceHotspot[] = [
   {
     placeId: "parking",
     x: 0.15,
@@ -105,6 +105,53 @@ const PLACE_HOTSPOTS: PlaceHotspot[] = [
   },
 ];
 
+export const PLACE_HOTSPOT_CALIBRATION_STORAGE_KEY = "blomzip.place-hotspot-calibration";
+
+interface PersistedHotspotOverride {
+  x: number;
+  y: number;
+  calibrated: true;
+}
+
+function isValidOverride(value: unknown): value is PersistedHotspotOverride {
+  if (!value || typeof value !== "object") return false;
+
+  const override = value as Partial<PersistedHotspotOverride>;
+  return (
+    typeof override.x === "number" &&
+    Number.isFinite(override.x) &&
+    override.x >= 0 &&
+    override.x <= 1 &&
+    typeof override.y === "number" &&
+    Number.isFinite(override.y) &&
+    override.y >= 0 &&
+    override.y <= 1 &&
+    override.calibrated === true
+  );
+}
+
+const persistedOverrides = readPersistedOverrides();
+
+function readPersistedOverrides(): Map<string, PersistedHotspotOverride> {
+  if (!import.meta.env.DEV || typeof localStorage === "undefined") return new Map();
+
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PLACE_HOTSPOT_CALIBRATION_STORAGE_KEY) ?? "{}");
+    if (!parsed || typeof parsed !== "object") return new Map();
+
+    return new Map(
+      Object.entries(parsed).filter((entry): entry is [string, PersistedHotspotOverride] => isValidOverride(entry[1]))
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+const PLACE_HOTSPOTS: PlaceHotspot[] = BASELINE_PLACE_HOTSPOTS.map((hotspot) => {
+  const override = persistedOverrides.get(hotspot.placeId);
+  return override ? { ...hotspot, ...override } : { ...hotspot };
+});
+
 const hotspotsByPlaceId = new Map(PLACE_HOTSPOTS.map((hotspot) => [hotspot.placeId, hotspot]));
 
 export function getPlaceHotspot(placeId: string): PlaceHotspot | null {
@@ -128,6 +175,12 @@ export function calibratePlaceHotspot(placeId: string, coordinates: { x: number;
   hotspot.x = coordinates.x;
   hotspot.y = coordinates.y;
   hotspot.calibrated = true;
+
+  if (typeof localStorage !== "undefined") {
+    const overrides = readPersistedOverrides();
+    overrides.set(placeId, { x: hotspot.x, y: hotspot.y, calibrated: true });
+    localStorage.setItem(PLACE_HOTSPOT_CALIBRATION_STORAGE_KEY, JSON.stringify(Object.fromEntries(overrides)));
+  }
 }
 
 export function getUncalibratedPlaceIds(): string[] {
