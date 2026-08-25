@@ -9,7 +9,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "import-images": "node scripts/import-images.mjs",
-    "dev:web": "vite --host 0.0.0.0",
+    "dev:web": "VITE_VISION_ENGINE_MODE=proxy vite --host 0.0.0.0",
     "dev:vision": "tsx server/visionServer.ts"
   },
   "dependencies": {
