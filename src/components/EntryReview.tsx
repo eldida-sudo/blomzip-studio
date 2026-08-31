@@ -932,6 +932,9 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
                       <strong>Composition:</strong>{" "}
                       {Math.round(entry.visualAnalysis.heroAssessment.composition * 100)}%
                       {" · "}
+                      <strong>Light:</strong>{" "}
+                      {Math.round(entry.visualAnalysis.heroAssessment.light * 100)}%
+                      {" · "}
                       <strong>Atmosphere:</strong>{" "}
                       {Math.round(entry.visualAnalysis.heroAssessment.atmosphere * 100)}%
                     </p>

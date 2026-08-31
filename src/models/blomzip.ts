@@ -140,6 +140,7 @@ export interface HeroAssessment {
   role: HeroAssessmentRole;
   focalClarity: number;
   composition: number;
+  light: number;
   atmosphere: number;
   placeLegibility: number;
   editorialUsability: number;

@@ -36,6 +36,15 @@ function isHeroAssessmentRole(value: string): value is HeroAssessmentRole {
   return HERO_ASSESSMENT_ROLES.has(value as HeroAssessmentRole);
 }
 
+export const HERO_ROLE_MIN_SCORE = 0.5;
+
+export function applyHeroRoleGate(
+  score: number,
+  role: HeroAssessmentRole
+): HeroAssessmentRole {
+  return score < HERO_ROLE_MIN_SCORE ? "neither" : role;
+}
+
 export interface VisionAnalysisRequest {
   imageRecordId: string;
   filename: string;
@@ -217,6 +226,7 @@ export class ProxyVisionProvider implements VisionProvider {
         role: string;
         focal_clarity: number;
         composition: number;
+        light: number;
         atmosphere: number;
         place_legibility: number;
         editorial_usability: number;
@@ -255,9 +265,13 @@ export class ProxyVisionProvider implements VisionProvider {
     ) {
       heroAssessment = {
         score: parsed.hero_assessment.score,
-        role: parsed.hero_assessment.role,
+        role: applyHeroRoleGate(
+          parsed.hero_assessment.score,
+          parsed.hero_assessment.role
+        ),
         focalClarity: parsed.hero_assessment.focal_clarity,
         composition: parsed.hero_assessment.composition,
+        light: parsed.hero_assessment.light,
         atmosphere: parsed.hero_assessment.atmosphere,
         placeLegibility: parsed.hero_assessment.place_legibility,
         editorialUsability: parsed.hero_assessment.editorial_usability,

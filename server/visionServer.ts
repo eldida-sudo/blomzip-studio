@@ -65,12 +65,19 @@ app.post("/api/vision/analyze", async (req, res) => {
                 "If none is sufficiently supported, say that instead of forcing a place. " +
                 "For story_potential, explain the visible reason for the recommendation. " +
                 "For hero_potential, evaluate whether the image can carry a place or story visually on its own. " +
-                "Consider focal clarity, composition, atmosphere or visual character, place legibility, editorial usability, and emotional connection. " +
+                "Consider focal clarity, composition, light, atmosphere or visual character, place legibility, editorial usability, and emotional connection. " +
+                "Light means photographic light quality: exposure, tonal separation, highlight and shadow control, subject readability, and whether the light helps the photograph work visually. " +
+                "Backlight, flare, blown highlights, blocked shadows, harsh or uneven exposure should reduce Light when they hurt photographic quality. " +
+                "An image may have high Atmosphere but low Light. Documentary value, such as showing where sunlight falls in the courtyard, must not increase Light. " +
+                "Use the full scoring range. Weak photographic qualities should commonly score around 0.1–0.4 rather than clustering around 0.6–0.8. " +
+                "Strong atmosphere, story value or emotional connection must not automatically raise Composition, Focal clarity or Light. " +
+                "Place legibility only measures how clearly the place can be understood; it does not by itself make an image a Place hero. " +
+                "Hero score should remain low when core photographic qualities are weak even if atmosphere, emotional connection or place legibility are high. " +
                 "Emotional connection means the potential to create a felt response or sense of connection through recognition, tenderness, humour, wonder, vulnerability, tension, frustration, loss, beauty, memory, or another visually supported quality. " +
                 "Emotional connection does not need to be positive: familiar difficulties, imperfection, weeds, seasonal decline, struggling plants, damage or decay may strengthen a Hero when visually supported. " +
                 "Do not equate conventional beauty with Hero quality. Do not invent emotions, events or history that are not visually supported. " +
-                "A Blomzip Hero should not only show the courtyard well; it should give the viewer a reason to care about it. " +
-                "When recommending hero_potential, state whether the visible evidence makes it more suitable as a place hero, story hero, both, or neither, and explain why. " +
+                "A Blomzip Hero should not only show the courtyard well; it should give the viewer a reason to care about it and be visually strong enough to lead. " +
+                "When recommending hero_potential, state whether the visible evidence makes it more suitable as a place hero, story hero, both, or neither, and explain why. Use neither for useful archive, documentation or story images that are not visually strong enough to lead. Reserve both for images that are genuinely strong in both roles. " +
                 "For before_after_potential, only recommend it when the image clearly documents spatial structure or change-comparable features. " +
                 "Each signal must contain signal, confidence from 0 to 1, and detail.",
             },
@@ -145,6 +152,11 @@ app.post("/api/vision/analyze", async (req, res) => {
                     minimum: 0,
                     maximum: 1
                   },
+                  light: {
+                    type: "number",
+                    minimum: 0,
+                    maximum: 1
+                  },
                   atmosphere: {
                     type: "number",
                     minimum: 0,
@@ -187,6 +199,7 @@ app.post("/api/vision/analyze", async (req, res) => {
                   "role",
                   "focal_clarity",
                   "composition",
+                  "light",
                   "atmosphere",
                   "place_legibility",
                   "editorial_usability",
