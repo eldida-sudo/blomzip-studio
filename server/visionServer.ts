@@ -11,7 +11,7 @@ app.use(express.json({ limit: "40mb" }));
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
-  timeout: 60000,
+  timeout: 120000,
   maxRetries: 0,
 });
 
