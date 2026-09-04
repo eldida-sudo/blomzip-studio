@@ -1,5 +1,5 @@
 import JSZip from "jszip";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readZipImages } from "./readZipImages";
 
 describe("readZipImages", () => {
@@ -23,6 +23,7 @@ describe("readZipImages", () => {
     expect(result.imageFiles).toEqual(["one.jpg", "two.png"]);
     expect(result.sidecarFound).toBe(false);
     expect(result.sidecar).toBeNull(); // No sidecar, so null
+    expect(result.imageEntries?.every((entry) => entry.contentHash?.startsWith("sha256:"))).toBe(true);
   });
 
   it("reports empty zips gracefully", async () => {
@@ -48,6 +49,23 @@ describe("readZipImages", () => {
     expect(result.status).toBe("invalid");
     expect(result.imageCount).toBe(0);
     expect(result.imageFiles).toEqual([]);
+  });
+
+  it("fails the import when exact hashing fails rather than creating an unhashed image", async () => {
+    const zip = new JSZip();
+    zip.file("image.jpg", Uint8Array.from([1, 2, 3]));
+    const archiveBuffer = await zip.generateAsync({ type: "arraybuffer" });
+    const digest = vi.spyOn(crypto.subtle, "digest").mockRejectedValueOnce(new Error("digest unavailable"));
+
+    const result = await readZipImages({
+      name: "hash-failure.zip",
+      arrayBuffer: async () => archiveBuffer,
+    } as File);
+
+    expect(result.status).toBe("invalid");
+    expect(result.errorMessage).toContain("digest unavailable");
+    expect(result.imageEntries).toBeUndefined();
+    digest.mockRestore();
   });
 
   it("parses and returns sidecar JSON when present", async () => {

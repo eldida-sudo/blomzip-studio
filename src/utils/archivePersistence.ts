@@ -70,6 +70,10 @@ function sanitizeImageRecordForPersistence(record: ImageRecord): ImageRecord {
 
   return {
     ...recordWithoutThumbnail,
+    contentHash: record.contentHash,
+    additionalOccurrences: record.additionalOccurrences
+      ? record.additionalOccurrences.map((occurrence) => ({ ...occurrence }))
+      : undefined,
     location: record.location ? { ...record.location } : undefined,
     tags: record.tags ? [...record.tags] : undefined,
     custom: record.custom ? { ...record.custom } : undefined,
@@ -84,6 +88,9 @@ function sanitizeVisitForPersistence(visit: Visit): Visit {
     imageRecords: visit.imageRecords?.map((record) => sanitizeImageRecordForPersistence(record)),
     importBatches: visit.importBatches?.map((batch) => ({
       ...batch,
+      rawImageCount: batch.rawImageCount,
+      importedImageCount: batch.importedImageCount,
+      duplicateSkippedCount: batch.duplicateSkippedCount,
       sourceMetadata: batch.sourceMetadata ? { ...batch.sourceMetadata } : undefined,
     })),
   };

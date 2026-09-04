@@ -1,5 +1,6 @@
 import { type Entry, type ImageRecord, type Visit } from "../models/blomzip";
 import { extractImageMetadata } from "./extractImageMetadata";
+import { generateImportBatchId } from "./imageContentHash";
 import { orderImageRecordsForTimeline } from "./orderImageRecordsForTimeline";
 import { parseCaptureDate } from "./captureDate";
 import { type ZipImportSummary } from "./readZipImages";
@@ -74,9 +75,34 @@ function inferPrimaryDate(imageRecords: ImageRecord[]): string | null {
   return new Date(parsedDates[0]).toISOString().slice(0, 10);
 }
 
-function createImageRecords(summary: ZipImportSummary, importBatchId: string): ImageRecord[] {
-  const imageRecords = summary.imageFiles.map((filename, index) => {
+function createImageRecords(
+  summary: ZipImportSummary,
+  importBatchId: string,
+  importedAt: string
+): { uniqueRecords: ImageRecord[]; inBatchDuplicateCount: number } {
+  const seenHashes = new Map<string, ImageRecord>();
+  const uniqueRecords: ImageRecord[] = [];
+  let inBatchDuplicateCount = 0;
+
+  (summary.imageFiles ?? []).forEach((filename, index) => {
     const imageEntry = summary.imageEntries?.[index];
+    const sourcePath = imageEntry?.sourcePath ?? filename;
+    const contentHash = imageEntry?.contentHash;
+
+    if (contentHash && seenHashes.has(contentHash)) {
+      const canonical = seenHashes.get(contentHash)!;
+      const occurrences = canonical.additionalOccurrences ?? [];
+      occurrences.push({
+        importBatchId,
+        filename,
+        sourcePath,
+        importedAt,
+      });
+      canonical.additionalOccurrences = occurrences;
+      inBatchDuplicateCount += 1;
+      return;
+    }
+
     const metadata = imageEntry?.data ? extractImageMetadata(imageEntry.data, filename) : {};
 
     let record: ImageRecord = {
@@ -85,7 +111,8 @@ function createImageRecords(summary: ZipImportSummary, importBatchId: string): I
       filename,
       fileSize: imageEntry?.fileSize ?? 0,
       format: filename.split(".").pop()?.toLowerCase() ?? "unknown",
-      sourcePath: filename,
+      sourcePath,
+      contentHash,
       thumbnailUrl: imageEntry?.data ? createThumbnailUrlFromImageData(imageEntry.data, filename) : undefined,
       ...metadata,
     };
@@ -94,15 +121,21 @@ function createImageRecords(summary: ZipImportSummary, importBatchId: string): I
     const sidecarImageMetadata = findImageMetadataInSidecar(filename, summary.sidecar?.images);
     record = mergeImageSidecarMetadata(record, sidecarImageMetadata);
 
-    return record;
+    if (contentHash) {
+      seenHashes.set(contentHash, record);
+    }
+    uniqueRecords.push(record);
   });
 
-  const { orderedRecords } = orderImageRecordsForTimeline(imageRecords);
+  const { orderedRecords } = orderImageRecordsForTimeline(uniqueRecords);
 
-  return orderedRecords.map((record, index) => ({
-    ...record,
-    timelineIndex: index,
-  }));
+  return {
+    uniqueRecords: orderedRecords.map((record, index) => ({
+      ...record,
+      timelineIndex: index,
+    })),
+    inBatchDuplicateCount,
+  };
 }
 
 export function createTemporaryVisitFromZip(
@@ -116,7 +149,7 @@ export function createTemporaryVisitFromZip(
   const now = new Date();
   const fallbackDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   const importedAt = options.importedAt ?? now.toISOString();
-  const importBatchId = `batch-${summary.fileName}-${Date.now()}`;
+  const importBatchId = generateImportBatchId(summary.fileName);
   
   let visitDate = options.date ?? fallbackDate;
   let visitWeather: any = undefined;
@@ -130,29 +163,32 @@ export function createTemporaryVisitFromZip(
     visitLocation = (merged as any).location;
   }
 
-  const imageRecords = createImageRecords(summary, importBatchId);
-  const inferredDate = inferPrimaryDate(imageRecords);
+  const { uniqueRecords, inBatchDuplicateCount } = createImageRecords(summary, importBatchId, importedAt);
+  const inferredDate = inferPrimaryDate(uniqueRecords);
   const sidecarDate = summary.sidecar?.visit?.date ? normalizeToDateString(summary.sidecar.visit.date) : null;
   if (!options.date) {
     visitDate = sidecarDate ?? inferredDate ?? fallbackDate;
   }
 
-  const visitId = `visit-${summary.fileName}-${summary.imageCount}-${Date.now()}`;
+  const visitId = `visit-${summary.fileName}-${uniqueRecords.length}-${Date.now()}`;
 
   const visit: Visit = {
     id: visitId,
     placeId: "temporary-import",
     date: visitDate,
-    entries: createEntries(imageRecords, visitId, importBatchId),
-    imageCount: summary.imageCount,
-    importedImageFiles: summary.imageFiles,
-    imageRecords,
+    entries: createEntries(uniqueRecords, visitId, importBatchId),
+    imageCount: uniqueRecords.length,
+    importedImageFiles: uniqueRecords.map((record) => record.filename),
+    imageRecords: uniqueRecords,
     importBatches: [
       {
         id: importBatchId,
         fileName: summary.fileName,
         importedAt,
-        imageCount: summary.imageCount,
+        imageCount: uniqueRecords.length,
+        rawImageCount: summary.imageCount,
+        importedImageCount: uniqueRecords.length,
+        duplicateSkippedCount: inBatchDuplicateCount,
         sourceMetadata: summary.sidecar?.settings ? { sidecarSettings: summary.sidecar.settings } : undefined,
       },
     ],

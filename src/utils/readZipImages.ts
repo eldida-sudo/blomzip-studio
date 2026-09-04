@@ -1,5 +1,6 @@
 import JSZip from "jszip";
 import { type ImportSidecarV1 } from "../models/importSidecar";
+import { computeContentHash } from "./imageContentHash";
 import { parseSidecarFromZip } from "./parseSidecarFromZip";
 import { validateSidecar } from "./validateSidecar";
 
@@ -7,8 +8,10 @@ export type ZipImportStatus = "ready" | "empty" | "invalid";
 
 export interface ZipImageEntry {
   filename: string;
+  sourcePath?: string;
   fileSize: number;
   data: Uint8Array;
+  contentHash?: string;
 }
 
 export interface ZipImportSummary {
@@ -91,9 +94,16 @@ export async function readZipImages(file: Pick<File, "name" | "arrayBuffer">): P
     for (const entry of imageEntries) {
       const data = await entry.async("uint8array");
       const filename = entry.name.split("/").pop() ?? entry.name;
+      const contentHash = await computeContentHash(data);
       totalImageSize += data.byteLength;
       imageFiles.push(filename);
-      imageEntriesData.push({ filename, fileSize: data.byteLength, data });
+      imageEntriesData.push({
+        filename,
+        sourcePath: entry.name,
+        fileSize: data.byteLength,
+        data,
+        contentHash,
+      });
     }
 
     return {

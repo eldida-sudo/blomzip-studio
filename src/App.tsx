@@ -12,7 +12,6 @@ import type {
   Entry,
   EntrySuggestionCategory,
   ImageRecord,
-  Observation,
   Visit,
 } from "./models/blomzip";
 import {
@@ -33,12 +32,20 @@ import {
   upsertDraftVisit,
 } from "./utils/draftWorkspace";
 import { discoverPlacesVisionSummary } from "./utils/discoverPlacesVisionEngine";
-import { mergeImportedVisit } from "./utils/mergeImportedVisit";
+import {
+  createBatchImportOutcome,
+  formatBatchImportSummary,
+  mergeImportedVisit,
+  type BatchImportOutcome,
+} from "./utils/mergeImportedVisit";
 import { createPublishReadyVisitOutput } from "./utils/publishReadyOutput";
 import { isEntryPrivacyBlocked } from "./utils/privacy";
 import { createThumbnailUrlForRecord } from "./utils/createThumbnailUrls";
 import { parseCaptureDate } from "./utils/captureDate";
-import { getEntryEditorialRecommendations } from "./utils/entryRecommendations";
+import {
+  getEntryEditorialRecommendations,
+  withAutomaticAnalysisSuggestions,
+} from "./utils/entryRecommendations";
 import { applyStoryRecommendations } from "./utils/storyRecommendations";
 import { createVisionProvider } from "./utils/visionProvider";
 import type { VisionPlaceCandidateGroup } from "./utils/discoverPlacesVisionEngine";
@@ -55,12 +62,7 @@ type ViewFilter = "all" | "favorites" | "hero";
 
 type SuggestionFilter = "all" | EntrySuggestionCategory;
 
-interface BatchImportFeedback {
-  fileName: string;
-  addedPhotographs: number;
-  totalPhotographs: number;
-  totalBatches: number;
-}
+type BatchImportFeedback = BatchImportOutcome;
 
 type ReviewQueueMode = "story-first" | "needs-confirmation";
 
@@ -145,137 +147,6 @@ function getSuggestionChipLabel(category: EntrySuggestionCategory): string {
     default:
       return "AI";
   }
-}
-
-function getPossibleDuplicateEntryIdsByRecord(imageRecords: ImageRecord[] | undefined): Map<string, string[]> {
-  const duplicatesByRecordId = new Map<string, string[]>();
-
-  if (!imageRecords || imageRecords.length < 2) {
-    return duplicatesByRecordId;
-  }
-
-  const groups = new Map<string, string[]>();
-
-  imageRecords.forEach((record) => {
-    const width = record.width ?? 0;
-    const height = record.height ?? 0;
-    const sizeBucket = Math.round(record.fileSize / 1024);
-    const key = `${record.format}-${width}x${height}-${sizeBucket}`;
-    const group = groups.get(key) ?? [];
-    group.push(record.id);
-    groups.set(key, group);
-  });
-
-  groups.forEach((recordIds) => {
-    if (recordIds.length < 2) {
-      return;
-    }
-
-    recordIds.forEach((recordId) => {
-      duplicatesByRecordId.set(
-        recordId,
-        recordIds.filter((candidateId) => candidateId !== recordId)
-      );
-    });
-  });
-
-  return duplicatesByRecordId;
-}
-
-function createAutomaticSuggestions(options: {
-  entry: Entry;
-  imageRecord: ImageRecord | undefined;
-  observations: Observation[];
-  possibleDuplicateEntryIds: string[];
-}) {
-  const { entry, imageRecord, observations, possibleDuplicateEntryIds } = options;
-  const confidenceValues = observations
-    .map((observation) => observation.confidence)
-    .filter((confidence): confidence is number => typeof confidence === "number");
-  const confidence = confidenceValues.length > 0
-    ? confidenceValues.reduce((total, value) => total + value, 0) / confidenceValues.length
-    : 0.6;
-
-  const hasChangeSignal = observations.some((observation) => observation.type.toLowerCase().includes("change"));
-  const categories = new Set<EntrySuggestionCategory>();
-
-  if (confidence >= 0.7) {
-    categories.add("favorite-candidate");
-  }
-
-  if (confidence >= 0.85) {
-    categories.add("hero-candidate");
-  }
-
-  if (hasChangeSignal) {
-    categories.add("strong-change");
-  }
-
-  if (imageRecord?.orientation === "landscape") {
-    categories.add("overview-image");
-  } else {
-    categories.add("detail-image");
-  }
-
-  if ((imageRecord?.sourcePath ?? "").includes("/")) {
-    categories.add("by-place");
-  }
-
-  if (!entry.reviewed) {
-    categories.add("needs-review");
-  }
-
-  if (confidence < 0.75) {
-    categories.add("low-confidence");
-  }
-
-  if (possibleDuplicateEntryIds.length > 0) {
-    categories.add("possible-duplicates");
-  }
-
-  return {
-    engine: "mock-observation-engine" as const,
-    generatedAt: new Date().toISOString(),
-    confidence,
-    categories: Array.from(categories),
-    possibleDuplicateEntryIds: possibleDuplicateEntryIds.length > 0 ? possibleDuplicateEntryIds : undefined,
-  };
-}
-
-function withAutomaticAnalysisSuggestions(visit: Visit, observationEngine: ObservationEngine): Visit {
-  const imageRecordsById = new Map((visit.imageRecords ?? []).map((record) => [record.id, record]));
-  const duplicateRecordIds = getPossibleDuplicateEntryIdsByRecord(visit.imageRecords);
-  const entryIdByRecordId = new Map(visit.entries.map((entry) => [entry.imageRecordId, entry.id]));
-
-  return {
-    ...visit,
-    entries: visit.entries.map((entry) => {
-      const imageRecord = imageRecordsById.get(entry.imageRecordId);
-      const observations = entry.observations.length > 0 ? entry.observations : observationEngine.generateObservations(entry.id);
-
-      if (entry.analysisSuggestions) {
-        return {
-          ...entry,
-          observations,
-        };
-      }
-
-      const possibleDuplicateEntryIds = (duplicateRecordIds.get(entry.imageRecordId) ?? [])
-        .map((recordId) => entryIdByRecordId.get(recordId))
-        .filter((entryId): entryId is string => Boolean(entryId));
-
-      return {
-        ...entry,
-        observations,
-        analysisSuggestions: createAutomaticSuggestions({
-          entry,
-          imageRecord,
-          observations,
-          possibleDuplicateEntryIds,
-        }),
-      };
-    }),
-  };
 }
 
 function createDraftGalleryImage(options: {
@@ -560,8 +431,18 @@ function App() {
   const sidebarImportSectionRef = useRef<HTMLElement | null>(null);
   const visionSummaryRef = useRef<HTMLElement | null>(null);
   const managedThumbnailObjectUrlsRef = useRef<Set<string>>(new Set());
+  const latestImportVisitRef = useRef<Visit | null>(null);
   const savedDrafts = draftWorkspace.drafts;
   const hasExportableArchive = Boolean(importVisit || savedDrafts.length > 0);
+
+  function commitImportVisit(nextOrUpdater: Visit | null | ((current: Visit | null) => Visit | null)) {
+    const nextVisit = typeof nextOrUpdater === "function"
+      ? nextOrUpdater(latestImportVisitRef.current)
+      : nextOrUpdater;
+
+    latestImportVisitRef.current = nextVisit;
+    setImportVisit(nextVisit);
+  }
 
   useEffect(() => {
     let isCancelled = false;
@@ -595,7 +476,7 @@ function App() {
           });
         }
 
-        setImportVisit(nextSnapshot.importVisit);
+        commitImportVisit(nextSnapshot.importVisit);
         setDraftWorkspace(nextSnapshot.draftWorkspace);
       }
 
@@ -666,7 +547,7 @@ function App() {
   }, []);
 
   function handleImportEntryUpdated(updatedEntry: Entry) {
-    setImportVisit((currentVisit) => {
+    commitImportVisit((currentVisit) => {
       if (!currentVisit) {
         return currentVisit;
       }
@@ -682,7 +563,7 @@ function App() {
   }
 
   function handleStorySelectionFromOverview(index: number) {
-    setImportVisit((currentVisit) => {
+    commitImportVisit((currentVisit) => {
       if (!currentVisit) {
         return currentVisit;
       }
@@ -711,7 +592,7 @@ function App() {
   }
 
   function handleVisitFinalized(finalizedVisit: Visit) {
-    setImportVisit(finalizedVisit);
+    commitImportVisit(finalizedVisit);
     setIsReviewingEntries(false);
   }
 
@@ -741,7 +622,7 @@ function App() {
     hasAppliedStudioImagesRef.current = true;
     setImages(draftImages);
     setImportSummary(createDraftImportSummary(draftVisit));
-    setImportVisit(withAutomaticAnalysisSuggestions(draftVisit.visit, overviewObservationEngine));
+    commitImportVisit(withAutomaticAnalysisSuggestions(draftVisit.visit, overviewObservationEngine));
     setLatestImportedBatchIdForVision(null);
     setReviewStartIndex(0);
     setIsReviewingEntries(true);
@@ -882,19 +763,25 @@ function App() {
     }
 
     const entryByImageRecordId = new Map(importVisit.entries.map((entry) => [entry.imageRecordId, entry]));
+    const allRecords = importVisit.imageRecords ?? [];
 
     return [...importVisit.importBatches]
       .sort((left, right) => right.importedAt.localeCompare(left.importedAt))
       .map((batch) => {
-        const records = (importVisit.imageRecords ?? []).filter((record) => record.importBatchId === batch.id);
-        const datedValues = records
+        const newRecords = allRecords.filter((record) => record.importBatchId === batch.id);
+        // Duplicate-only batches add no new canonical records, so derive capture range from the
+        // existing photographs this batch's files were matched to via provenance occurrences.
+        const matchedRecords = allRecords.filter((record) =>
+          record.additionalOccurrences?.some((occurrence) => occurrence.importBatchId === batch.id)
+        );
+        const datedValues = [...newRecords, ...matchedRecords]
           .map((record) => {
             return parseCaptureDate(record.captureDate)?.toISOString().slice(0, 10) ?? null;
           })
           .filter((value): value is string => value !== null)
           .sort((left, right) => left.localeCompare(right));
-        const reviewedCount = records.filter((record) => entryByImageRecordId.get(record.id)?.reviewed).length;
-        const totalCount = records.length;
+        const reviewedCount = newRecords.filter((record) => entryByImageRecordId.get(record.id)?.reviewed).length;
+        const totalCount = newRecords.length;
         const reviewPercent = totalCount > 0 ? Math.round((reviewedCount / totalCount) * 100) : 0;
 
         return {
@@ -1175,7 +1062,7 @@ function App() {
   }, [activeBatchFilterId, importVisit]);
 
   function handleFinalizeImportedVisit() {
-    setImportVisit((currentVisit) => {
+    commitImportVisit((currentVisit) => {
       if (!currentVisit) {
         return currentVisit;
       }
@@ -1197,7 +1084,7 @@ function App() {
   }
 
   function handleRunStoryAnalysis() {
-    setImportVisit((currentVisit) => currentVisit ? applyStoryRecommendations(currentVisit) : currentVisit);
+    commitImportVisit((currentVisit) => currentVisit ? applyStoryRecommendations(currentVisit) : currentVisit);
   }
 
   async function handleAnalyzeLatestBatch() {
@@ -1257,7 +1144,7 @@ function App() {
         };
 
         workingVisit = applyStoryRecommendations(workingVisit);
-        setImportVisit(workingVisit);
+        commitImportVisit(workingVisit);
       } catch (error) {
         failed += 1;
         console.error(`Vision analysis failed for ${imageRecord.filename}`, error);
@@ -1434,7 +1321,7 @@ function App() {
       return;
     }
 
-    setImportVisit(assignment.visit);
+    commitImportVisit(assignment.visit);
     setPlaceAssignmentFeedback(
       `Assigned ${canonicalPlace.displayName} to ${assignment.assignedCount} photographs.`
     );
@@ -1644,6 +1531,45 @@ function App() {
     );
   }
 
+  const handleImportStateChange = useCallback(
+    async ({
+      summary,
+      visit,
+    }: {
+      summary: ZipImportSummary | null;
+      visit: Visit | null;
+    }): Promise<BatchImportOutcome | void> => {
+      setImportSummary(summary);
+      if (!visit) {
+        return;
+      }
+
+      const incomingBatchId = visit.importBatches?.[0]?.id ?? null;
+      const mergedVisit = mergeImportedVisit(latestImportVisitRef.current, visit, {
+        observationEngine: overviewObservationEngine,
+      });
+
+      if (!mergedVisit) {
+        return;
+      }
+
+      commitImportVisit(mergedVisit);
+      setLatestImportedBatchIdForVision(incomingBatchId);
+      setBatchVisionProgress(null);
+
+      const outcome = createBatchImportOutcome(mergedVisit, incomingBatchId);
+      if (outcome) {
+        setLastBatchImportFeedback(outcome);
+        return outcome;
+      }
+    },
+    [overviewObservationEngine]
+  );
+
+  const hasLegacyUnhashedRecords = useMemo(() => {
+    return (importVisit?.imageRecords ?? []).some((record) => !record.contentHash);
+  }, [importVisit]);
+
   return (
     <main className={`studio ${isEntryReviewMode ? "review-mode" : ""}`}>
       <aside className="sidebar">
@@ -1681,7 +1607,13 @@ function App() {
                   <p className="eyebrow">Batch provenance</p>
                   <h3>{latestImportBatch.fileName}</h3>
                   <p className="result-count">Imported {formatDateLabel(latestImportBatch.importedAt)}</p>
-                  <p className="result-count">{latestImportBatch.imageCount} images in this batch.</p>
+                  <p className="result-count">
+                    {formatBatchImportSummary(
+                      latestImportBatch.rawImageCount ?? latestImportBatch.imageCount,
+                      latestImportBatch.importedImageCount ?? latestImportBatch.imageCount,
+                      latestImportBatch.duplicateSkippedCount ?? 0
+                    )}
+                  </p>
                 </div>
               </section>
             ) : null}
@@ -1707,44 +1639,25 @@ function App() {
             <section className={`sidebar-import-shell ${importVisit ? "secondary" : "primary"}`} ref={sidebarImportSectionRef} data-testid="sidebar-import-section">
               <ZipImportPanel
                 className="zip-panel"
-                onImportStateChange={({ summary, visit }) => {
-                  setImportSummary(summary);
-                  setImportVisit((currentVisit) => {
-                    if (!visit) {
-                      return currentVisit;
-                    }
-
-                    const analyzedIncomingVisit = withAutomaticAnalysisSuggestions(visit, overviewObservationEngine);
-                    const incomingBatchId = analyzedIncomingVisit.importBatches?.[0]?.id ?? null;
-                    const mergedVisit = mergeImportedVisit(currentVisit, analyzedIncomingVisit);
-
-                    setLatestImportedBatchIdForVision(incomingBatchId);
-                    setBatchVisionProgress(null);
-
-                     if (summary?.status === "ready") {
-                      setLastBatchImportFeedback({
-                        fileName: summary.fileName,
-                        addedPhotographs: summary.imageCount,
-                        totalPhotographs: mergedVisit?.imageRecords?.length ?? currentVisit?.imageRecords?.length ?? summary.imageCount,
-                        totalBatches: mergedVisit?.importBatches?.length ?? currentVisit?.importBatches?.length ?? (summary.imageCount > 0 ? 1 : 0),
-                      });
-                    }
-
-                    return mergedVisit
-                      ? applyStoryRecommendations(withAutomaticAnalysisSuggestions(mergedVisit, overviewObservationEngine))
-                      : mergedVisit;
-                  });
-                }}
+                onImportStateChange={handleImportStateChange}
               />
 
               {importSummary ? (
                 <div className="sidebar-card import-summary-mini">
                   <span>ZIP ready</span>
-                  <strong>{importSummary.fileName}</strong>
+                  <strong className="import-summary-mini-filename" title={importSummary.fileName}>
+                    {importSummary.fileName}
+                  </strong>
                   <p className="result-count">
-                    {importSummary.imageCount} images, {importSummary.status}
+                    {importSummary.imageCount} supported images found, {importSummary.status}
                   </p>
                 </div>
+              ) : null}
+
+              {hasLegacyUnhashedRecords ? (
+                <p className="result-count">
+                  Legacy photographs do not have exact fingerprints and cannot be matched automatically. Duplicate protection applies between imports made after this update.
+                </p>
               ) : null}
             </section>
 
@@ -1759,7 +1672,7 @@ function App() {
                     aria-controls="sidebar-batch-list"
                     data-testid="sidebar-batches-toggle"
                   >
-                    <span>
+                    <span className="archive-batches-toggle-label">
                       <p className="eyebrow">Import batches</p>
                       <h3>Batch provenance ({batchOverview.length})</h3>
                     </span>
@@ -1785,12 +1698,27 @@ function App() {
                         aria-pressed={activeBatchFilterId === batch.id}
                       >
                         <div className="batch-item-header">
-                          <strong>{batch.fileName}</strong>
-                          <span>{batch.imageCount} images</span>
+                          <span className="batch-item-filename" title={batch.fileName}>
+                            {batch.fileName}
+                          </span>
+                          <span className="batch-item-count">{batch.importedImageCount ?? batch.imageCount} added</span>
                         </div>
                         <p>Imported {formatDateLabel(batch.importedAt)}</p>
+                        <p>
+                          {formatBatchImportSummary(
+                            batch.rawImageCount ?? batch.imageCount,
+                            batch.importedImageCount ?? batch.imageCount,
+                            batch.duplicateSkippedCount ?? 0
+                          )}
+                        </p>
                         <p>Capture range: {captureRange}</p>
-                        <p>Review progress: {reviewedCount}/{totalCount} ({reviewPercent}%)</p>
+                        {totalCount > 0 ? (
+                          <p>
+                            Review progress: {reviewedCount}/{totalCount} ({reviewPercent}%)
+                          </p>
+                        ) : (
+                          <p>No new photographs to review</p>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -2192,7 +2120,13 @@ function App() {
               {lastBatchImportFeedback ? (
                 <div className="import-feedback-inline" aria-live="polite">
                   <p className="result-count">✓ {lastBatchImportFeedback.fileName} imported</p>
-                  <p className="result-count">{lastBatchImportFeedback.addedPhotographs} photographs added</p>
+                  <p className="result-count">
+                    {formatBatchImportSummary(
+                      lastBatchImportFeedback.rawImageCount,
+                      lastBatchImportFeedback.importedImageCount,
+                      lastBatchImportFeedback.duplicateSkippedCount
+                    )}
+                  </p>
                   <p className="result-count">
                     Archive now contains {lastBatchImportFeedback.totalPhotographs} photographs in {lastBatchImportFeedback.totalBatches} batches.
                   </p>

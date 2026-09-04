@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { type Visit } from "../models/blomzip";
 import { importSingleZip } from "../utils/importSingleZip";
 import { revokeThumbnailUrls } from "../utils/createThumbnailUrls";
+import { formatBatchImportSummary, type BatchImportOutcome } from "../utils/mergeImportedVisit";
 import { type ZipImportSummary } from "../utils/readZipImages";
 
 type QueueItemStatus = "waiting" | "importing" | "imported" | "failed";
@@ -12,12 +13,18 @@ interface QueueItem {
   queuePosition: number;
   status: QueueItemStatus;
   imageCount?: number;
+  rawImageCount?: number;
+  importedImageCount?: number;
+  duplicateSkippedCount?: number;
   errorMessage?: string;
 }
 
 interface ZipImportPanelProps {
   className?: string;
-  onImportStateChange?: (state: { summary: ZipImportSummary | null; visit: Visit | null }) => void;
+  onImportStateChange?: (state: {
+    summary: ZipImportSummary | null;
+    visit: Visit | null;
+  }) => Promise<BatchImportOutcome | void> | BatchImportOutcome | void;
 }
 
 export function ZipImportPanel({ className, onImportStateChange }: ZipImportPanelProps) {
@@ -100,24 +107,47 @@ export function ZipImportPanel({ className, onImportStateChange }: ZipImportPane
         allImportedImageRecordsRef.current = [...allImportedImageRecordsRef.current, ...result.visit.imageRecords];
       }
 
+      // A failed ZIP is isolated: it never rolls back previously imported ZIPs
+      // and the queue continues with the next file.
+      const outcome = await onImportStateChange?.({
+        summary: result.summary,
+        visit: result.status === "success" ? result.visit : null,
+      });
+
+      if (queueRunTokenRef.current !== runToken) {
+        return;
+      }
+
       setQueueItems((currentItems) =>
         currentItems.map((item) => {
           if (item.id !== itemId) {
             return item;
           }
 
-          return result.status === "success"
-            ? { ...item, status: "imported", imageCount: result.summary.imageCount }
-            : { ...item, status: "failed", errorMessage: result.errorMessage ?? "Import failed." };
+          if (result.status !== "success") {
+            return {
+              ...item,
+              status: "failed",
+              errorMessage: result.errorMessage ?? "Import failed.",
+            };
+          }
+
+          const rawCount = outcome ? outcome.rawImageCount : result.summary.imageCount;
+          const addedCount = outcome
+            ? outcome.importedImageCount
+            : (result.visit?.imageRecords?.length ?? result.summary.imageCount);
+          const skippedCount = outcome ? outcome.duplicateSkippedCount : (result.visit?.importBatches?.[0]?.duplicateSkippedCount ?? 0);
+
+          return {
+            ...item,
+            status: "imported",
+            imageCount: addedCount,
+            rawImageCount: rawCount,
+            importedImageCount: addedCount,
+            duplicateSkippedCount: skippedCount,
+          };
         })
       );
-
-      // A failed ZIP is isolated: it never rolls back previously imported ZIPs
-      // and the queue continues with the next file.
-      onImportStateChange?.({
-        summary: result.summary,
-        visit: result.status === "success" ? result.visit : null,
-      });
     }
 
     if (queueRunTokenRef.current === runToken) {
@@ -149,8 +179,12 @@ export function ZipImportPanel({ className, onImportStateChange }: ZipImportPane
         return "Waiting";
       case "importing":
         return "Importing…";
-      case "imported":
-        return `Imported · ${item.imageCount ?? 0} photographs`;
+      case "imported": {
+        const added = item.importedImageCount ?? item.imageCount ?? 0;
+        const raw = item.rawImageCount ?? item.imageCount ?? 0;
+        const skipped = item.duplicateSkippedCount ?? 0;
+        return `Imported · ${formatBatchImportSummary(raw, added, skipped)}`;
+      }
       case "failed":
         return `Failed · ${item.errorMessage ?? "Import error"}`;
       default:

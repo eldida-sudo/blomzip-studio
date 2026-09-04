@@ -148,6 +148,51 @@ describe("archivePersistence", () => {
     expect(restored?.importVisit?.imageRecords?.[0]).not.toHaveProperty("thumbnailUrl");
   });
 
+  it("round-trips exact content fingerprints, occurrence provenance, and batch counts", async () => {
+    const visitWithExactImportData: Visit = {
+      ...visit,
+      imageRecords: [{
+        ...visit.imageRecords![0],
+        contentHash: "sha256:0123456789abcdef",
+        additionalOccurrences: [{
+          importBatchId: "batch-2",
+          filename: "garden-copy.jpg",
+          sourcePath: "copies/garden-copy.jpg",
+          importedAt: "2026-07-11T00:00:00.000Z",
+        }],
+      }],
+      importBatches: [{
+        ...visit.importBatches![0],
+        rawImageCount: 2,
+        importedImageCount: 1,
+        duplicateSkippedCount: 1,
+      }],
+    };
+    const snapshot = createArchiveStateSnapshot({
+      importVisit: visitWithExactImportData,
+      draftWorkspace: { ...draftWorkspace, drafts: [] },
+    });
+
+    await saveArchiveState(snapshot);
+    const restored = await loadArchiveState();
+
+    expect(restored?.importVisit?.imageRecords?.[0]).toMatchObject({
+      contentHash: "sha256:0123456789abcdef",
+      additionalOccurrences: [{
+        importBatchId: "batch-2",
+        filename: "garden-copy.jpg",
+        sourcePath: "copies/garden-copy.jpg",
+        importedAt: "2026-07-11T00:00:00.000Z",
+      }],
+    });
+    expect(restored?.importVisit?.imageRecords?.[0]).not.toHaveProperty("thumbnailUrl");
+    expect(restored?.importVisit?.importBatches?.[0]).toMatchObject({
+      rawImageCount: 2,
+      importedImageCount: 1,
+      duplicateSkippedCount: 1,
+    });
+  });
+
   it("migrates a legacy archive payload without a schema wrapper", async () => {
     window.localStorage.setItem(
       "blomzip-studio:archive-state:v1",

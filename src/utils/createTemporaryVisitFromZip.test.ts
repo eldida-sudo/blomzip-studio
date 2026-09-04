@@ -91,6 +91,56 @@ describe("createTemporaryVisitFromZip", () => {
     expect(visit?.entries?.map((entry) => entry.observations)).toEqual([[], []]);
   });
 
+  it("keeps the first exact image canonical and records duplicate occurrences in one ZIP", () => {
+    const visit = createTemporaryVisitFromZip(
+      {
+        fileName: "duplicates.zip",
+        status: "ready",
+        imageCount: 2,
+        totalImageSize: 8,
+        imageFiles: ["first.jpg", "copy.jpg"],
+        imageEntries: [
+          {
+            filename: "first.jpg",
+            sourcePath: "photos/first.jpg",
+            fileSize: 4,
+            data: new Uint8Array([1, 2, 3, 4]),
+            contentHash: "sha256:same-bytes",
+          },
+          {
+            filename: "copy.jpg",
+            sourcePath: "nested/copy.jpg",
+            fileSize: 4,
+            data: new Uint8Array([1, 2, 3, 4]),
+            contentHash: "sha256:same-bytes",
+          },
+        ],
+      },
+      { importedAt: "2026-09-01T12:00:00.000Z" }
+    );
+
+    expect(visit?.imageRecords).toHaveLength(1);
+    expect(visit?.entries).toHaveLength(1);
+    expect(visit?.imageRecords?.[0]).toMatchObject({
+      filename: "first.jpg",
+      sourcePath: "photos/first.jpg",
+      contentHash: "sha256:same-bytes",
+      additionalOccurrences: [
+        {
+          importBatchId: visit?.importBatches?.[0]?.id,
+          filename: "copy.jpg",
+          sourcePath: "nested/copy.jpg",
+          importedAt: "2026-09-01T12:00:00.000Z",
+        },
+      ],
+    });
+    expect(visit?.importBatches?.[0]).toMatchObject({
+      rawImageCount: 2,
+      importedImageCount: 1,
+      duplicateSkippedCount: 1,
+    });
+  });
+
   it("returns null when the ZIP summary is invalid", () => {
     const visit = createTemporaryVisitFromZip({
       fileName: "broken.zip",

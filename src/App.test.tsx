@@ -16,6 +16,7 @@ import type { ZipImportSummary } from "./utils/readZipImages";
 
 let mockImportState: { summary: ZipImportSummary | null; visit: Visit | null } | null = null;
 let hasEmittedImportState = false;
+let capturedImportStateChange: ((state: { summary: ZipImportSummary | null; visit: Visit | null }) => Promise<unknown> | unknown) | null = null;
 
 function createInMemoryIndexedDb() {
   const storeNames = new Set<string>();
@@ -201,11 +202,12 @@ vi.mock("./components/ZipImportPanel", () => {
   function MockZipImportPanel({
     onImportStateChange,
   }: {
-    onImportStateChange?: (state: { summary: ZipImportSummary | null; visit: Visit | null }) => void;
+    onImportStateChange?: (state: { summary: ZipImportSummary | null; visit: Visit | null }) => Promise<unknown> | unknown;
   }) {
     const onImportStateChangeRef = useRef(onImportStateChange);
 
     onImportStateChangeRef.current = onImportStateChange;
+    capturedImportStateChange = onImportStateChange ?? null;
 
     useEffect(() => {
       if (hasEmittedImportState) {
@@ -233,6 +235,7 @@ describe("App", () => {
   beforeEach(() => {
     mockImportState = JSON.parse(JSON.stringify(importedArchiveState));
     hasEmittedImportState = false;
+    capturedImportStateChange = null;
     localStorage.clear();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -335,6 +338,71 @@ describe("App", () => {
     expect((galleryImages[0] as HTMLImageElement).src).toContain("data:image/gif;base64,");
     expect(container.textContent).toContain("courtyard-01.jpg");
     expect(container.textContent).not.toContain("R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=");
+  });
+
+  it("uses the synchronously updated archive for an immediate duplicate import after curation", async () => {
+    const firstImport = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
+    firstImport.visit.imageRecords![0].contentHash = "sha256:shared";
+    mockImportState = firstImport;
+
+    act(() => {
+      root.render(<App />);
+    });
+    await waitForArchiveHydration();
+    await openFirstPreviewCardForRestoredArchive();
+
+    const favoriteButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Mark as favorite"
+    );
+    expect(favoriteButton).toBeTruthy();
+    act(() => {
+      favoriteButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const duplicateVisit: Visit = {
+      ...firstImport.visit,
+      id: "visit-duplicate",
+      entries: [{
+        ...firstImport.visit.entries[0],
+        id: "entry-duplicate",
+        imageRecordId: "image-duplicate",
+        favorite: false,
+      }],
+      imageRecords: [{
+        ...firstImport.visit.imageRecords![0],
+        id: "image-duplicate",
+        importBatchId: "batch-duplicate",
+        filename: "duplicate.jpg",
+        sourcePath: "other/duplicate.jpg",
+        contentHash: "sha256:shared",
+      }],
+      importBatches: [{
+        id: "batch-duplicate",
+        fileName: "duplicate.zip",
+        importedAt: "2026-07-09T00:00:00.000Z",
+        imageCount: 1,
+        rawImageCount: 1,
+        importedImageCount: 1,
+        duplicateSkippedCount: 0,
+      }],
+    };
+
+    let outcome: unknown;
+    await act(async () => {
+      outcome = await capturedImportStateChange?.({
+        summary: { ...firstImport.summary, fileName: "duplicate.zip", imageCount: 1, imageFiles: ["duplicate.jpg"] },
+        visit: duplicateVisit,
+      });
+    });
+
+    expect(outcome).toMatchObject({
+      rawImageCount: 1,
+      importedImageCount: 0,
+      duplicateSkippedCount: 1,
+      totalPhotographs: 2,
+      totalBatches: 2,
+    });
+    expect(container.textContent).toContain("Favorite selected");
   });
 
   it("displays parsed capture dates and semantic undated labels alongside assigned places", async () => {
@@ -599,6 +667,7 @@ describe("App", () => {
     expect(container.textContent).toContain("courtyard-02.jpg");
     expect(container.textContent).toContain("Capture range");
     expect(container.textContent).toContain("draft.zip imported");
+    expect(container.textContent).toContain("2 supported · 2 new photographs added");
     expect(container.textContent).not.toContain("Stockrosor");
     expect(container.textContent).not.toContain("Rabatt vid husvägg");
     expect(container.querySelector("textarea")).toBeNull();
@@ -1265,6 +1334,59 @@ describe("App", () => {
     expect(container.textContent).not.toContain("Batch filter is active.");
   });
 
+  it("shows accurate wording, capture range, and review status for a duplicate-only batch", () => {
+    const duplicateOnlyState = JSON.parse(JSON.stringify(importedArchiveState)) as {
+      summary: ZipImportSummary;
+      visit: Visit;
+    };
+    const visit = duplicateOnlyState.visit;
+
+    visit.imageRecords = (visit.imageRecords ?? []).map((record) => ({
+      ...record,
+      captureDate: record.id === "image-1" ? "2026-07-08T10:00:00.000Z" : "2026-07-09T10:00:00.000Z",
+      additionalOccurrences: [
+        {
+          importBatchId: "batch-2",
+          filename: record.filename,
+          sourcePath: record.sourcePath,
+          importedAt: "2026-07-10T00:00:00.000Z",
+        },
+      ],
+    }));
+    visit.importBatches = [
+      ...(visit.importBatches ?? []),
+      {
+        id: "batch-2",
+        fileName: "batch_01_batch_175.zip",
+        importedAt: "2026-07-10T00:00:00.000Z",
+        imageCount: 0,
+        rawImageCount: 2,
+        importedImageCount: 0,
+        duplicateSkippedCount: 2,
+      },
+    ];
+
+    mockImportState = { summary: importedArchiveState.summary, visit };
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    const toggle = container.querySelector('[data-testid="sidebar-batches-toggle"]') as HTMLButtonElement | null;
+    act(() => {
+      toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("0 new photographs · 2 matched to existing photographs");
+    expect(container.textContent).not.toContain("Capture range: Undated");
+    expect(container.textContent).toContain("No new photographs to review");
+
+    const filenameEl = container.querySelector(".batch-item-filename");
+    expect(filenameEl).toBeTruthy();
+    expect(filenameEl?.textContent).toBe("batch_01_batch_175.zip");
+    expect(filenameEl?.parentElement?.className).toContain("batch-item-header");
+  });
+
   it("defaults batch provenance to collapsed when multiple batches exist and allows expanding", () => {
     mockImportState = {
       summary: importedArchiveState.summary,
@@ -1305,6 +1427,23 @@ describe("App", () => {
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
     expect(container.querySelector('[data-testid="sidebar-batch-list"]')).toBeDefined();
     expect(container.textContent).toContain("draft.zip");
+  });
+
+  it("stacks the ZIP-ready row vertically and keeps the batch-provenance toggle label on one line", () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    const zipReadyCard = container.querySelector(".import-summary-mini");
+    expect(zipReadyCard).toBeTruthy();
+    expect(zipReadyCard?.textContent).toContain("ZIP ready");
+    expect(zipReadyCard?.querySelector(".import-summary-mini-filename")).toBeTruthy();
+
+    const toggle = container.querySelector('[data-testid="sidebar-batches-toggle"]');
+    expect(toggle?.querySelector(".archive-batches-toggle-label")).toBeTruthy();
+    const toggleState = toggle?.querySelector(".archive-batches-toggle-state");
+    expect(toggleState).toBeTruthy();
+    expect(toggleState?.textContent).toBe("Hide");
   });
 
   it("shows one clear primary action based on archive state", () => {

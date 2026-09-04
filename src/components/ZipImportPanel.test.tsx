@@ -294,4 +294,94 @@ describe("ZipImportPanel", () => {
     const thirdItem = container.querySelector('[data-testid="zip-queue-item-third.zip"]');
     expect(thirdItem?.textContent).toContain("Imported");
   });
+
+  it("awaits authoritative outcomes so overlapping ZIPs show the final added and skipped counts", async () => {
+    const firstSummary: ZipImportSummary = {
+      fileName: "first.zip",
+      status: "ready",
+      imageCount: 2,
+      totalImageSize: 10,
+      imageFiles: ["one.jpg", "shared.jpg"],
+    };
+    const secondSummary: ZipImportSummary = {
+      fileName: "second.zip",
+      status: "ready",
+      imageCount: 2,
+      totalImageSize: 10,
+      imageFiles: ["shared-copy.jpg", "two.jpg"],
+    };
+    mockReadZipImages.mockResolvedValueOnce(firstSummary).mockResolvedValueOnce(secondSummary);
+    mockCreateTemporaryVisitFromZip
+      .mockReturnValueOnce({ id: "visit-1", placeId: "temporary-import", date: "2026-07-09", entries: [], imageRecords: [] } satisfies Visit)
+      .mockReturnValueOnce({ id: "visit-2", placeId: "temporary-import", date: "2026-07-09", entries: [], imageRecords: [] } satisfies Visit);
+    const outcomes = [
+      { fileName: "first.zip", rawImageCount: 2, importedImageCount: 2, duplicateSkippedCount: 0, totalPhotographs: 2, totalBatches: 1 },
+      { fileName: "second.zip", rawImageCount: 2, importedImageCount: 1, duplicateSkippedCount: 1, totalPhotographs: 3, totalBatches: 2 },
+    ];
+    const onImportStateChange = vi.fn(async () => outcomes.shift());
+    const files = [
+      { name: "first.zip", arrayBuffer: vi.fn(async () => new ArrayBuffer(8)) },
+      { name: "second.zip", arrayBuffer: vi.fn(async () => new ArrayBuffer(8)) },
+    ] as unknown as File[];
+
+    act(() => {
+      root.render(<ZipImportPanel onImportStateChange={onImportStateChange} />);
+    });
+    const input = container.querySelector("input[type='file']") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: files });
+
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(onImportStateChange).toHaveBeenCalledTimes(2);
+    expect(container.querySelector('[data-testid="zip-queue-item-first.zip"]')?.textContent).toContain("2 new photographs added");
+    expect(container.querySelector('[data-testid="zip-queue-item-second.zip"]')?.textContent).toContain(
+      "1 new photograph · 1 matched to existing photograph"
+    );
+  });
+
+  it("keeps the queue-item status on its own wrapping line so long summaries stay inside the pill", async () => {
+    const summary: ZipImportSummary = {
+      fileName: "a-very-long-archive-name-that-could-overflow-the-sidebar.zip",
+      status: "ready",
+      imageCount: 9,
+      totalImageSize: 10,
+      imageFiles: Array.from({ length: 9 }, (_, index) => `photo-${index}.jpg`),
+    };
+    mockReadZipImages.mockResolvedValueOnce(summary);
+    mockCreateTemporaryVisitFromZip.mockReturnValueOnce({
+      id: "visit-1",
+      placeId: "temporary-import",
+      date: "2026-07-09",
+      entries: [],
+      imageRecords: [],
+    } satisfies Visit);
+    const onImportStateChange = vi.fn(async () => ({
+      fileName: summary.fileName,
+      rawImageCount: 9,
+      importedImageCount: 7,
+      duplicateSkippedCount: 2,
+      totalPhotographs: 153,
+      totalBatches: 1,
+    }));
+    const file = { name: summary.fileName, arrayBuffer: vi.fn(async () => new ArrayBuffer(8)) } as unknown as File;
+
+    act(() => {
+      root.render(<ZipImportPanel onImportStateChange={onImportStateChange} />);
+    });
+    const input = container.querySelector("input[type='file']") as HTMLInputElement;
+    Object.defineProperty(input, "files", { configurable: true, value: [file] });
+
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const item = container.querySelector(`[data-testid="zip-queue-item-${summary.fileName}"]`);
+    const statusEl = item?.querySelector(".zip-queue-item-status");
+    expect(statusEl).toBeTruthy();
+    expect(statusEl?.textContent).toBe("Imported · 7 new photographs · 2 matched to existing photographs");
+  });
 });

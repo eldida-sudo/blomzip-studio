@@ -35,6 +35,8 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .eyebrow {
@@ -63,6 +65,17 @@ textarea {
   justify-content: space-between;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+}
+
+.import-summary-mini {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+
+.import-summary-mini-filename {
+  min-width: 0;
 }
 
 .sidebar-card span {
@@ -246,6 +259,7 @@ textarea {
   justify-content: space-between;
   align-items: flex-start;
   gap: 10px;
+  min-width: 0;
 }
 
 .archive-batches-toggle {
@@ -254,12 +268,17 @@ textarea {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+  min-width: 0;
   padding: 0;
   margin: 0;
   border: 0;
   background: transparent;
   color: inherit;
   text-align: left;
+}
+
+.archive-batches-toggle-label {
+  min-width: 0;
 }
 
 .archive-batches-toggle .eyebrow {
@@ -281,6 +300,8 @@ textarea {
   font-size: 10px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .secondary-action {
@@ -320,18 +341,22 @@ textarea {
 
 .batch-item-header {
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 8px;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
   margin-bottom: 4px;
 }
 
-.batch-item-header strong {
+.batch-item-filename {
+  flex: 1 1 100%;
+  min-width: 0;
   font-size: 13px;
-  word-break: break-word;
+  font-weight: 700;
+  color: #f7f4ec;
 }
 
-.batch-item-header span {
+.batch-item-count {
+  flex: 0 0 auto;
   font-size: 11px;
   color: #d7dfd2;
 }
@@ -2504,9 +2529,11 @@ button.active {
 
 .zip-queue-item {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  border-radius: 999px;
+  gap: 4px 8px;
+  min-width: 0;
+  border-radius: 14px;
   background: rgba(36, 49, 38, 0.06);
   padding: 8px 12px;
   color: #4f5f48;
@@ -2514,15 +2541,25 @@ button.active {
 }
 
 .zip-queue-item-position {
+  flex: 0 0 auto;
   font-weight: 700;
   opacity: 0.7;
 }
 
 .zip-queue-item-name {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.zip-queue-item-status {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  font-size: 11px;
 }
 
 .zip-queue-item-importing {

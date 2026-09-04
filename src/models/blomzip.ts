@@ -35,7 +35,17 @@ export interface ImportBatch {
   fileName: string;
   importedAt: string;
   imageCount: number;
+  rawImageCount?: number;
+  importedImageCount?: number;
+  duplicateSkippedCount?: number;
   sourceMetadata?: Record<string, unknown>;
+}
+
+export interface ImageOccurrence {
+  importBatchId: string;
+  filename: string;
+  sourcePath: string;
+  importedAt: string;
 }
 
 export interface DraftVisit {
@@ -68,7 +78,11 @@ export interface ImageRecord {
   mimeType?: string;
   timelineIndex?: number;
   thumbnailUrl?: string;
-  
+
+  // Exact content fingerprint and occurrence provenance
+  contentHash?: string;
+  additionalOccurrences?: ImageOccurrence[];
+
   // Sidecar-provided metadata
   location?: Location;
   notes?: string;
