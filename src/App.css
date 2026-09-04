@@ -721,8 +721,7 @@ textarea {
 }
 
 .vision-engine-group-preview-strip img,
-.vision-engine-group-preview-strip span,
-.vision-engine-group-preview-overflow {
+.vision-engine-group-preview-strip span {
   border-radius: 6px;
   border: 1px solid rgba(36, 49, 38, 0.14);
   min-height: 64px;
@@ -734,8 +733,7 @@ textarea {
   display: block;
 }
 
-.vision-engine-group-preview-strip span,
-.vision-engine-group-preview-overflow {
+.vision-engine-group-preview-strip span {
   display: grid;
   place-items: center;
   color: #4b5d4b;

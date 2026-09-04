@@ -198,6 +198,53 @@ const importedArchiveState: { summary: ZipImportSummary; visit: Visit } = {
   },
 };
 
+function buildLargeVisionGroupState(totalImages: number): { summary: ZipImportSummary; visit: Visit } {
+  const expandedState = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
+
+  expandedState.summary.imageCount = totalImages;
+  expandedState.summary.totalImageSize = totalImages * 12;
+  expandedState.summary.imageFiles = Array.from({ length: totalImages }, (_, index) => `courtyard-${String(index + 1).padStart(2, "0")}.jpg`);
+
+  const baseTime = Date.parse("2026-07-08T08:00:00.000Z");
+  expandedState.visit.imageCount = totalImages;
+  expandedState.visit.imageRecords = Array.from({ length: totalImages }, (_, index) => ({
+    id: `image-${index + 1}`,
+    importBatchId: "batch-1",
+    filename: `courtyard-${String(index + 1).padStart(2, "0")}.jpg`,
+    fileSize: 12,
+    format: "jpeg",
+    sourcePath: `courtyard/courtyard-${String(index + 1).padStart(2, "0")}.jpg`,
+    width: 1600,
+    height: 1200,
+    orientation: "landscape" as const,
+    aspectRatio: 1.3333,
+    captureDate: new Date(baseTime + index * 60_000).toISOString(),
+    timelineIndex: index,
+    thumbnailUrl: "data:image/gif;base64,R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=",
+  }));
+
+  expandedState.visit.entries = Array.from({ length: totalImages }, (_, index) => ({
+    id: `entry-${index + 1}`,
+    imageRecordId: `image-${index + 1}`,
+    visitId: "visit-1",
+    status: "new" as const,
+    notes: "",
+    tags: [],
+    observations: [],
+    analysisSuggestions: {
+      engine: "mock-observation-engine" as const,
+      generatedAt: "2026-07-08T00:00:00.000Z",
+      confidence: 0.8,
+      categories: ["by-place", "needs-review"],
+    },
+    reviewed: false,
+    createdAt: "2026-07-08T00:00:00.000Z",
+    updatedAt: "2026-07-08T00:00:00.000Z",
+  }));
+
+  return expandedState;
+}
+
 vi.mock("./components/ZipImportPanel", () => {
   function MockZipImportPanel({
     onImportStateChange,
@@ -904,52 +951,8 @@ describe("App", () => {
     expect(container.textContent).toContain("courtyard-01.jpg");
   });
 
-  it("shows overflow indicator for large Vision candidate groups", async () => {
-    const expandedState = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
-    const totalImages = 7;
-
-    expandedState.summary.imageCount = totalImages;
-    expandedState.summary.totalImageSize = totalImages * 12;
-    expandedState.summary.imageFiles = Array.from({ length: totalImages }, (_, index) => `courtyard-${String(index + 1).padStart(2, "0")}.jpg`);
-
-    const baseTime = Date.parse("2026-07-08T08:00:00.000Z");
-    expandedState.visit.imageCount = totalImages;
-    expandedState.visit.imageRecords = Array.from({ length: totalImages }, (_, index) => ({
-      id: `image-${index + 1}`,
-      importBatchId: "batch-1",
-      filename: `courtyard-${String(index + 1).padStart(2, "0")}.jpg`,
-      fileSize: 12,
-      format: "jpeg",
-      sourcePath: `courtyard/courtyard-${String(index + 1).padStart(2, "0")}.jpg`,
-      width: 1600,
-      height: 1200,
-      orientation: "landscape" as const,
-      aspectRatio: 1.3333,
-      captureDate: new Date(baseTime + index * 60_000).toISOString(),
-      timelineIndex: index,
-      thumbnailUrl: "data:image/gif;base64,R0lGODlhAQABAIAAAAUEBAAAACwAAAAAAQABAAACAkQBADs=",
-    }));
-
-    expandedState.visit.entries = Array.from({ length: totalImages }, (_, index) => ({
-      id: `entry-${index + 1}`,
-      imageRecordId: `image-${index + 1}`,
-      visitId: "visit-1",
-      status: "new" as const,
-      notes: "",
-      tags: [],
-      observations: [],
-      analysisSuggestions: {
-        engine: "mock-observation-engine" as const,
-        generatedAt: "2026-07-08T00:00:00.000Z",
-        confidence: 0.8,
-        categories: ["by-place", "needs-review"],
-      },
-      reviewed: false,
-      createdAt: "2026-07-08T00:00:00.000Z",
-      updatedAt: "2026-07-08T00:00:00.000Z",
-    }));
-
-    mockImportState = expandedState;
+  it("caps the actionable review set at MAX_PLACE_APPROVAL_BATCH_SIZE for a large candidate group", async () => {
+    mockImportState = buildLargeVisionGroupState(78);
 
     act(() => {
       root.render(<App />);
@@ -957,9 +960,220 @@ describe("App", () => {
 
     await waitForArchiveHydration();
 
-    const overflowBadge = container.querySelector('[data-testid="vision-group-preview-overflow-vision-place-1"]');
-    expect(overflowBadge?.textContent).toBe("+2");
+    expect(container.textContent).toContain("78 photographs");
+    expect(container.textContent).toContain("Reviewing 10 of 78 · 68 remaining");
+    expect(container.textContent).toContain("Approve place for 10 photographs");
+
+    const representativeImage = container.querySelector('[data-testid="vision-group-representative-vision-place-1"] img') as HTMLImageElement | null;
+    expect(representativeImage).toBeTruthy();
+
+    const previewButtons = container.querySelectorAll('[data-testid="vision-group-preview-strip-vision-place-1"] .vision-engine-group-preview-wrapper');
+    expect(previewButtons.length).toBe(9);
+
+    // Only images 1-10 (representative + 9 previews) may be present; nothing from later batches leaks in.
+    for (let index = 11; index <= 78; index += 1) {
+      expect(container.querySelector(`[data-testid="vision-group-preview-vision-place-1-image-${index}"]`)).toBeNull();
+    }
   });
+
+  it("approves exactly the visible 10-photograph batch and leaves 68 unassigned for later review", async () => {
+    mockImportState = buildLargeVisionGroupState(78);
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const placeSelect = container.querySelector('[data-testid="vision-place-select-vision-place-1"]') as HTMLSelectElement | null;
+    const approveButton = container.querySelector('[data-testid="vision-place-approve-vision-place-1"]') as HTMLButtonElement | null;
+
+    act(() => {
+      if (placeSelect) placeSelect.value = "house-wall";
+      placeSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    act(() => {
+      approveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Assigned The House Wall to 10 photographs.");
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const persistedSnapshot = await loadArchiveState();
+    const placeByRecordId = new Map(
+      (persistedSnapshot?.importVisit?.imageRecords ?? []).map((record) => [record.id, record.placeId])
+    );
+
+    for (let index = 1; index <= 10; index += 1) {
+      expect(placeByRecordId.get(`image-${index}`)).toBe("house-wall");
+    }
+
+    let unassignedCount = 0;
+    for (let index = 11; index <= 78; index += 1) {
+      if (!placeByRecordId.get(`image-${index}`)) {
+        unassignedCount += 1;
+      }
+    }
+
+    expect(unassignedCount).toBe(68);
+  });
+
+  it("reduces the visible batch on exclusion without backfilling an unseen photograph", async () => {
+    mockImportState = buildLargeVisionGroupState(78);
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const memberRemoveButton = container.querySelector(
+      '[data-testid="vision-group-preview-vision-place-1-image-5"]'
+    )?.parentElement?.querySelector(".vision-engine-group-remove-image") as HTMLButtonElement | null;
+    expect(memberRemoveButton).toBeTruthy();
+
+    act(() => {
+      memberRemoveButton?.click();
+    });
+
+    expect(container.textContent).toContain("Reviewing 9 of 77 · 68 remaining");
+    expect(container.textContent).toContain("Approve place for 9 photographs");
+    expect(container.querySelector('[data-testid="vision-group-preview-vision-place-1-image-5"]')).toBeNull();
+    // Excluding image-5 must not silently promote image-11 into this batch.
+    expect(container.querySelector('[data-testid="vision-group-preview-vision-place-1-image-11"]')).toBeNull();
+  });
+
+  it("advances to a batch containing no already-approved images and resets the place selection", async () => {
+    mockImportState = buildLargeVisionGroupState(78);
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const placeSelect = container.querySelector('[data-testid="vision-place-select-vision-place-1"]') as HTMLSelectElement | null;
+    const approveButton = container.querySelector('[data-testid="vision-place-approve-vision-place-1"]') as HTMLButtonElement | null;
+
+    act(() => {
+      if (placeSelect) placeSelect.value = "house-wall";
+      placeSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    act(() => {
+      approveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Reviewing 10 of 68 · 58 remaining");
+
+    for (let index = 1; index <= 10; index += 1) {
+      expect(container.querySelector(`[data-testid="vision-group-preview-vision-place-1-image-${index}"]`)).toBeNull();
+    }
+    for (let index = 12; index <= 20; index += 1) {
+      expect(container.querySelector(`[data-testid="vision-group-preview-vision-place-1-image-${index}"]`)).toBeTruthy();
+    }
+
+    const placeSelectAfter = container.querySelector('[data-testid="vision-place-select-vision-place-1"]') as HTMLSelectElement | null;
+    expect(placeSelectAfter?.value ?? "").toBe("");
+
+    const approveButtonAfter = container.querySelector('[data-testid="vision-place-approve-vision-place-1"]') as HTMLButtonElement | null;
+    expect(approveButtonAfter?.disabled).toBe(true);
+  });
+
+  it("eventually makes every photograph in a 78-image cluster reachable across successive approval batches", async () => {
+    mockImportState = buildLargeVisionGroupState(78);
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    for (let iteration = 0; iteration < 8; iteration += 1) {
+      const placeSelect = container.querySelector('[data-testid="vision-place-select-vision-place-1"]') as HTMLSelectElement | null;
+
+      if (!placeSelect) {
+        break;
+      }
+
+      act(() => {
+        placeSelect.value = "house-wall";
+        placeSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+
+      const approveButton = container.querySelector('[data-testid="vision-place-approve-vision-place-1"]') as HTMLButtonElement | null;
+
+      act(() => {
+        approveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    }
+
+    // Once every photograph in the cluster is assigned, discovery no longer surfaces
+    // it as a candidate group (it needs >= 2 unassigned members to cluster).
+    expect(container.textContent).toContain("0 candidate place groups");
+    expect(container.querySelector('[data-testid="vision-group-card-vision-place-1"]')).toBeNull();
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const persistedSnapshot = await loadArchiveState();
+    const placeByRecordId = new Map(
+      (persistedSnapshot?.importVisit?.imageRecords ?? []).map((record) => [record.id, record.placeId])
+    );
+
+    for (let index = 1; index <= 78; index += 1) {
+      expect(placeByRecordId.get(`image-${index}`)).toBe("house-wall");
+    }
+  });
+
+  it("excludes the representative on X click, decrements the batch count, and promotes a new representative", async () => {
+    mockImportState = buildLargeVisionGroupState(78);
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    expect(container.textContent).toContain("Reviewing 10 of 78 · 68 remaining");
+
+    const representativeRemoveButtonBefore = container.querySelector(
+      '[data-testid="vision-group-card-vision-place-1"] .vision-engine-group-remove-representative'
+    ) as HTMLButtonElement | null;
+    const originalRepresentativeLabel = representativeRemoveButtonBefore?.getAttribute("aria-label");
+
+    act(() => {
+      representativeRemoveButtonBefore?.click();
+    });
+
+    expect(container.textContent).toContain("Reviewing 9 of 77 · 68 remaining");
+
+    const newRepresentativeImage = container.querySelector('[data-testid="vision-group-representative-vision-place-1"] img') as HTMLImageElement | null;
+    expect(newRepresentativeImage).toBeTruthy();
+
+    const representativeRemoveButtonAfter = container.querySelector(
+      '[data-testid="vision-group-card-vision-place-1"] .vision-engine-group-remove-representative'
+    ) as HTMLButtonElement | null;
+    expect(representativeRemoveButtonAfter?.getAttribute("aria-label")).not.toBe(originalRepresentativeLabel);
+
+    const excludedFilenameMatch = originalRepresentativeLabel?.match(/^Remove (.+) from this place group$/);
+    const excludedFilename = excludedFilenameMatch?.[1];
+    expect(excludedFilename).toBeTruthy();
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const persistedSnapshot = await loadArchiveState();
+    const persistedFilenames = (persistedSnapshot?.importVisit?.imageRecords ?? []).map((record) => record.filename);
+    expect(persistedFilenames).toContain(excludedFilename);
+  });
+
 
   it("uses SVG thumbnail fallback in Vision candidate cards when thumbnails are unavailable", async () => {
     const fallbackState = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };

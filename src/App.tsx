@@ -185,6 +185,11 @@ function createDraftGalleryImage(options: {
   };
 }
 
+// A single approval action must never assign a place to more than this many
+// visible, individually reviewed photographs, even when the underlying
+// discovery cluster contains far more members.
+const MAX_PLACE_APPROVAL_BATCH_SIZE = 10;
+
 function assignCanonicalPlaceToVisionGroup(options: {
   visit: Visit;
   group: VisionPlaceCandidateGroup;
@@ -425,6 +430,7 @@ function App() {
   } | null>(null);
   const [selectedPlaceByVisionGroupId, setSelectedPlaceByVisionGroupId] = useState<Record<string, string>>({});
   const [excludedImageIdsByVisionGroupId, setExcludedImageIdsByVisionGroupId] = useState<Record<string, string[]>>({});
+  const [reviewBatchByVisionGroupId, setReviewBatchByVisionGroupId] = useState<Record<string, string[]>>({});
   const [placeAssignmentFeedback, setPlaceAssignmentFeedback] = useState<string | null>(null);
   const [openPlaceMapGroupId, setOpenPlaceMapGroupId] = useState<string | null>(null);
   const hasAppliedStudioImagesRef = useRef(false);
@@ -956,6 +962,52 @@ function App() {
     });
   }, [visionDiscoverySummary]);
 
+  useEffect(() => {
+    if (!visionDiscoverySummary) {
+      setReviewBatchByVisionGroupId({});
+      return;
+    }
+
+    setReviewBatchByVisionGroupId((current) => {
+      let didChange = false;
+      const next: Record<string, string[]> = {};
+
+      visionDiscoverySummary.candidatePlaceGroups.forEach((group) => {
+        const excludedImageIds = new Set(excludedImageIdsByVisionGroupId[group.id] ?? []);
+        const actionablePoolIds = group.imageRecordIds.filter((recordId) => {
+          if (excludedImageIds.has(recordId)) {
+            return false;
+          }
+
+          const record = imageRecordsById.get(recordId);
+          return Boolean(record && !record.placeId);
+        });
+        const actionablePoolIdSet = new Set(actionablePoolIds);
+
+        const storedBatchIds = current[group.id] ?? [];
+        const activeStoredBatchIds = storedBatchIds.filter((recordId) => actionablePoolIdSet.has(recordId));
+
+        if (activeStoredBatchIds.length > 0) {
+          next[group.id] = storedBatchIds;
+          return;
+        }
+
+        const freshBatchIds = actionablePoolIds.slice(0, MAX_PLACE_APPROVAL_BATCH_SIZE);
+        next[group.id] = freshBatchIds;
+
+        if (freshBatchIds.join(",") !== storedBatchIds.join(",")) {
+          didChange = true;
+        }
+      });
+
+      if (Object.keys(current).length !== Object.keys(next).length) {
+        didChange = true;
+      }
+
+      return didChange ? next : current;
+    });
+  }, [visionDiscoverySummary, excludedImageIdsByVisionGroupId, imageRecordsById]);
+
   const storyFirstQueue = useMemo(() => {
     return entryViewModels
       .filter(({ entry }) => !entry.reviewed)
@@ -1301,12 +1353,18 @@ function App() {
     }
 
     const excludedImageIds = new Set(excludedImageIdsByVisionGroupId[group.id] ?? []);
+    const { batchImageRecordIds } = getVisionReviewBatch(group);
+    const batchImageRecordIdSet = new Set(batchImageRecordIds);
     const correctedGroup: VisionPlaceCandidateGroup = {
       ...group,
-      imageRecordIds: group.imageRecordIds.filter((id) => !excludedImageIds.has(id)),
+      // Approval must only ever touch the currently visible, reviewed batch —
+      // never a hidden or not-yet-reviewed photograph from the wider cluster.
+      imageRecordIds: group.imageRecordIds.filter(
+        (id) => batchImageRecordIdSet.has(id) && !excludedImageIds.has(id)
+      ),
       entryIds: group.entryIds.filter((entryId) => {
         const entry = importVisit.entries.find((candidate) => candidate.id === entryId);
-        return entry ? !excludedImageIds.has(entry.imageRecordId) : true;
+        return entry ? batchImageRecordIdSet.has(entry.imageRecordId) && !excludedImageIds.has(entry.imageRecordId) : false;
       }),
     };
 
@@ -1325,6 +1383,11 @@ function App() {
     setPlaceAssignmentFeedback(
       `Assigned ${canonicalPlace.displayName} to ${assignment.assignedCount} photographs.`
     );
+    // Reset the canonical-place choice so it never carries forward into the next review batch.
+    setSelectedPlaceByVisionGroupId((currentSelections) => {
+      const { [group.id]: _removed, ...rest } = currentSelections;
+      return rest;
+    });
   }
 
   function handleExportArchiveBackup() {
@@ -1361,39 +1424,59 @@ function App() {
     );
   }
 
-  function getVisionPreviewImageRecords(options: {
-    group: VisionPlaceCandidateGroup;
-    maxPreviewCount: number;
-  }): {
+  function getVisionActionablePoolIds(group: VisionPlaceCandidateGroup): string[] {
+    const excludedImageIds = new Set(excludedImageIdsByVisionGroupId[group.id] ?? []);
+
+    return group.imageRecordIds.filter((recordId) => {
+      if (excludedImageIds.has(recordId)) {
+        return false;
+      }
+
+      const record = imageRecordsById.get(recordId);
+      return Boolean(record && !record.placeId);
+    });
+  }
+
+  function getVisionReviewBatch(group: VisionPlaceCandidateGroup): {
     representativeRecord: ImageRecord | undefined;
     representativeLabel: string;
-    previewRecords: ImageRecord[];
-    remainingCount: number;
+    memberRecords: ImageRecord[];
+    batchImageRecordIds: string[];
+    actionablePoolSize: number;
+    remainingAfterBatchCount: number;
   } {
-    const excludedImageIds = new Set(
-      excludedImageIdsByVisionGroupId[options.group.id] ?? []
-    );
+    const actionablePoolIds = getVisionActionablePoolIds(group);
+    const actionablePoolIdSet = new Set(actionablePoolIds);
 
-    const orderedRecords = options.group.imageRecordIds
-      .filter((recordId) => !excludedImageIds.has(recordId))
+    const storedBatchIds = reviewBatchByVisionGroupId[group.id] ?? [];
+    const activeStoredBatchIds = storedBatchIds.filter((recordId) => actionablePoolIdSet.has(recordId));
+
+    // Never backfill an unseen photograph into an already-visible, partially
+    // reviewed batch; only start a fresh batch once the current one resolves.
+    const batchImageRecordIds = activeStoredBatchIds.length > 0
+      ? activeStoredBatchIds
+      : actionablePoolIds.slice(0, MAX_PLACE_APPROVAL_BATCH_SIZE);
+
+    const batchRecords = batchImageRecordIds
       .map((recordId) => imageRecordsById.get(recordId))
       .filter((record): record is ImageRecord => Boolean(record));
 
-    const representativeRecord = imageRecordsById.get(options.group.representativeImageRecordId) ?? orderedRecords[0];
-    const representativeLabel = representativeRecord?.filename ?? options.group.representativeImageRecordId;
-
-    const recordsExcludingRepresentative = representativeRecord
-      ? orderedRecords.filter((record) => record.id !== representativeRecord.id)
-      : orderedRecords;
-
-    const previewRecords = recordsExcludingRepresentative.slice(0, options.maxPreviewCount);
-    const remainingCount = Math.max(0, recordsExcludingRepresentative.length - previewRecords.length);
+    // Keep the cluster's chosen representative when it's still part of the
+    // current batch; only fall back to the first batch member once it's gone.
+    const representativeId = batchImageRecordIds.includes(group.representativeImageRecordId)
+      ? group.representativeImageRecordId
+      : batchImageRecordIds[0];
+    const representativeRecord = representativeId ? imageRecordsById.get(representativeId) : undefined;
+    const representativeLabel = representativeRecord?.filename ?? group.representativeImageRecordId;
+    const memberRecords = batchRecords.filter((record) => record.id !== representativeId);
 
     return {
       representativeRecord,
       representativeLabel,
-      previewRecords,
-      remainingCount,
+      memberRecords,
+      batchImageRecordIds,
+      actionablePoolSize: actionablePoolIds.length,
+      remainingAfterBatchCount: Math.max(0, actionablePoolIds.length - batchRecords.length),
     };
   }
 
@@ -1852,19 +1935,13 @@ function App() {
                         const {
                           representativeRecord,
                           representativeLabel,
-                          previewRecords,
-                          remainingCount,
-                        } = getVisionPreviewImageRecords({
-                          group,
-                          maxPreviewCount: 4,
-                        });
+                          memberRecords,
+                          actionablePoolSize,
+                          remainingAfterBatchCount,
+                        } = getVisionReviewBatch(group);
+                        const batchSize = memberRecords.length + (representativeRecord ? 1 : 0);
                         const representativeThumbnailSrc = createThumbnailUrlForRecord(representativeRecord);
                         const selectedPlaceId = selectedPlaceByVisionGroupId[group.id] ?? "";
-                        const excludedImageIds = new Set(excludedImageIdsByVisionGroupId[group.id] ?? []);
-                        const unassignedImageCount = group.imageRecordIds.filter((recordId) => {
-                          const record = imageRecordsById.get(recordId);
-                          return Boolean(record && !record.placeId && !excludedImageIds.has(recordId));
-                        }).length;
 
                         return (
                           <article key={group.id} className="vision-engine-group-item" data-testid={`vision-group-card-${group.id}`}>
@@ -1898,7 +1975,7 @@ function App() {
                                 ) : null}
                               </div>
                               <div className="vision-engine-group-preview-strip" data-testid={`vision-group-preview-strip-${group.id}`}>
-                                {previewRecords.map((record) => {
+                                {memberRecords.map((record) => {
                                   const previewSrc = createThumbnailUrlForRecord(record);
 
                                   return (
@@ -1936,15 +2013,6 @@ function App() {
                                     </div>
                                   );
                                 })}
-
-                                {remainingCount > 0 ? (
-                                  <span
-                                    className="vision-engine-group-preview-overflow"
-                                    data-testid={`vision-group-preview-overflow-${group.id}`}
-                                  >
-                                    +{remainingCount}
-                                  </span>
-                                ) : null}
                               </div>
                             </div>
 
@@ -1956,6 +2024,13 @@ function App() {
                                   <strong>{formatPercent(group.confidence)}</strong>
                                 </div>
                               </div>
+
+                              <p
+                                className="result-count vision-engine-group-batch-progress"
+                                data-testid={`vision-group-batch-progress-${group.id}`}
+                              >
+                                Reviewing {batchSize} of {actionablePoolSize} · {remainingAfterBatchCount} remaining
+                              </p>
 
                               <label className="vision-engine-group-assign-label" htmlFor={`vision-place-select-${group.id}`}>
                                 Canonical place
@@ -1988,7 +2063,7 @@ function App() {
                                   </button>
                                 )}
                               </div>
-                              {unassignedImageCount > 0 ? (
+                              {batchSize > 0 ? (
                                 <button
                                   type="button"
                                   className="secondary-action vision-engine-group-approve"
@@ -1996,7 +2071,7 @@ function App() {
                                   onClick={() => handleApproveVisionGroupPlace(group)}
                                   disabled={!selectedPlaceId}
                                 >
-                                  Approve place
+                                  Approve place for {batchSize} photographs
                                 </button>
                               ) : (
                                 <p
