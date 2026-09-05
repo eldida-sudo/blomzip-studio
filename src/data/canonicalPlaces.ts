@@ -9,7 +9,8 @@ export interface CanonicalPlace {
 const CANONICAL_PLACES: CanonicalPlace[] = [
   {
     id: "parking",
-    displayName: "The Parking Edge",
+    // Contains photographs from two former places; do not auto-migrate, reassign manually via Entry Review.
+    displayName: "Parking Edge — needs reassignment",
     shortDescription: "The boundary edge beside the parking area.",
     aliases: [],
     sortOrder: 1,
@@ -58,17 +59,59 @@ const CANONICAL_PLACES: CanonicalPlace[] = [
   },
   {
     id: "house-wall",
-    displayName: "The House Wall",
+    displayName: "The Bicycle Trellis Bed",
     shortDescription: "The wall-side planting zone beside the house.",
     aliases: ["Rabatt vid husvägg", "rabatt vid husvägg"],
     sortOrder: 8,
   },
   {
     id: "entrance",
-    displayName: "The Entrance",
+    displayName: "Under the Pine",
     shortDescription: "The entrance threshold to the courtyard.",
     aliases: [],
     sortOrder: 9,
+  },
+  {
+    id: "parking-trellis",
+    displayName: "The Parking Trellis",
+    shortDescription: "The trellis planting beside the parking area.",
+    aliases: [],
+    sortOrder: 10,
+  },
+  {
+    id: "miriams-bed",
+    displayName: "Miriam's Bed",
+    shortDescription: "Miriam's planted bed.",
+    aliases: [],
+    sortOrder: 11,
+  },
+  {
+    id: "compost-area",
+    displayName: "The Compost Area",
+    shortDescription: "The composting area.",
+    aliases: [],
+    sortOrder: 12,
+  },
+  {
+    id: "garden-arch",
+    displayName: "The Garden Arch",
+    shortDescription: "The archway feature in the garden.",
+    aliases: ["Portalen", "portalen"],
+    sortOrder: 13,
+  },
+  {
+    id: "under-maple",
+    displayName: "Under the Maple",
+    shortDescription: "The planting area beneath the maple tree.",
+    aliases: [],
+    sortOrder: 14,
+  },
+  {
+    id: "parking-peninsula",
+    displayName: "The Parking Peninsula",
+    shortDescription: "The planted peninsula between two parking spaces.",
+    aliases: [],
+    sortOrder: 15,
   },
 ];
 

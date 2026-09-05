@@ -288,25 +288,24 @@ export async function loadArchiveState(): Promise<ArchiveState | null> {
 export async function saveArchiveState(snapshot: ArchiveState): Promise<void> {
   const sanitizedSnapshot = sanitizeArchiveState(snapshot);
 
+  // localStorage is written synchronously, first, so a reload/unmount that interrupts
+  // the slower asynchronous IndexedDB write still finds this save on the next load.
+  let localStorageWriteFailed = false;
+  try {
+    saveToLocalStorage(sanitizedSnapshot);
+  } catch {
+    localStorageWriteFailed = true;
+  }
+
   try {
     await saveToIndexedDB(sanitizedSnapshot);
-
-    try {
-      saveToLocalStorage(sanitizedSnapshot);
-    } catch {
-      // IndexedDB persisted the canonical snapshot; localStorage is a secondary mirror.
-    }
-
-    return;
   } catch (indexedDbError) {
-    try {
-      saveToLocalStorage(sanitizedSnapshot);
-      return;
-    } catch (localStorageError) {
+    if (localStorageWriteFailed) {
       throw indexedDbError instanceof Error
         ? indexedDbError
         : new Error("Could not persist archive state to any storage backend");
     }
+    // localStorage already holds the snapshot; IndexedDB is the secondary durable copy.
   }
 }
 

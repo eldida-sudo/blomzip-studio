@@ -8,15 +8,21 @@ The registry is intentionally small and stable. It defines the authoritative pla
 
 | Stable id | Display name | Accepted aliases |
 |---|---|---|
-| `parking` | The Parking Edge | none |
+| `parking` | Parking Edge — needs reassignment | none |
 | `raised-bed` | The Raised Beds | none |
 | `seating-area` | The Seating Area | Sittplatsen vid häcken |
 | `central-lawn` | The Lawn | none |
 | `shade-corner` | The Shade Corner | none |
 | `rock-garden` | The Rock Garden | none |
 | `garden-border` | The Garden Border | none |
-| `house-wall` | The House Wall | Rabatt vid husvägg |
-| `entrance` | The Entrance | none |
+| `house-wall` | The Bicycle Trellis Bed | Rabatt vid husvägg |
+| `entrance` | Under the Pine | none |
+| `parking-trellis` | The Parking Trellis | none |
+| `miriams-bed` | Miriam's Bed | none |
+| `compost-area` | The Compost Area | none |
+| `garden-arch` | The Garden Arch | Portalen |
+| `under-maple` | Under the Maple | none |
+| `parking-peninsula` | The Parking Peninsula | none |
 
 ## Rules
 
@@ -25,6 +31,8 @@ The registry is intentionally small and stable. It defines the authoritative pla
 - Image-content labels are not places.
 - `Bukett från innergården` and `Courtyard / grönska` are image-content labels and are intentionally excluded from the canonical place registry.
 - Inspiration is a future image kind, not a canonical courtyard place.
+- `house-wall` and `entrance` were renamed to `The Bicycle Trellis Bed` and `Under the Pine` respectively; their stable ids and existing assignments are unchanged.
+- `parking` currently mixes photographs from two distinct places (the future `parking-trellis` and `miriams-bed`). Its label reflects this pending manual reassignment; it is not automatically split.
 
 ## Compatibility
 

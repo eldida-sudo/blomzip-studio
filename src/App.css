@@ -2095,8 +2095,16 @@ button {
   font-weight: 600;
 }
 
+/* The curation panel's own surface is the light cream page background, not a dark
+   card, so its labels need the dark foreground token instead of the light text
+   color used elsewhere in Entry Review (e.g. on the dark header/sidebar). */
+.entry-review-field span.entry-review-label-on-light {
+  color: #243126;
+}
+
 .entry-review-field textarea,
-.entry-review-field input {
+.entry-review-field input,
+.entry-review-field select {
   width: 100%;
   border-radius: 16px;
   border: 1px solid #d8d0c0;
@@ -2107,8 +2115,15 @@ button {
   min-height: 100px;
 }
 
-.entry-review-field input {
+.entry-review-field input,
+.entry-review-field select {
   min-height: 44px;
+}
+
+.entry-review-field select:focus-visible {
+  outline: none;
+  border-color: #314233;
+  box-shadow: 0 0 0 2px rgba(36, 49, 38, 0.2);
 }
 
 .entry-review-curation-row {

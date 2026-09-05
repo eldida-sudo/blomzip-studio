@@ -67,7 +67,7 @@ describe("PlaceMapReference calibration", () => {
 
     expect(map.getAttribute("viewBox")).toBe("0 0 1934 1304");
     expect(map.querySelector("image")?.getAttribute("preserveAspectRatio")).toBe("none");
-    expect(container.querySelectorAll("[data-testid='calibration-place-select'] option")).toHaveLength(10);
+    expect(container.querySelectorAll("[data-testid='calibration-place-select'] option")).toHaveLength(16);
   });
 
   it("renders every calibrated hotspot while leaving uncalibrated places marker-free", () => {

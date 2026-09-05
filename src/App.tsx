@@ -568,6 +568,30 @@ function App() {
     });
   }
 
+  function handleEntryReviewImageRecordPlaceChanged(imageRecordId: string, placeId: string | null) {
+    commitImportVisit((currentVisit) => {
+      if (!currentVisit) {
+        return currentVisit;
+      }
+
+      return {
+        ...currentVisit,
+        imageRecords: (currentVisit.imageRecords ?? []).map((record) => {
+          if (record.id !== imageRecordId) {
+            return record;
+          }
+
+          if (placeId === null) {
+            const { placeId: _removedPlaceId, ...recordWithoutPlace } = record;
+            return recordWithoutPlace;
+          }
+
+          return { ...record, placeId };
+        }),
+      };
+    });
+  }
+
   function handleStorySelectionFromOverview(index: number) {
     commitImportVisit((currentVisit) => {
       if (!currentVisit) {
@@ -1856,6 +1880,7 @@ function App() {
             onClose={handleCloseEntryReview}
             onEntryUpdated={handleImportEntryUpdated}
             onVisitFinalized={handleVisitFinalized}
+            onImageRecordPlaceChanged={handleEntryReviewImageRecordPlaceChanged}
           />
         ) : (
           <div className="gallery-shell">

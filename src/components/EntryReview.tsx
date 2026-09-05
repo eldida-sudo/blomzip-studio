@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Entry, EntryRecommendationEvidence, EntryRecommendationKind, EntrySuggestionCategory, Observation, VisualEvidenceSignalId, Visit } from "../models/blomzip";
+import { listCanonicalPlaces } from "../data/canonicalPlaces";
 import { createThumbnailUrlForRecord } from "../utils/createThumbnailUrls";
 import { getEntryEditorialRecommendations } from "../utils/entryRecommendations";
 import { applyStoryRecommendations } from "../utils/storyRecommendations";
@@ -13,6 +14,7 @@ interface EntryReviewProps {
   onClose?: () => void;
   onEntryUpdated?: (entry: Entry) => void;
   onVisitFinalized?: (visit: Visit) => void;
+  onImageRecordPlaceChanged?: (imageRecordId: string, placeId: string | null) => void;
   visionProvider?: VisionProvider;
 }
 
@@ -143,7 +145,7 @@ function formatCapturedDate(captureDate: string | undefined): string {
   return parsed.toLocaleString();
 }
 
-export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpdated, onVisitFinalized, visionProvider: visionProviderProp }: EntryReviewProps) {
+export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpdated, onVisitFinalized, onImageRecordPlaceChanged, visionProvider: visionProviderProp }: EntryReviewProps) {
   const [currentEntryId, setCurrentEntryId] = useState<string | null>(() => {
     if (visit.entries.length === 0) {
       return null;
@@ -245,6 +247,13 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
   const entry = useMemo(() => (currentIndex >= 0 ? entries[currentIndex] : undefined), [entries, currentIndex]);
   const imageRecord = useMemo(() => visit.imageRecords?.find((record) => record.id === entry?.imageRecordId), [visit.imageRecords, entry]);
   const draft = useMemo(() => drafts.find((item) => item.id === entry?.id), [drafts, entry]);
+  const canonicalPlaces = useMemo(() => listCanonicalPlaces(), []);
+
+  function handleCanonicalPlaceChange(value: string) {
+    if (!imageRecord) return;
+
+    onImageRecordPlaceChanged?.(imageRecord.id, value === "" ? null : value);
+  }
   const observationCount = entry?.observations.length ?? 0;
   const hasObservations = observationCount > 0;
   const isEntryReviewed = entry?.reviewed ?? false;
@@ -992,7 +1001,7 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
           ) : null}
 
           <div className="entry-review-field entry-review-human-curation" data-testid="panel-curation-controls">
-            <span>Your curation decisions</span>
+            <span className="entry-review-label-on-light">Your curation decisions</span>
             <p className="entry-review-human-curation-summary" data-testid="panel-curation-summary">
               {draft.hero ? "Hero selected" : "Hero not selected"} · {draft.favorite ? "Favorite selected" : "Favorite not selected"} · {draft.storySelected ? "Story selected" : "Story not selected"}
             </p>
@@ -1010,10 +1019,26 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
                 {draft.hidden ? "Unhide" : "Hide"}
               </button>
             </div>
+            <label className="entry-review-field entry-review-canonical-place" data-testid="panel-canonical-place" htmlFor="entry-review-canonical-place-select">
+              <span className="entry-review-label-on-light">Canonical place</span>
+              <select
+                id="entry-review-canonical-place-select"
+                data-testid="canonical-place-select"
+                value={imageRecord?.placeId ?? ""}
+                onChange={(event) => handleCanonicalPlaceChange(event.target.value)}
+              >
+                <option value="">Unassigned</option>
+                {canonicalPlaces.map((place) => (
+                  <option key={place.id} value={place.id}>
+                    {place.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
 
           <label className="entry-review-field" data-testid="panel-notes">
-            <span>Notes</span>
+            <span className="entry-review-label-on-light">Notes</span>
             <textarea
               value={draft.notes}
               onChange={(event) => handleNotesChange(event.target.value)}
@@ -1022,7 +1047,7 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
           </label>
 
           <label className="entry-review-field" data-testid="panel-tags">
-            <span>Tags</span>
+            <span className="entry-review-label-on-light">Tags</span>
             <input
               value={draft.tags}
               onChange={(event) => handleTagsChange(event.target.value)}
@@ -1031,7 +1056,7 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
           </label>
 
           <div className="entry-review-field" data-testid="panel-observations">
-            <span>Observations</span>
+            <span className="entry-review-label-on-light">Observations</span>
             <div className={`entry-review-observations ${hasObservations ? "has-observations" : ""}`}>
               <div className="entry-review-observations-header">
                 <div>

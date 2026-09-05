@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DraftWorkspace, Visit } from "../models/blomzip";
 import { createThumbnailUrlForRecord } from "./createThumbnailUrls";
 import {
@@ -774,5 +774,140 @@ describe("archivePersistence", () => {
     const parsed = persisted ? JSON.parse(persisted) as { importVisit?: Visit; draftWorkspace?: DraftWorkspace } : null;
     expect(parsed?.importVisit?.imageRecords?.every((record) => !record.thumbnailUrl)).toBe(true);
     expect(parsed?.draftWorkspace?.drafts.every((draft) => draft.studioImages.length === 0)).toBe(true);
+  });
+
+  it("writes the localStorage mirror synchronously before the IndexedDB write settles", async () => {
+    let resolveIndexedDbWrite: (() => void) | undefined;
+    const fakeIndexedDB = {
+      open: () => {
+        const request = {
+          result: undefined as unknown,
+          onerror: null as ((event: Event) => void) | null,
+          onsuccess: null as ((event: Event) => void) | null,
+          onupgradeneeded: null as ((event: Event) => void) | null,
+        };
+
+        queueMicrotask(() => {
+          request.result = {
+            objectStoreNames: { contains: () => true },
+            transaction: () => {
+              const transaction = {
+                objectStore: () => ({
+                  put: () => {
+                    // The IndexedDB write is deliberately left pending until the test resolves it,
+                    // simulating a slow write that a reload could interrupt.
+                    resolveIndexedDbWrite = () => transaction.oncomplete?.(new Event("complete"));
+                    return { onsuccess: null, onerror: null };
+                  },
+                }),
+                onerror: null as ((event: Event) => void) | null,
+                oncomplete: null as ((event: Event) => void) | null,
+              };
+
+              return transaction;
+            },
+            close: () => undefined,
+          };
+
+          request.onsuccess?.(new Event("success"));
+        });
+
+        return request;
+      },
+    };
+
+    vi.stubGlobal("indexedDB", fakeIndexedDB);
+
+    const snapshotWithNewPlace: Visit = { ...visit, imageRecords: [{ ...visit.imageRecords![0], placeId: "under-maple" }] };
+    const snapshot = createArchiveStateSnapshot({ importVisit: snapshotWithNewPlace, draftWorkspace });
+
+    const savePromise = saveArchiveState(snapshot);
+
+    // Before the IndexedDB write is allowed to settle, localStorage must already hold the update.
+    const persistedBeforeIndexedDbSettles = window.localStorage.getItem("blomzip-studio:archive-state:v1");
+    expect(persistedBeforeIndexedDbSettles).toContain("under-maple");
+
+    // Let the fake IndexedDB's queued open/transaction/put chain reach the pending put() call.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    resolveIndexedDbWrite?.();
+    await savePromise;
+  });
+});
+
+describe("archivePersistence canonical-place id round-tripping", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    vi.restoreAllMocks();
+    vi.stubGlobal("indexedDB", undefined);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it.each([
+    "parking-trellis",
+    "miriams-bed",
+    "compost-area",
+    "garden-arch",
+    "under-maple",
+    "parking-peninsula",
+  ])("round-trips the newly added canonical-place id %s through save and load", async (placeId) => {
+    const snapshot = createArchiveStateSnapshot({
+      importVisit: { ...visit, imageRecords: [{ ...visit.imageRecords![0], placeId }] },
+      draftWorkspace,
+    });
+
+    await saveArchiveState(snapshot);
+    const restored = await loadArchiveState();
+
+    expect(restored?.importVisit?.imageRecords?.[0].placeId).toBe(placeId);
+  });
+
+  it.each(["house-wall", "entrance"])("still round-trips the existing renamed-label id %s", async (placeId) => {
+    const snapshot = createArchiveStateSnapshot({
+      importVisit: { ...visit, imageRecords: [{ ...visit.imageRecords![0], placeId }] },
+      draftWorkspace,
+    });
+
+    await saveArchiveState(snapshot);
+    const restored = await loadArchiveState();
+
+    expect(restored?.importVisit?.imageRecords?.[0].placeId).toBe(placeId);
+  });
+
+  it("passes through an unknown or malformed place id unchanged, matching the existing no-allowlist persistence policy", async () => {
+    const snapshot = createArchiveStateSnapshot({
+      importVisit: { ...visit, imageRecords: [{ ...visit.imageRecords![0], placeId: "not-a-registered-place" }] },
+      draftWorkspace,
+    });
+
+    await saveArchiveState(snapshot);
+    const restored = await loadArchiveState();
+
+    // Persistence never validates against a second, hand-maintained allowlist; the shared
+    // canonicalPlaces registry (getPlaceById/listCanonicalPlaces) is the only place ids are validated.
+    expect(restored?.importVisit?.imageRecords?.[0].placeId).toBe("not-a-registered-place");
+  });
+
+  it("removes placeId and persists the removal when a place is cleared", async () => {
+    const snapshotWithPlace = createArchiveStateSnapshot({
+      importVisit: { ...visit, imageRecords: [{ ...visit.imageRecords![0], placeId: "under-maple" }] },
+      draftWorkspace,
+    });
+    await saveArchiveState(snapshotWithPlace);
+
+    const { placeId: _removed, ...recordWithoutPlace } = visit.imageRecords![0];
+    const snapshotWithoutPlace = createArchiveStateSnapshot({
+      importVisit: { ...visit, imageRecords: [recordWithoutPlace] },
+      draftWorkspace,
+    });
+    await saveArchiveState(snapshotWithoutPlace);
+
+    const restored = await loadArchiveState();
+    expect(restored?.importVisit?.imageRecords?.[0].placeId).toBeUndefined();
   });
 });

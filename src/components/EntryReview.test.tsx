@@ -10,6 +10,7 @@ import { useState } from "react";
 import { EntryReview } from "./EntryReview";
 import { MockObservationEngine } from "./observationEngine";
 import { FixtureVisionProvider, type VisionProvider } from "../utils/visionProvider";
+import { listCanonicalPlaces } from "../data/canonicalPlaces";
 import type { Visit } from "../models/blomzip";
 
 const visit: Visit = {
@@ -943,5 +944,151 @@ describe("EntryReview", () => {
     // Recomputing from full archive context (chronological anchor + temporal separation +
     // place coverage = 0.88) plus the human-activity visual contribution (+0.14) caps at 100%.
     expect(container.textContent).toContain("Score 100%");
+  });
+
+  it("renders a Canonical place selector defaulting to Unassigned for an image with no placeId", () => {
+    act(() => {
+      root.render(<EntryReview visit={visit} />);
+    });
+
+    const select = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
+    expect(select).toBeTruthy();
+    expect(select?.value).toBe("");
+    expect(container.textContent).toContain("Canonical place");
+  });
+
+  it("uses the dark on-light label class for curation-panel labels instead of the light sidebar text color", () => {
+    act(() => {
+      root.render(<EntryReview visit={visit} />);
+    });
+
+    const canonicalPlaceLabel = container.querySelector('[data-testid="panel-canonical-place"] span');
+    const notesLabel = container.querySelector('[data-testid="panel-notes"] span');
+    const tagsLabel = container.querySelector('[data-testid="panel-tags"] span');
+
+    expect(canonicalPlaceLabel?.className).toContain("entry-review-label-on-light");
+    expect(notesLabel?.className).toContain("entry-review-label-on-light");
+    expect(tagsLabel?.className).toContain("entry-review-label-on-light");
+  });
+
+  it("populates every canonical place option from the shared canonical-place data source", () => {
+    act(() => {
+      root.render(<EntryReview visit={visit} />);
+    });
+
+    const select = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
+    const optionLabels = Array.from(select?.querySelectorAll("option") ?? []).map((option) => option.textContent);
+
+    expect(optionLabels[0]).toBe("Unassigned");
+    expect(optionLabels.slice(1)).toEqual(listCanonicalPlaces().map((place) => place.displayName));
+  });
+
+  it("assigning a canonical place updates only the current image record via the callback", () => {
+    const onImageRecordPlaceChanged = vi.fn();
+    const onEntryUpdated = vi.fn();
+
+    act(() => {
+      root.render(<EntryReview visit={visit} onImageRecordPlaceChanged={onImageRecordPlaceChanged} onEntryUpdated={onEntryUpdated} />);
+    });
+
+    const select = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
+
+    act(() => {
+      if (select) select.value = "rock-garden";
+      select?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(onImageRecordPlaceChanged).toHaveBeenCalledTimes(1);
+    expect(onImageRecordPlaceChanged).toHaveBeenCalledWith("image-1", "rock-garden");
+    // Canonical place assignment is not an Entry field change; it must not go through onEntryUpdated.
+    expect(onEntryUpdated).not.toHaveBeenCalled();
+  });
+
+  it("displays the previously assigned canonical place after the visit prop updates", () => {
+    const assignedVisit: Visit = {
+      ...visit,
+      imageRecords: (visit.imageRecords ?? []).map((record) =>
+        record.id === "image-1" ? { ...record, placeId: "rock-garden" } : record
+      ),
+    };
+
+    act(() => {
+      root.render(<EntryReview visit={assignedVisit} />);
+    });
+
+    const select = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
+    expect(select?.value).toBe("rock-garden");
+  });
+
+  it("changing an already-assigned canonical place calls back with the new place id", () => {
+    const assignedVisit: Visit = {
+      ...visit,
+      imageRecords: (visit.imageRecords ?? []).map((record) =>
+        record.id === "image-1" ? { ...record, placeId: "rock-garden" } : record
+      ),
+    };
+    const onImageRecordPlaceChanged = vi.fn();
+
+    act(() => {
+      root.render(<EntryReview visit={assignedVisit} onImageRecordPlaceChanged={onImageRecordPlaceChanged} />);
+    });
+
+    const select = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
+
+    act(() => {
+      if (select) select.value = "house-wall";
+      select?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(onImageRecordPlaceChanged).toHaveBeenCalledWith("image-1", "house-wall");
+  });
+
+  it("selecting Unassigned clears the canonical place", () => {
+    const assignedVisit: Visit = {
+      ...visit,
+      imageRecords: (visit.imageRecords ?? []).map((record) =>
+        record.id === "image-1" ? { ...record, placeId: "rock-garden" } : record
+      ),
+    };
+    const onImageRecordPlaceChanged = vi.fn();
+
+    act(() => {
+      root.render(<EntryReview visit={assignedVisit} onImageRecordPlaceChanged={onImageRecordPlaceChanged} />);
+    });
+
+    const select = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
+
+    act(() => {
+      if (select) select.value = "";
+      select?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(onImageRecordPlaceChanged).toHaveBeenCalledWith("image-1", null);
+  });
+
+  it("does not mark the entry reviewed or change unrelated curation state when assigning a canonical place", () => {
+    const onImageRecordPlaceChanged = vi.fn();
+
+    act(() => {
+      root.render(<EntryReview visit={visit} onImageRecordPlaceChanged={onImageRecordPlaceChanged} />);
+    });
+
+    expect(container.textContent).toContain("Pending review");
+    expect(container.textContent).toContain("Favorite not selected");
+    expect(container.textContent).toContain("Hero not selected");
+    expect(container.textContent).toContain("Story not selected");
+
+    const select = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
+
+    act(() => {
+      if (select) select.value = "rock-garden";
+      select?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Pending review");
+    expect(container.textContent).toContain("Favorite not selected");
+    expect(container.textContent).toContain("Hero not selected");
+    expect(container.textContent).toContain("Story not selected");
+    expect(Array.from(container.querySelectorAll("button")).some((button) => button.textContent === "Mark entry reviewed")).toBe(true);
   });
 });

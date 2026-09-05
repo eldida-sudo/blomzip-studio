@@ -484,7 +484,7 @@ describe("App", () => {
     }));
     expect(exifDateCard?.textContent).toContain("The Rock Garden");
     expect(undatedCard?.textContent).toContain("Undated");
-    expect(undatedCard?.textContent).toContain("The House Wall");
+    expect(undatedCard?.textContent).toContain("The Bicycle Trellis Bed");
   });
 
   it("separates workflow, curator selections, and a compact AI recommendation summary in gallery cards", async () => {
@@ -730,6 +730,279 @@ describe("App", () => {
     expect(container.textContent).toContain("courtyard-02.jpg");
     expect(container.textContent).toContain("Back to archive");
     expect(container.textContent).toContain("Review progress");
+  });
+
+  it("assigns an individual canonical place from Entry Review, persists it, and never marks the entry reviewed", async () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const previewButtons = Array.from(container.querySelectorAll(".preview-card-button"));
+    act(() => {
+      previewButtons[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Entry 1 of 2");
+    expect(container.textContent).toContain("courtyard-01.jpg");
+
+    const canonicalPlaceSelect = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
+    expect(canonicalPlaceSelect).toBeTruthy();
+    expect(canonicalPlaceSelect?.value).toBe("");
+
+    act(() => {
+      if (canonicalPlaceSelect) canonicalPlaceSelect.value = "rock-garden";
+      canonicalPlaceSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Pending review");
+
+    const backButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Back to archive");
+    act(() => {
+      backButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const persistedSnapshot = await loadArchiveState();
+    const persistedVisit = persistedSnapshot?.importVisit;
+    expect(persistedVisit).toBeTruthy();
+
+    const image1 = persistedVisit?.imageRecords?.find((record) => record.id === "image-1");
+    const image2 = persistedVisit?.imageRecords?.find((record) => record.id === "image-2");
+    expect(image1?.placeId).toBe("rock-garden");
+    expect(image2?.placeId).toBeUndefined();
+
+    const entry1 = persistedVisit?.entries.find((entry) => entry.imageRecordId === "image-1");
+    expect(entry1?.reviewed).toBeFalsy();
+    expect(entry1?.favorite).toBeFalsy();
+    expect(entry1?.hero).toBeFalsy();
+    expect(entry1?.storySelected).toBeFalsy();
+  });
+
+  it("excludes an individually assigned photograph from later Place Discovery runs, and clearing it restores eligibility", async () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    expect(container.textContent).toContain("1 candidate place groups");
+    expect(container.querySelector('[data-testid="vision-group-card-vision-place-1"]')).toBeTruthy();
+
+    const previewButtons = Array.from(container.querySelectorAll(".preview-card-button"));
+    act(() => {
+      previewButtons[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const canonicalPlaceSelect = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
+
+    act(() => {
+      if (canonicalPlaceSelect) canonicalPlaceSelect.value = "rock-garden";
+      canonicalPlaceSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const backButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Back to archive");
+    act(() => {
+      backButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    // Only one unassigned photograph remains, so the cluster no longer meets the >= 2 minimum.
+    expect(container.textContent).toContain("0 candidate place groups");
+    expect(container.querySelector('[data-testid="vision-group-card-vision-place-1"]')).toBeNull();
+
+    const previewButtonsAfterAssignment = Array.from(container.querySelectorAll(".preview-card-button"));
+    act(() => {
+      previewButtonsAfterAssignment[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const canonicalPlaceSelectAfter = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
+    expect(canonicalPlaceSelectAfter?.value).toBe("rock-garden");
+
+    act(() => {
+      if (canonicalPlaceSelectAfter) canonicalPlaceSelectAfter.value = "";
+      canonicalPlaceSelectAfter?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    const backButtonAgain = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Back to archive");
+    act(() => {
+      backButtonAgain?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("1 candidate place groups");
+    expect(container.querySelector('[data-testid="vision-group-card-vision-place-1"]')).toBeTruthy();
+  });
+
+  it.each([
+    "parking-trellis",
+    "miriams-bed",
+    "compost-area",
+    "garden-arch",
+    "under-maple",
+    "parking-peninsula",
+  ])("assigns the newly added canonical place %s from Entry Review and persists it across reload", async (newPlaceId) => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const previewButtons = Array.from(container.querySelectorAll(".preview-card-button"));
+    act(() => {
+      previewButtons[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const canonicalPlaceSelect = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
+    expect(canonicalPlaceSelect).toBeTruthy();
+
+    act(() => {
+      if (canonicalPlaceSelect) canonicalPlaceSelect.value = newPlaceId;
+      canonicalPlaceSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    mockImportState = { summary: null, visit: null };
+    hasEmittedImportState = false;
+
+    act(() => {
+      root.unmount();
+    });
+
+    root = createRoot(container);
+
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+    });
+
+    await waitForArchiveHydration();
+
+    const persistedSnapshot = await loadArchiveState();
+    const image1 = persistedSnapshot?.importVisit?.imageRecords?.find((record) => record.id === "image-1");
+    expect(image1?.placeId).toBe(newPlaceId);
+  });
+
+  it("does not lose a just-assigned canonical place when reload interrupts persistence before the IndexedDB write settles", async () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const previewButtons = Array.from(container.querySelectorAll(".preview-card-button"));
+    act(() => {
+      previewButtons[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const canonicalPlaceSelect = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
+
+    act(() => {
+      if (canonicalPlaceSelect) canonicalPlaceSelect.value = "under-maple";
+      canonicalPlaceSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    // Give the persistence effect only a single microtask tick, not the full
+    // IndexedDB round trip, before simulating an interrupting reload.
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    mockImportState = { summary: null, visit: null };
+    hasEmittedImportState = false;
+
+    act(() => {
+      root.unmount();
+    });
+
+    root = createRoot(container);
+
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+    });
+
+    await waitForArchiveHydration();
+
+    const persistedSnapshot = await loadArchiveState();
+    const image1 = persistedSnapshot?.importVisit?.imageRecords?.find((record) => record.id === "image-1");
+    expect(image1?.placeId).toBe("under-maple");
+  });
+
+  it("clearing a canonical place removes placeId and persists the removal across reload", async () => {
+    const assignedState = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
+    assignedState.visit.imageRecords![0].placeId = "under-maple";
+    mockImportState = assignedState;
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const previewButtons = Array.from(container.querySelectorAll(".preview-card-button"));
+    act(() => {
+      previewButtons[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const canonicalPlaceSelect = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
+    expect(canonicalPlaceSelect?.value).toBe("under-maple");
+
+    act(() => {
+      if (canonicalPlaceSelect) canonicalPlaceSelect.value = "";
+      canonicalPlaceSelect?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    mockImportState = { summary: null, visit: null };
+    hasEmittedImportState = false;
+
+    act(() => {
+      root.unmount();
+    });
+
+    root = createRoot(container);
+
+    await act(async () => {
+      root.render(<App />);
+      await Promise.resolve();
+    });
+
+    await waitForArchiveHydration();
+
+    const persistedSnapshot = await loadArchiveState();
+    const image1 = persistedSnapshot?.importVisit?.imageRecords?.find((record) => record.id === "image-1");
+    expect(image1?.placeId).toBeUndefined();
+  });
+
+  it("never auto-reassigns photographs that still carry the legacy Parking Edge place id", async () => {
+    const parkingState = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
+    const imageRecords = parkingState.visit.imageRecords ?? [];
+    imageRecords[0] = { ...imageRecords[0], placeId: "parking" };
+    mockImportState = parkingState;
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const persistedSnapshot = await loadArchiveState();
+    const image1 = persistedSnapshot?.importVisit?.imageRecords?.find((record) => record.id === "image-1");
+    expect(image1?.placeId).toBe("parking");
+    expect(container.textContent).toContain("Parking Edge — needs reassignment");
   });
 
   it("filters the archive by Living Map place and restores all places", async () => {
@@ -997,7 +1270,7 @@ describe("App", () => {
       approveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(container.textContent).toContain("Assigned The House Wall to 10 photographs.");
+    expect(container.textContent).toContain("Assigned The Bicycle Trellis Bed to 10 photographs.");
 
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1221,8 +1494,8 @@ describe("App", () => {
       approveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(container.textContent).toContain("Assigned The House Wall to 2 photographs.");
-    expect(container.textContent).toContain("The House Wall");
+    expect(container.textContent).toContain("Assigned The Bicycle Trellis Bed to 2 photographs.");
+    expect(container.textContent).toContain("The Bicycle Trellis Bed");
 
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1244,7 +1517,7 @@ describe("App", () => {
 
     await waitForArchiveHydration();
 
-    expect(container.textContent).toContain("The House Wall");
+    expect(container.textContent).toContain("The Bicycle Trellis Bed");
   });
 
   it("applies assignment to all unassigned records in a group, never overwrites approved records, and keeps publish output consistent", async () => {
@@ -1330,8 +1603,8 @@ describe("App", () => {
       approveButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(container.textContent).toContain("Assigned The House Wall to 2 photographs.");
-    expect(container.textContent).toContain("The House Wall");
+    expect(container.textContent).toContain("Assigned The Bicycle Trellis Bed to 2 photographs.");
+    expect(container.textContent).toContain("The Bicycle Trellis Bed");
     expect(container.textContent).toContain("0 images processed for place discovery");
 
     await act(async () => {
@@ -1509,7 +1782,7 @@ describe("App", () => {
     });
 
     // Should approve successfully even though parking is not yet calibrated
-    expect(container.textContent).toContain("Assigned The Parking Edge");
+    expect(container.textContent).toContain("Assigned Parking Edge — needs reassignment");
   });
 
   it("keeps unassigned photographs backward compatible with Unknown place labels", () => {
