@@ -837,29 +837,33 @@ describe("App", () => {
   });
 
   it.each([
-    "parking-trellis",
-    "miriams-bed",
-    "compost-area",
-    "garden-arch",
-    "under-maple",
-    "parking-peninsula",
-  ])("assigns the newly added canonical place %s from Entry Review and persists it across reload", async (newPlaceId) => {
+    "front-gate",
+    "house-gable",
+  ])("supports assigning and clearing %s across Entry Review and Place Discovery without affecting another image", async (newPlaceId) => {
     act(() => {
       root.render(<App />);
     });
 
     await waitForArchiveHydration();
 
+    const discoveryPlaceSelect = container.querySelector('[data-testid="vision-place-select-vision-place-1"]') as HTMLSelectElement | null;
+    expect(Array.from(discoveryPlaceSelect?.options ?? []).some((option) => option.value === newPlaceId)).toBe(true);
+
     const previewButtons = Array.from(container.querySelectorAll(".preview-card-button"));
     act(() => {
       previewButtons[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const nextButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Next");
+    act(() => {
+      nextButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     const canonicalPlaceSelect = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
     expect(canonicalPlaceSelect).toBeTruthy();
 
     act(() => {
-      if (canonicalPlaceSelect) canonicalPlaceSelect.value = newPlaceId;
+      if (canonicalPlaceSelect) canonicalPlaceSelect.value = "rock-garden";
       canonicalPlaceSelect?.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
@@ -867,10 +871,25 @@ describe("App", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
 
-    mockImportState = { summary: null, visit: null };
-    hasEmittedImportState = false;
+    const previousButton = Array.from(container.querySelectorAll("button")).find((button) => button.textContent === "Previous");
+    act(() => {
+      previousButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const canonicalPlaceSelectForFirstImage = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
+    expect(Array.from(canonicalPlaceSelectForFirstImage?.options ?? []).some((option) => option.value === newPlaceId)).toBe(true);
 
     act(() => {
+      if (canonicalPlaceSelectForFirstImage) canonicalPlaceSelectForFirstImage.value = newPlaceId;
+      canonicalPlaceSelectForFirstImage?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    // Allow only the state update to run before simulating a reload, not the IndexedDB write.
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await act(async () => {
       root.unmount();
     });
 
@@ -885,7 +904,29 @@ describe("App", () => {
 
     const persistedSnapshot = await loadArchiveState();
     const image1 = persistedSnapshot?.importVisit?.imageRecords?.find((record) => record.id === "image-1");
+    const image2 = persistedSnapshot?.importVisit?.imageRecords?.find((record) => record.id === "image-2");
     expect(image1?.placeId).toBe(newPlaceId);
+    expect(image2?.placeId).toBe("rock-garden");
+
+    await openFirstPreviewCardForRestoredArchive();
+
+    const canonicalPlaceSelectAfterReload = container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement | null;
+    expect(canonicalPlaceSelectAfterReload?.value).toBe(newPlaceId);
+
+    act(() => {
+      if (canonicalPlaceSelectAfterReload) canonicalPlaceSelectAfterReload.value = "";
+      canonicalPlaceSelectAfterReload?.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    const clearedSnapshot = await loadArchiveState();
+    const clearedImage1 = clearedSnapshot?.importVisit?.imageRecords?.find((record) => record.id === "image-1");
+    const unchangedImage2 = clearedSnapshot?.importVisit?.imageRecords?.find((record) => record.id === "image-2");
+    expect(clearedImage1?.placeId).toBeUndefined();
+    expect(unchangedImage2?.placeId).toBe("rock-garden");
   });
 
   it("does not lose a just-assigned canonical place when reload interrupts persistence before the IndexedDB write settles", async () => {
@@ -1145,6 +1186,64 @@ describe("App", () => {
 
     expect(container.textContent).toContain("Remove from Story");
     expect(container.textContent).toContain("Story");
+  });
+
+  it("reveals a compact selected timeline in chronological order and removes selections in place", async () => {
+    const timelineState = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
+    const imageRecords = timelineState.visit.imageRecords ?? [];
+
+    timelineState.visit.entries = timelineState.visit.entries.map((entry) => ({
+      ...entry,
+      storySelected: true,
+    }));
+    imageRecords[0] = {
+      ...imageRecords[0],
+      filename: "late-rock-garden.jpg",
+      captureDate: "2021-06-04T12:00:00.000Z",
+      placeId: "rock-garden",
+    };
+    imageRecords[1] = {
+      ...imageRecords[1],
+      filename: "early-rock-garden.jpg",
+      captureDate: "2017-07-19T12:00:00.000Z",
+      placeId: "rock-garden",
+    };
+    mockImportState = timelineState;
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    expect(container.querySelector('[data-testid="selected-timeline"]')).toBeNull();
+
+    act(() => {
+      container.querySelector('[data-testid="open-selected-timeline"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const timeline = container.querySelector('[data-testid="selected-timeline"]');
+    const cards = Array.from(timeline?.querySelectorAll(".selected-timeline-card") ?? []);
+
+    expect(timeline?.textContent).toContain("The Rock Garden over time");
+    expect(cards).toHaveLength(2);
+    expect(cards[0]?.textContent).toContain("early-rock-garden.jpg");
+    expect(cards[1]?.textContent).toContain("late-rock-garden.jpg");
+
+    act(() => {
+      cards[0]?.querySelector(".selected-timeline-remove")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector('[data-testid="open-selected-timeline"]')?.textContent).toContain("1");
+    expect(timeline?.textContent).not.toContain("early-rock-garden.jpg");
+    expect(timeline?.textContent).toContain("late-rock-garden.jpg");
+
+    act(() => {
+      timeline?.querySelector(".selected-timeline-remove")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector('[data-testid="open-selected-timeline"]')?.textContent).toContain("0");
+    expect(timeline?.textContent).toContain("No photographs selected yet.");
   });
 
   it("shows Place Discovery summary after ZIP import", () => {

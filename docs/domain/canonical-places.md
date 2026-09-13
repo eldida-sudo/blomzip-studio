@@ -23,6 +23,8 @@ The registry is intentionally small and stable. It defines the authoritative pla
 | `garden-arch` | The Garden Arch | Portalen |
 | `under-maple` | Under the Maple | none |
 | `parking-peninsula` | The Parking Peninsula | none |
+| `front-gate` | The Front Gate | none |
+| `house-gable` | The House Gable | none |
 
 ## Rules
 

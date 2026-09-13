@@ -21,6 +21,8 @@ describe("canonicalPlaces", () => {
       "garden-arch",
       "under-maple",
       "parking-peninsula",
+      "front-gate",
+      "house-gable",
     ]);
   });
 
@@ -46,6 +48,8 @@ describe("canonicalPlaces", () => {
       "garden-arch": "The Garden Arch",
       "under-maple": "Under the Maple",
       "parking-peninsula": "The Parking Peninsula",
+      "front-gate": "The Front Gate",
+      "house-gable": "The House Gable",
     });
   });
 

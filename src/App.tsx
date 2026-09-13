@@ -408,6 +408,7 @@ function App() {
   const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
   const [suggestionFilter, setSuggestionFilter] = useState<SuggestionFilter>("all");
   const [archivePlaceFilter, setArchivePlaceFilter] = useState<string | null>(null);
+  const [isSelectedTimelineOpen, setIsSelectedTimelineOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<ImageItem | null>(null);
   const [importSummary, setImportSummary] = useState<ZipImportSummary | null>(null);
   const [importVisit, setImportVisit] = useState<Visit | null>(null);
@@ -436,6 +437,7 @@ function App() {
   const hasAppliedStudioImagesRef = useRef(false);
   const sidebarImportSectionRef = useRef<HTMLElement | null>(null);
   const visionSummaryRef = useRef<HTMLElement | null>(null);
+  const selectedTimelineRef = useRef<HTMLElement | null>(null);
   const managedThumbnailObjectUrlsRef = useRef<Set<string>>(new Set());
   const latestImportVisitRef = useRef<Visit | null>(null);
   const savedDrafts = draftWorkspace.drafts;
@@ -721,6 +723,45 @@ function App() {
     }),
     [gallerySourceImages, importVisit, imageRecordsById, importBatchesById]
   );
+
+  const selectedTimelineItems = useMemo(() => {
+    return galleryItems
+      .filter(({ entry }) => Boolean(entry?.storySelected))
+      .sort((left, right) => {
+        const leftDate = parseCaptureDate(left.imageRecord?.captureDate)?.getTime() ?? Number.POSITIVE_INFINITY;
+        const rightDate = parseCaptureDate(right.imageRecord?.captureDate)?.getTime() ?? Number.POSITIVE_INFINITY;
+
+        return leftDate - rightDate || left.index - right.index;
+      });
+  }, [galleryItems]);
+
+  const selectedTimelineTitle = useMemo(() => {
+    const selectedPlaceIds = new Set(
+      selectedTimelineItems
+        .map(({ imageRecord }) => imageRecord?.placeId)
+        .filter((placeId): placeId is string => Boolean(placeId))
+    );
+
+    if (
+      selectedTimelineItems.length === 0 ||
+      selectedPlaceIds.size !== 1 ||
+      selectedTimelineItems.some(({ imageRecord }) => !imageRecord?.placeId)
+    ) {
+      return "Selected timeline";
+    }
+
+    const [placeId] = selectedPlaceIds;
+    const placeName = getPlaceById(placeId)?.displayName;
+    return placeName ? `${placeName} over time` : "Selected timeline";
+  }, [selectedTimelineItems]);
+
+  useEffect(() => {
+    if (!isSelectedTimelineOpen) {
+      return;
+    }
+
+    selectedTimelineRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }, [isSelectedTimelineOpen]);
 
   const filteredImages = galleryItems.filter(({ image, entry, imageRecord }) => {
     const searchText =
@@ -1908,16 +1949,93 @@ function App() {
                   <span>Date range</span>
                   <strong>{archiveDateRange}</strong>
                 </div>
-                <div>
+                <button
+                  type="button"
+                  className="archive-home-stat-button"
+                  data-testid="open-selected-timeline"
+                  aria-expanded={isSelectedTimelineOpen}
+                  onClick={() => setIsSelectedTimelineOpen(true)}
+                >
                   <span>Story selected</span>
                   <strong>{archiveStats.storySelected}</strong>
-                </div>
+                  <small>View timeline</small>
+                </button>
                 <div>
                   <span>Review progress</span>
                   <strong>{totalImportedEntries > 0 ? `${reviewedEntryCount}/${totalImportedEntries}` : "No archive entries"}</strong>
                 </div>
               </div>
             </section>
+
+            {isSelectedTimelineOpen ? (
+              <section
+                className="selected-timeline"
+                data-testid="selected-timeline"
+                ref={selectedTimelineRef}
+                aria-labelledby="selected-timeline-title"
+              >
+                <div className="selected-timeline-header">
+                  <div>
+                    <p className="eyebrow">Story selection</p>
+                    <h3 id="selected-timeline-title">{selectedTimelineTitle}</h3>
+                    <p className="result-count">Oldest to newest · {selectedTimelineItems.length} selected</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="secondary-action"
+                    onClick={() => setIsSelectedTimelineOpen(false)}
+                  >
+                    Close timeline
+                  </button>
+                </div>
+
+                {selectedTimelineItems.length > 0 ? (
+                  <div className="selected-timeline-grid">
+                    {selectedTimelineItems.map(({ image, index, entry, imageRecord }) => {
+                      const filename = getImageFilename(image, imageRecord);
+                      const thumbnailSrc = resolveGalleryThumbnailSrc(image, imageRecord);
+                      const placeLabel = imageRecord?.placeId
+                        ? getPlaceById(imageRecord.placeId)?.displayName ?? "Unknown"
+                        : "Unknown";
+
+                      return (
+                        <article
+                          key={entry?.id ?? image.id}
+                          className="selected-timeline-card"
+                          data-testid={`selected-timeline-card-${entry?.id ?? image.id}`}
+                        >
+                          <button
+                            type="button"
+                            className="selected-timeline-preview"
+                            onClick={() => openReviewWithIndex(index)}
+                            aria-label={`Open ${filename}`}
+                          >
+                            {thumbnailSrc ? <img src={thumbnailSrc} alt={image.alt} /> : <span>No preview</span>}
+                          </button>
+                          <div className="selected-timeline-card-copy">
+                            <time>{formatDateLabel(imageRecord?.captureDate)}</time>
+                            <strong title={filename}>{filename}</strong>
+                            <span>{placeLabel}</span>
+                          </div>
+                          <button
+                            type="button"
+                            className="selected-timeline-remove"
+                            onClick={() => handleStorySelectionFromOverview(index)}
+                          >
+                            Remove from Story
+                          </button>
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="selected-timeline-empty">
+                    <strong>No photographs selected yet.</strong>
+                    <p>Select photographs from the archive to build a place timeline.</p>
+                  </div>
+                )}
+              </section>
+            ) : null}
 
             <nav className="studio-workflow" aria-label="Studio workflow" data-testid="studio-workflow">
               <span>Import images</span>

@@ -5,6 +5,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { listCanonicalPlaces } from "../data/canonicalPlaces";
 import { PlaceMapReference } from "./PlaceMapReference";
 
 describe("PlaceMapReference calibration", () => {
@@ -67,7 +68,7 @@ describe("PlaceMapReference calibration", () => {
 
     expect(map.getAttribute("viewBox")).toBe("0 0 1934 1304");
     expect(map.querySelector("image")?.getAttribute("preserveAspectRatio")).toBe("none");
-    expect(container.querySelectorAll("[data-testid='calibration-place-select'] option")).toHaveLength(16);
+    expect(container.querySelectorAll("[data-testid='calibration-place-select'] option")).toHaveLength(listCanonicalPlaces().length + 1);
   });
 
   it("renders every calibrated hotspot while leaving uncalibrated places marker-free", () => {

@@ -113,6 +113,20 @@ const CANONICAL_PLACES: CanonicalPlace[] = [
     aliases: [],
     sortOrder: 15,
   },
+  {
+    id: "front-gate",
+    displayName: "The Front Gate",
+    shortDescription: "The gate on the front side of the house.",
+    aliases: [],
+    sortOrder: 16,
+  },
+  {
+    id: "house-gable",
+    displayName: "The House Gable",
+    shortDescription: "The gable end of the house.",
+    aliases: [],
+    sortOrder: 17,
+  },
 ];
 
 const LEGACY_PLACE_ID_MAP: Record<string, string> = {
