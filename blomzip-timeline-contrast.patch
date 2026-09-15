@@ -1,0 +1,21 @@
+--- a/src/App.css
++++ b/src/App.css
+@@ -638,6 +638,18 @@
+   margin: 0;
+ }
+ 
++.selected-timeline-header .secondary-action {
++  border-color: #cfc5b2;
++  background: #f7f1e5;
++  color: #243126;
++}
++
++.selected-timeline-header .secondary-action:hover,
++.selected-timeline-header .secondary-action:focus-visible {
++  border-color: #6c7d65;
++  background: #ede4d2;
++}
++
+ .selected-timeline-grid {
+   display: grid;
+   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
