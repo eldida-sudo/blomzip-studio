@@ -2118,7 +2118,9 @@ describe("App", () => {
     expect(storyQueueButton?.disabled).toBe(true);
   });
 
-  it("persists Favorite/Hero/Story through save draft and load draft", () => {
+  it("persists Favorite/Hero/Story through save draft and load draft", async () => {
+    vi.stubGlobal("indexedDB", createInMemoryIndexedDb());
+
     act(() => {
       root.render(<App />);
     });
@@ -2157,10 +2159,235 @@ describe("App", () => {
       loadDraftButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
+    expect(container.querySelector('[data-testid="recovery-confirm"]')).toBeTruthy();
+    expect(container.textContent).not.toContain("Selected for Story ✓");
+
+    await act(async () => {
+      findButtonByText("Save snapshot and replace")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
     expect(container.textContent).toContain("Back to archive");
     expect(container.textContent).toContain("Favorite ✓");
     expect(container.textContent).toContain("Hero ✓");
     expect(container.textContent).toContain("Selected for Story ✓");
+  });
+
+  it("does not replace the archive or create a snapshot when a draft load is cancelled", async () => {
+    vi.stubGlobal("indexedDB", createInMemoryIndexedDb());
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    const findButtonByText = (text: string) =>
+      Array.from(container.querySelectorAll("button")).find((button) => button.textContent === text);
+
+    act(() => {
+      findButtonByText("Save Draft")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    act(() => {
+      Array.from(container.querySelectorAll('[data-testid="sidebar-drafts-section"] button'))
+        .find((button) => button.textContent?.includes("entries"))
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector('[data-testid="recovery-confirm"]')?.textContent).toContain("safety snapshot");
+
+    act(() => {
+      findButtonByText("Cancel")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector('[data-testid="recovery-confirm"]')).toBeNull();
+    expect(container.textContent).not.toContain("Back to archive");
+    expect(container.querySelector('[data-testid="safety-snapshot-list"]')).toBeNull();
+  });
+
+  it("refuses to replace the archive when the safety snapshot cannot be saved", async () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    const findButtonByText = (text: string) =>
+      Array.from(container.querySelectorAll("button")).find((button) => button.textContent === text);
+
+    act(() => {
+      findButtonByText("Save Draft")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    act(() => {
+      Array.from(container.querySelectorAll('[data-testid="sidebar-drafts-section"] button'))
+        .find((button) => button.textContent?.includes("entries"))
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    await act(async () => {
+      findButtonByText("Save snapshot and replace")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(container.querySelector('[data-testid="recovery-message"]')?.textContent).toContain("nothing was changed");
+    expect(container.textContent).not.toContain("Back to archive");
+  });
+
+  async function selectBackupFile(contents: string) {
+    const input = container.querySelector('[data-testid="restore-backup-input"]') as HTMLInputElement;
+    Object.defineProperty(input, "files", {
+      configurable: true,
+      value: [{ name: "backup.json", text: async () => contents }],
+    });
+
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+  }
+
+  it("validates a backup, confirms, snapshots current state (including drafts), restores and lists the snapshot", async () => {
+    vi.stubGlobal("indexedDB", createInMemoryIndexedDb());
+
+    act(() => {
+      root.render(<App />);
+    });
+
+    const findButtonByText = (text: string) =>
+      Array.from(container.querySelectorAll("button")).find((button) => button.textContent === text);
+
+    act(() => {
+      findButtonByText("Save Draft")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const backupVisit = JSON.parse(JSON.stringify(importedArchiveState.visit)) as Visit;
+    backupVisit.entries[0].notes = "Restored from backup";
+    backupVisit.entries[0].storySelected = true;
+    const backupJson = JSON.stringify(
+      createArchiveStateSnapshot({ importVisit: backupVisit, draftWorkspace: { drafts: [], activeDraftId: null } })
+    );
+
+    await selectBackupFile("not json");
+    expect(container.querySelector('[data-testid="recovery-confirm"]')).toBeNull();
+    expect(container.querySelector('[data-testid="recovery-message"]')?.textContent).toContain("Nothing was changed");
+
+    await selectBackupFile(JSON.stringify({ schema: "other" }));
+    expect(container.querySelector('[data-testid="recovery-message"]')?.textContent).toContain("not a Blomzip archive backup");
+
+    await selectBackupFile(backupJson);
+    const confirmText = container.querySelector('[data-testid="recovery-confirm"]')?.textContent ?? "";
+    expect(confirmText).toContain("backup.json");
+    expect(confirmText).toContain("all saved drafts");
+    expect(container.querySelector('[data-testid="safety-snapshot-list"]')).toBeNull();
+
+    await act(async () => {
+      findButtonByText("Save snapshot and replace")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(container.querySelector('[data-testid="recovery-confirm"]')).toBeNull();
+    expect(container.textContent).toContain("No saved drafts yet.");
+    expect(container.querySelector('[data-testid="gallery-curation-entry-1"]')?.textContent).toContain("Story");
+
+    const snapshotList = container.querySelector('[data-testid="safety-snapshot-list"]');
+    expect(snapshotList?.querySelectorAll("li")).toHaveLength(1);
+    expect(snapshotList?.textContent).toContain("1 drafts");
+    expect(snapshotList?.textContent).toContain("Restore");
+    expect(snapshotList?.textContent).toContain("Download");
+
+    await act(async () => {
+      Array.from(snapshotList?.querySelectorAll("button") ?? [])
+        .find((button) => button.textContent === "Restore")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(container.querySelector('[data-testid="recovery-confirm"]')?.textContent).toContain("safety snapshot");
+
+    await act(async () => {
+      findButtonByText("Save snapshot and replace")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
+
+    expect(container.textContent).not.toContain("No saved drafts yet.");
+    expect(container.querySelector('[data-testid="gallery-curation-entry-1"]')).toBeNull();
+    expect(container.querySelector('[data-testid="safety-snapshot-list"]')?.querySelectorAll("li")).toHaveLength(2);
+  });
+
+  describe("curation filters", () => {
+    function cardTitles() {
+      return Array.from(container.querySelectorAll(".gallery-card-header strong")).map((node) => node.textContent);
+    }
+
+    function clickByText(scope: ParentNode, text: string) {
+      act(() => {
+        Array.from(scope.querySelectorAll("button"))
+          .find((button) => button.textContent?.startsWith(text))
+          ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    }
+
+    function clickFilter(text: string) {
+      clickByText(container.querySelector('[data-testid="curation-filters"]') as HTMLElement, text);
+    }
+
+    beforeEach(() => {
+      mockImportState!.visit!.imageRecords![0].placeId = "rock-garden";
+      mockImportState!.visit!.entries[1].hidden = true;
+    });
+
+    it("excludes hidden images by default and shows them with the toggle", () => {
+      act(() => {
+        root.render(<App />);
+      });
+
+      expect(cardTitles()).toEqual(["courtyard-01.jpg"]);
+      expect(container.querySelector('[data-testid="curation-filters"]')?.textContent).toContain("Show hidden (1)");
+
+      clickFilter("Show hidden");
+
+      expect(cardTitles()).toEqual(["courtyard-01.jpg", "courtyard-02.jpg"]);
+      expect(container.textContent).toContain("Hidden");
+    });
+
+    it("filters unassigned, unreviewed and story-selected photographs", () => {
+      act(() => {
+        root.render(<App />);
+      });
+      clickFilter("Show hidden");
+
+      clickFilter("Unassigned place");
+      expect(cardTitles()).toEqual(["courtyard-02.jpg"]);
+      clickFilter("Unassigned place");
+      expect(cardTitles()).toHaveLength(2);
+
+      clickFilter("Story selected");
+      expect(cardTitles()).toEqual([]);
+      expect(container.querySelector('[data-testid="gallery-empty"]')).toBeTruthy();
+
+      clickByText(container, "Clear filters");
+      expect(cardTitles()).toHaveLength(2);
+
+      clickFilter("Unreviewed");
+      expect(cardTitles()).toHaveLength(2);
+    });
+
+    it("offers an Unassigned Living Map option and per-place counts that follow the hidden rule", () => {
+      act(() => {
+        root.render(<App />);
+      });
+
+      const unassignedButton = container.querySelector('[data-testid="living-map-place-unassigned"]') as HTMLButtonElement;
+      expect(unassignedButton.textContent).toBe("Unassigned (0)");
+      expect(container.querySelector('[data-testid="living-map-place-rock-garden"]')?.textContent).toContain("(1)");
+      expect(container.querySelector('[data-testid="living-map-place-all"]')?.textContent).toBe("All places (1)");
+
+      clickFilter("Show hidden");
+      expect(container.querySelector('[data-testid="living-map-place-unassigned"]')?.textContent).toBe("Unassigned (1)");
+
+      act(() => {
+        (container.querySelector('[data-testid="living-map-place-unassigned"]') as HTMLButtonElement).click();
+      });
+      expect(cardTitles()).toEqual(["courtyard-02.jpg"]);
+    });
   });
 
   it("restores a persisted archive after reload and remount with review state intact", async () => {

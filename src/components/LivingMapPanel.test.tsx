@@ -45,4 +45,30 @@ describe("LivingMapPanel", () => {
     expect(container.querySelector(".place-map-overlay")).toBeTruthy();
     expect(container.querySelector(".place-map-svg image")?.getAttribute("href")).toBe("/images/living-map.png");
   });
+
+  it("offers an Unassigned option and place counts when counts are provided", () => {
+    const selected: Array<string | null> = [];
+    act(() =>
+      root.render(
+        <LivingMapPanel
+          onPlaceSelect={(placeId) => selected.push(placeId)}
+          placeCounts={{ total: 5, unassigned: 3, byPlace: { "rock-garden": 2 } }}
+        />
+      )
+    );
+
+    expect(container.querySelector("[data-testid='living-map-place-all']")?.textContent).toBe("All places (5)");
+    expect(container.querySelector("[data-testid='living-map-place-rock-garden']")?.textContent).toContain("(2)");
+
+    const unassigned = container.querySelector("[data-testid='living-map-place-unassigned']") as HTMLButtonElement;
+    expect(unassigned.textContent).toBe("Unassigned (3)");
+
+    act(() => unassigned.click());
+    expect(selected).toEqual(["__unassigned__"]);
+    expect(unassigned.className).toContain("is-active");
+  });
+
+  it("omits the Unassigned option when no counts are provided", () => {
+    expect(container.querySelector("[data-testid='living-map-place-unassigned']")).toBeNull();
+  });
 });

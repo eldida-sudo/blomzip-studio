@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { listCanonicalPlaces } from "../data/canonicalPlaces";
 import { getPlaceHotspot } from "../data/placeHotspots";
+import { UNASSIGNED_PLACE_FILTER, type PlaceImageCounts } from "../utils/galleryFilters";
 import { PlaceMapReference } from "./PlaceMapReference";
 
 const LIVING_MAP_IMAGE = "/images/living-map.png";
@@ -10,6 +11,7 @@ const LIVING_MAP_HEIGHT = 1304;
 interface LivingMapPanelProps {
   selectedPlaceId?: string | null;
   onPlaceSelect?: (placeId: string | null) => void;
+  placeCounts?: PlaceImageCounts;
 }
 
 /**
@@ -17,7 +19,7 @@ interface LivingMapPanelProps {
  * Hovering/focusing/clicking a place name or hotspot highlights the other;
  * clicking the banner (or the "Open map" affordance) opens the full, uncropped map.
  */
-export function LivingMapPanel({ selectedPlaceId: controlledPlaceId, onPlaceSelect }: LivingMapPanelProps = {}) {
+export function LivingMapPanel({ selectedPlaceId: controlledPlaceId, onPlaceSelect, placeCounts }: LivingMapPanelProps = {}) {
   const [hoveredPlaceId, setHoveredPlaceId] = useState<string | null>(null);
   const [localSelectedPlaceId, setLocalSelectedPlaceId] = useState<string | null>(null);
   const [isFullMapOpen, setIsFullMapOpen] = useState(false);
@@ -120,9 +122,21 @@ export function LivingMapPanel({ selectedPlaceId: controlledPlaceId, onPlaceSele
               onClick={() => selectPlace(null)}
               data-testid="living-map-place-all"
             >
-              All places
+              All places{placeCounts ? ` (${placeCounts.total})` : ""}
             </button>
           </li>
+          {placeCounts ? (
+            <li>
+              <button
+                type="button"
+                className={activePlaceId === UNASSIGNED_PLACE_FILTER ? "living-map-banner-place is-active" : "living-map-banner-place"}
+                onClick={() => selectPlace(UNASSIGNED_PLACE_FILTER)}
+                data-testid="living-map-place-unassigned"
+              >
+                Unassigned ({placeCounts.unassigned})
+              </button>
+            </li>
+          ) : null}
           {places.map((place) => (
             <li key={place.id}>
               <button
@@ -135,7 +149,7 @@ export function LivingMapPanel({ selectedPlaceId: controlledPlaceId, onPlaceSele
                 onClick={() => selectPlace(place.id)}
                 data-testid={`living-map-place-${place.id}`}
               >
-                {place.displayName}
+                {place.displayName}{placeCounts ? ` (${placeCounts.byPlace[place.id] ?? 0})` : ""}
               </button>
             </li>
           ))}
@@ -146,7 +160,7 @@ export function LivingMapPanel({ selectedPlaceId: controlledPlaceId, onPlaceSele
         <div className="place-map-overlay" onClick={() => setIsFullMapOpen(false)}>
           <div className="place-map-popover" onClick={(event) => event.stopPropagation()}>
             <PlaceMapReference
-              selectedPlaceId={activePlaceId ?? undefined}
+              selectedPlaceId={activePlaceId && activePlaceId !== UNASSIGNED_PLACE_FILTER ? activePlaceId : undefined}
               onClose={() => setIsFullMapOpen(false)}
             />
           </div>

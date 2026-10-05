@@ -3226,3 +3226,45 @@ button.active {
   top: 8px;
   right: 8px;
 }
+
+.recovery-confirm {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.75rem;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.recovery-confirm p,
+.recovery-snapshot-list small {
+  margin: 0;
+}
+
+.recovery-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.recovery-snapshot-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recovery-snapshot-list li {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.recovery-file-label {
+  cursor: pointer;
+  text-align: center;
+}
+
+[data-testid="recovery-message"][data-tone="error"] {
+  color: #b3261e;
+}

@@ -325,3 +325,198 @@ export function createArchiveStateSnapshot(options: {
 export function archiveStateHasContent(snapshot: ArchiveState): boolean {
   return Boolean(snapshot.importVisit || snapshot.draftWorkspace.drafts.length > 0);
 }
+
+export interface ArchiveStateCounts {
+  photographs: number;
+  entries: number;
+  storySelected: number;
+  drafts: number;
+}
+
+export function getArchiveStateCounts(state: ArchiveState): ArchiveStateCounts {
+  const visit = state.importVisit;
+
+  return {
+    photographs: visit?.imageRecords?.length ?? visit?.entries.length ?? 0,
+    entries: visit?.entries.length ?? 0,
+    storySelected: visit?.entries.filter((entry) => entry.storySelected).length ?? 0,
+    drafts: state.draftWorkspace.drafts.length,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isValidVisitShape(value: unknown): boolean {
+  if (!isRecord(value) || !Array.isArray(value.entries)) {
+    return false;
+  }
+
+  if (value.imageRecords !== undefined && !Array.isArray(value.imageRecords)) {
+    return false;
+  }
+
+  const entriesAreValid = value.entries.every(
+    (entry) => isRecord(entry) && typeof entry.id === "string" && typeof entry.imageRecordId === "string" && Array.isArray(entry.tags) && Array.isArray(entry.observations)
+  );
+  const recordsAreValid = (value.imageRecords as unknown[] | undefined)?.every(
+    (record) => isRecord(record) && typeof record.id === "string" && typeof record.filename === "string"
+  ) ?? true;
+
+  return entriesAreValid && recordsAreValid;
+}
+
+export type ArchiveBackupParseResult =
+  | { ok: true; state: ArchiveState }
+  | { ok: false; error: string };
+
+/** Validates an untrusted archive state (backup file or stored snapshot) without touching any stored data. */
+export function validateArchiveBackup(value: unknown): ArchiveBackupParseResult {
+  if (!isRecord(value) || value.schema !== ARCHIVE_SCHEMA) {
+    return { ok: false, error: "This file is not a Blomzip archive backup." };
+  }
+
+  if (value.schemaVersion !== ARCHIVE_SCHEMA_VERSION && value.schemaVersion !== LEGACY_ARCHIVE_SCHEMA_VERSION) {
+    return { ok: false, error: "This backup was made with an unsupported version of Studio." };
+  }
+
+  if (value.importVisit !== null && value.importVisit !== undefined && !isValidVisitShape(value.importVisit)) {
+    return { ok: false, error: "The backup's archive data is damaged or incomplete." };
+  }
+
+  if (!isDraftWorkspace(value.draftWorkspace) || !value.draftWorkspace.drafts.every((draft) => isRecord(draft) && isValidVisitShape(draft.visit))) {
+    return { ok: false, error: "The backup's draft data is damaged or incomplete." };
+  }
+
+  let state: ArchiveState | null;
+  try {
+    state = migrateArchiveState(value);
+  } catch {
+    state = null;
+  }
+
+  if (!state) {
+    return { ok: false, error: "The backup could not be read." };
+  }
+
+  if (!archiveStateHasContent(state)) {
+    return { ok: false, error: "The backup contains no archive data, so restoring it would only empty Studio." };
+  }
+
+  return { ok: true, state };
+}
+
+export function parseArchiveBackup(text: string): ArchiveBackupParseResult {
+  try {
+    return validateArchiveBackup(JSON.parse(text));
+  } catch {
+    return { ok: false, error: "The selected file is not valid JSON." };
+  }
+}
+
+const SAFETY_SNAPSHOT_RECORD_KEY = "safety-snapshots";
+export const MAX_SAFETY_SNAPSHOTS = 5;
+
+interface StoredSafetySnapshot {
+  id: string;
+  createdAt: string;
+  reason: string;
+  snapshot: ArchiveState;
+}
+
+export interface SafetySnapshotSummary {
+  id: string;
+  createdAt: string;
+  reason: string;
+  counts: ArchiveStateCounts;
+}
+
+function summarizeSafetySnapshot(stored: StoredSafetySnapshot): SafetySnapshotSummary {
+  return {
+    id: stored.id,
+    createdAt: stored.createdAt,
+    reason: stored.reason,
+    counts: getArchiveStateCounts(stored.snapshot),
+  };
+}
+
+function isStoredSafetySnapshot(value: unknown): value is StoredSafetySnapshot {
+  return isRecord(value) && typeof value.id === "string" && typeof value.createdAt === "string" && typeof value.reason === "string" && isRecord(value.snapshot);
+}
+
+// All snapshots live in one record so the list is read and trimmed atomically.
+async function readStoredSafetySnapshots(): Promise<StoredSafetySnapshot[]> {
+  const database = await openArchiveDatabase();
+
+  try {
+    const record = await new Promise<{ snapshots?: unknown } | undefined>((resolve, reject) => {
+      const store = database.transaction(ARCHIVE_STATE_STORE_NAME, "readonly").objectStore(ARCHIVE_STATE_STORE_NAME);
+      const readRequest = store.get(SAFETY_SNAPSHOT_RECORD_KEY);
+
+      readRequest.onerror = () => reject(readRequest.error ?? new Error("Could not read safety snapshots"));
+      readRequest.onsuccess = () => resolve(readRequest.result as { snapshots?: unknown } | undefined);
+    });
+
+    return Array.isArray(record?.snapshots) ? record.snapshots.filter(isStoredSafetySnapshot) : [];
+  } finally {
+    database.close();
+  }
+}
+
+async function writeStoredSafetySnapshots(snapshots: StoredSafetySnapshot[]): Promise<void> {
+  const database = await openArchiveDatabase();
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(ARCHIVE_STATE_STORE_NAME, "readwrite");
+      transaction.objectStore(ARCHIVE_STATE_STORE_NAME).put({ key: SAFETY_SNAPSHOT_RECORD_KEY, snapshots });
+
+      transaction.onerror = () => reject(transaction.error ?? new Error("Could not save safety snapshot"));
+      transaction.onabort = () => reject(transaction.error ?? new Error("Could not save safety snapshot"));
+      transaction.oncomplete = () => resolve();
+    });
+  } finally {
+    database.close();
+  }
+}
+
+/** Stores a recoverable copy of the given state; rejects if it could not be durably written. */
+export async function saveSafetySnapshot(state: ArchiveState, reason: string): Promise<SafetySnapshotSummary> {
+  const existing = await readStoredSafetySnapshots();
+  const createdAt = new Date().toISOString();
+  const stored: StoredSafetySnapshot = {
+    id: `safety-${Date.parse(createdAt)}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt,
+    reason,
+    snapshot: sanitizeArchiveState(state),
+  };
+
+  await writeStoredSafetySnapshots([stored, ...existing].slice(0, MAX_SAFETY_SNAPSHOTS));
+
+  return summarizeSafetySnapshot(stored);
+}
+
+export async function listSafetySnapshots(): Promise<SafetySnapshotSummary[]> {
+  try {
+    return (await readStoredSafetySnapshots()).map(summarizeSafetySnapshot);
+  } catch {
+    return [];
+  }
+}
+
+export async function loadSafetySnapshot(id: string): Promise<ArchiveBackupParseResult> {
+  let stored: StoredSafetySnapshot | undefined;
+
+  try {
+    stored = (await readStoredSafetySnapshots()).find((candidate) => candidate.id === id);
+  } catch {
+    return { ok: false, error: "Safety snapshots could not be read." };
+  }
+
+  if (!stored) {
+    return { ok: false, error: "That safety snapshot no longer exists." };
+  }
+
+  return validateArchiveBackup(stored.snapshot);
+}

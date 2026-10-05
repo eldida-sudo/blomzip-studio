@@ -8,8 +8,12 @@ import { createThumbnailUrlForRecord } from "./createThumbnailUrls";
 import {
   archiveStateHasContent,
   createArchiveStateSnapshot,
+  listSafetySnapshots,
   loadArchiveState,
+  loadSafetySnapshot,
+  parseArchiveBackup,
   saveArchiveState,
+  saveSafetySnapshot,
 } from "./archivePersistence";
 
 const visit: Visit = {
@@ -909,5 +913,101 @@ describe("archivePersistence canonical-place id round-tripping", () => {
 
     const restored = await loadArchiveState();
     expect(restored?.importVisit?.imageRecords?.[0].placeId).toBeUndefined();
+  });
+});
+
+describe("backup validation and safety snapshots", () => {
+  function stubKeyValueIndexedDb() {
+    const records = new Map<string, unknown>();
+    const database = {
+      transaction: () => {
+        const transaction = {
+          oncomplete: null as ((event: Event) => void) | null,
+          onerror: null as ((event: Event) => void) | null,
+          onabort: null as ((event: Event) => void) | null,
+          objectStore: () => ({
+            get: (key: string) => {
+              const request = {
+                result: records.get(key),
+                onsuccess: null as ((event: Event) => void) | null,
+                onerror: null as ((event: Event) => void) | null,
+              };
+              queueMicrotask(() => request.onsuccess?.(new Event("success")));
+              return request;
+            },
+            put: (value: { key: string }) => {
+              records.set(value.key, value);
+              queueMicrotask(() => transaction.oncomplete?.(new Event("complete")));
+              return {};
+            },
+          }),
+        };
+        return transaction;
+      },
+      close: () => undefined,
+    };
+
+    vi.stubGlobal("indexedDB", {
+      open: () => {
+        const request = {
+          result: database,
+          onsuccess: null as ((event: Event) => void) | null,
+          onerror: null as ((event: Event) => void) | null,
+          onupgradeneeded: null as ((event: Event) => void) | null,
+        };
+        queueMicrotask(() => request.onsuccess?.(new Event("success")));
+        return request;
+      },
+    });
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("accepts a valid backup and keeps its drafts", () => {
+    const snapshot = createArchiveStateSnapshot({ importVisit: visit, draftWorkspace });
+    const result = parseArchiveBackup(JSON.stringify(snapshot));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.state.importVisit?.entries[0].notes).toBe("Persisted note");
+      expect(result.state.draftWorkspace.drafts).toHaveLength(draftWorkspace.drafts.length);
+    }
+  });
+
+  it("rejects invalid JSON, foreign files, damaged visits and empty backups", () => {
+    const valid = createArchiveStateSnapshot({ importVisit: visit, draftWorkspace });
+
+    expect(parseArchiveBackup("{nope").ok).toBe(false);
+    expect(parseArchiveBackup(JSON.stringify({ schema: "other" })).ok).toBe(false);
+    expect(parseArchiveBackup(JSON.stringify({ ...valid, schemaVersion: 99 })).ok).toBe(false);
+    expect(parseArchiveBackup(JSON.stringify({ ...valid, importVisit: { entries: "bad" } })).ok).toBe(false);
+    expect(parseArchiveBackup(JSON.stringify({ ...valid, importVisit: null, draftWorkspace: { drafts: [], activeDraftId: null } })).ok).toBe(false);
+  });
+
+  it("stores, lists and reloads safety snapshots, keeping only the latest five", async () => {
+    stubKeyValueIndexedDb();
+    const state = createArchiveStateSnapshot({ importVisit: visit, draftWorkspace });
+
+    for (let index = 0; index < 6; index += 1) {
+      await saveSafetySnapshot(state, `reason ${index}`);
+    }
+
+    const snapshots = await listSafetySnapshots();
+    expect(snapshots).toHaveLength(5);
+    expect(snapshots[0].reason).toBe("reason 5");
+    expect(snapshots[0].counts.drafts).toBe(draftWorkspace.drafts.length);
+    expect(snapshots.some((snapshot) => snapshot.reason === "reason 0")).toBe(false);
+
+    const loaded = await loadSafetySnapshot(snapshots[0].id);
+    expect(loaded.ok && loaded.state.draftWorkspace.drafts.length).toBe(draftWorkspace.drafts.length);
+    expect((await loadSafetySnapshot("missing")).ok).toBe(false);
+  });
+
+  it("rejects when no storage is available so callers can abort before replacing data", async () => {
+    vi.stubGlobal("indexedDB", undefined);
+
+    await expect(saveSafetySnapshot(createArchiveStateSnapshot({ importVisit: visit, draftWorkspace }), "x")).rejects.toThrow();
   });
 });

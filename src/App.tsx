@@ -15,10 +15,26 @@ import type {
   Visit,
 } from "./models/blomzip";
 import {
+  archiveStateHasContent,
   createArchiveStateSnapshot,
+  getArchiveStateCounts,
+  listSafetySnapshots,
   loadArchiveState,
+  loadSafetySnapshot,
+  parseArchiveBackup,
   saveArchiveState,
+  saveSafetySnapshot,
+  type ArchiveState,
+  type SafetySnapshotSummary,
 } from "./utils/archivePersistence";
+import {
+  countImagesByPlace,
+  DEFAULT_CURATION_FILTERS,
+  matchesCurationFilters,
+  matchesPlaceFilter,
+  UNASSIGNED_PLACE_FILTER,
+  type CurationFilters,
+} from "./utils/galleryFilters";
 import {
   collectBlobThumbnailUrlsFromVisit,
   hydrateArchiveStateThumbnails,
@@ -65,6 +81,14 @@ type SuggestionFilter = "all" | EntrySuggestionCategory;
 type BatchImportFeedback = BatchImportOutcome;
 
 type ReviewQueueMode = "story-first" | "needs-confirmation";
+
+type PendingRecovery =
+  | { kind: "draft"; draft: DraftVisit }
+  | { kind: "archive"; state: ArchiveState; sourceLabel: string };
+
+function formatRecoveryCounts(counts: ReturnType<typeof getArchiveStateCounts>): string {
+  return `${counts.photographs} photographs, ${counts.entries} entries, ${counts.storySelected} Story selected, ${counts.drafts} drafts`;
+}
 
 interface InboxSuggestionItem {
   entryId: string;
@@ -408,6 +432,11 @@ function App() {
   const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
   const [suggestionFilter, setSuggestionFilter] = useState<SuggestionFilter>("all");
   const [archivePlaceFilter, setArchivePlaceFilter] = useState<string | null>(null);
+  const [curationFilters, setCurationFilters] = useState<CurationFilters>(DEFAULT_CURATION_FILTERS);
+  const [pendingRecovery, setPendingRecovery] = useState<PendingRecovery | null>(null);
+  const [recoveryMessage, setRecoveryMessage] = useState<{ tone: "error" | "info"; text: string } | null>(null);
+  const [isRecovering, setIsRecovering] = useState(false);
+  const [safetySnapshots, setSafetySnapshots] = useState<SafetySnapshotSummary[]>([]);
   const [isSelectedTimelineOpen, setIsSelectedTimelineOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<ImageItem | null>(null);
   const [importSummary, setImportSummary] = useState<ZipImportSummary | null>(null);
@@ -489,6 +518,11 @@ function App() {
       }
 
       setIsArchiveHydrated(true);
+      void listSafetySnapshots().then((snapshots) => {
+        if (!isCancelled) {
+          setSafetySnapshots(snapshots);
+        }
+      });
     });
 
     return () => {
@@ -646,6 +680,152 @@ function App() {
     setDraftWorkspace((currentWorkspace) => upsertDraftVisit(currentWorkspace, draftVisit));
   }
 
+  function getCurrentArchiveState(): ArchiveState {
+    return createArchiveStateSnapshot({ importVisit: latestImportVisitRef.current, draftWorkspace });
+  }
+
+  function resetSessionStateForReplacedArchive() {
+    setImportSummary(null);
+    setLatestImportedBatchIdForVision(null);
+    setBatchVisionProgress(null);
+    setLastBatchImportFeedback(null);
+    setPlaceAssignmentFeedback(null);
+    setExcludedImageIdsByVisionGroupId({});
+    setReviewBatchByVisionGroupId({});
+    setIsReviewingEntries(false);
+    setSelectedImage(null);
+    setReviewStartIndex(0);
+  }
+
+  function requestLoadDraft(draftVisit: DraftVisit) {
+    setRecoveryMessage(null);
+
+    // With no current archive there is nothing a draft could overwrite.
+    if (!latestImportVisitRef.current) {
+      handleLoadDraft(draftVisit);
+      return;
+    }
+
+    setPendingRecovery({ kind: "draft", draft: draftVisit });
+  }
+
+  async function requestRestoreArchive(
+    result: ReturnType<typeof parseArchiveBackup>,
+    sourceLabel: string
+  ) {
+    if (!result.ok) {
+      setPendingRecovery(null);
+      setRecoveryMessage({ tone: "error", text: `${result.error} Nothing was changed.` });
+      return;
+    }
+
+    setRecoveryMessage(null);
+    setPendingRecovery({ kind: "archive", state: result.state, sourceLabel });
+  }
+
+  async function handleBackupFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const input = event.target;
+    const file = input.files?.[0];
+    input.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      setPendingRecovery(null);
+      setRecoveryMessage({ tone: "error", text: "The selected file could not be read. Nothing was changed." });
+      return;
+    }
+
+    await requestRestoreArchive(parseArchiveBackup(text), file.name);
+  }
+
+  async function handleRestoreSafetySnapshot(snapshot: SafetySnapshotSummary) {
+    const result = await loadSafetySnapshot(snapshot.id);
+    await requestRestoreArchive(result, `safety snapshot from ${new Date(snapshot.createdAt).toLocaleString()}`);
+  }
+
+  function handleDownloadSafetySnapshot(snapshot: SafetySnapshotSummary) {
+    void loadSafetySnapshot(snapshot.id).then((result) => {
+      if (!result.ok) {
+        setRecoveryMessage({ tone: "error", text: result.error });
+        return;
+      }
+
+      const blob = new Blob([JSON.stringify(result.state, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = `blomzip-safety-snapshot-${snapshot.createdAt.replace(/[:.]/g, "-")}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    });
+  }
+
+  async function applyRestoredArchiveState(state: ArchiveState) {
+    let nextState = state;
+
+    try {
+      const hydrated = await hydrateArchiveStateThumbnails(state);
+      hydrated.objectUrls.forEach((url) => managedThumbnailObjectUrlsRef.current.add(url));
+      nextState = hydrated.value;
+    } catch {
+      // Placeholders are shown when stored thumbnails are unavailable.
+    }
+
+    resetSessionStateForReplacedArchive();
+    commitImportVisit(nextState.importVisit);
+    setDraftWorkspace(nextState.draftWorkspace);
+  }
+
+  async function handleConfirmRecovery() {
+    if (!pendingRecovery || isRecovering) {
+      return;
+    }
+
+    setIsRecovering(true);
+    setRecoveryMessage(null);
+
+    const currentState = getCurrentArchiveState();
+    const reason = pendingRecovery.kind === "draft"
+      ? `Before loading draft "${pendingRecovery.draft.label}"`
+      : `Before restoring ${pendingRecovery.sourceLabel}`;
+
+    try {
+      if (archiveStateHasContent(currentState)) {
+        await saveSafetySnapshot(currentState, reason);
+      }
+    } catch {
+      setRecoveryMessage({
+        tone: "error",
+        text: "A safety snapshot of the current archive could not be saved, so nothing was changed.",
+      });
+      setIsRecovering(false);
+      return;
+    }
+
+    if (pendingRecovery.kind === "draft") {
+      handleLoadDraft(pendingRecovery.draft);
+    } else {
+      await applyRestoredArchiveState(pendingRecovery.state);
+    }
+
+    setPendingRecovery(null);
+    setIsRecovering(false);
+    setRecoveryMessage({
+      tone: "info",
+      text: "Done. Your previous archive was saved as a safety snapshot and can be restored from Recovery.",
+    });
+    setSafetySnapshots(await listSafetySnapshots());
+  }
+
   function handleLoadDraft(draftVisit: DraftVisit) {
     const draftImages = draftVisit.studioImages.length > 0
       ? draftVisit.studioImages
@@ -781,10 +961,43 @@ function App() {
       suggestionFilter === "all" || entrySuggestionCategories.includes(suggestionFilter);
 
     const matchesBatchFilter = !activeBatchFilterId || imageRecord?.importBatchId === activeBatchFilterId;
-    const matchesPlaceFilter = archivePlaceFilter === null || imageRecord?.placeId === archivePlaceFilter;
+    const matchesCuration = !importVisit || matchesCurationFilters({ entry, imageRecord }, curationFilters);
 
-    return matchesSearch && matchesCollection && matchesViewFilter && matchesSuggestionFilter && matchesBatchFilter && matchesPlaceFilter;
+    return (
+      matchesSearch &&
+      matchesCollection &&
+      matchesViewFilter &&
+      matchesSuggestionFilter &&
+      matchesBatchFilter &&
+      matchesPlaceFilter({ entry, imageRecord }, archivePlaceFilter) &&
+      matchesCuration
+    );
   });
+
+  const placeImageCounts = useMemo(
+    () => countImagesByPlace(galleryItems, curationFilters.showHidden),
+    [galleryItems, curationFilters.showHidden]
+  );
+  const hiddenEntryCount = importVisit?.entries.filter((entry) => entry.hidden).length ?? 0;
+  const hasActiveGalleryFilters =
+    search !== "" ||
+    collectionFilter !== "All" ||
+    viewFilter !== "all" ||
+    suggestionFilter !== "all" ||
+    archivePlaceFilter !== null ||
+    activeBatchFilterId !== null ||
+    curationFilters.unreviewedOnly ||
+    curationFilters.storySelectedOnly;
+
+  function handleClearGalleryFilters() {
+    setSearch("");
+    setCollectionFilter("All");
+    setViewFilter("all");
+    setSuggestionFilter("all");
+    setArchivePlaceFilter(null);
+    setActiveBatchFilterId(null);
+    setCurationFilters((current) => ({ ...DEFAULT_CURATION_FILTERS, showHidden: current.showHidden }));
+  }
 
   const archiveDateRange = useMemo(() => {
     if (!importVisit?.imageRecords || importVisit.imageRecords.length === 0) {
@@ -1632,11 +1845,12 @@ function App() {
                 </span>
               ) : null}
 
-              {(image.favorite || image.hero || entry?.storySelected) ? (
+              {(image.favorite || image.hero || entry?.storySelected || entry?.hidden) ? (
                 <div className="gallery-card-curation" data-testid={`gallery-curation-${entry?.id ?? image.id}`} aria-label="Curator selections">
                   {image.favorite ? <span className="gallery-card-curation-chip">Favorite</span> : null}
                   {image.hero ? <span className="gallery-card-curation-chip">Hero</span> : null}
                   {entry?.storySelected ? <span className="gallery-card-curation-chip">Story</span> : null}
+                  {entry?.hidden ? <span className="gallery-card-curation-chip">Hidden</span> : null}
                 </div>
               ) : null}
 
@@ -1879,7 +2093,7 @@ function App() {
                 <p className="eyebrow">Draft workspace</p>
                 <h3>Save or load a draft</h3>
                 <p className="result-count">
-                  Keep the current curation session in browser storage without changing the canonical archive.
+                  Save the current curation session as a draft. Loading a draft replaces the current working archive; a safety snapshot is saved first.
                 </p>
               </div>
 
@@ -1898,7 +2112,7 @@ function App() {
                       key={draftVisit.id}
                       type="button"
                       className={draftWorkspace.activeDraftId === draftVisit.id ? "active" : ""}
-                      onClick={() => handleLoadDraft(draftVisit)}
+                      onClick={() => requestLoadDraft(draftVisit)}
                     >
                       <span>{draftVisit.label}</span>
                       <strong>{draftVisit.visit.entries.length} entries</strong>
@@ -1908,6 +2122,85 @@ function App() {
                   <p className="result-count">No saved drafts yet.</p>
                 )}
               </div>
+            </section>
+
+            <section className="sidebar-card sidebar-recovery-card" data-testid="sidebar-recovery-section">
+              <div>
+                <p className="eyebrow">Recovery</p>
+                <h3>Restore from backup</h3>
+              </div>
+
+              <label className="secondary-action recovery-file-label">
+                Restore from backup…
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  data-testid="restore-backup-input"
+                  onChange={(event) => void handleBackupFileSelected(event)}
+                  disabled={isRecovering}
+                  hidden
+                />
+              </label>
+
+              {pendingRecovery ? (
+                <div className="recovery-confirm" role="alertdialog" aria-labelledby="recovery-confirm-title" data-testid="recovery-confirm">
+                  <strong id="recovery-confirm-title">
+                    {pendingRecovery.kind === "draft"
+                      ? `Load draft "${pendingRecovery.draft.label}"?`
+                      : `Restore ${pendingRecovery.sourceLabel}?`}
+                  </strong>
+                  <p>
+                    This replaces the current working archive{pendingRecovery.kind === "archive" ? " and all saved drafts" : ""}.
+                    The current archive{pendingRecovery.kind === "archive" ? " and drafts are" : " is"} saved first as a safety snapshot you can restore later.
+                  </p>
+                  <p>Current: {formatRecoveryCounts(getArchiveStateCounts(getCurrentArchiveState()))}</p>
+                  <p>
+                    Incoming:{" "}
+                    {pendingRecovery.kind === "draft"
+                      ? `${pendingRecovery.draft.visit.imageRecords?.length ?? pendingRecovery.draft.visit.entries.length} photographs, ${pendingRecovery.draft.visit.entries.length} entries`
+                      : formatRecoveryCounts(getArchiveStateCounts(pendingRecovery.state))}
+                  </p>
+                  {pendingRecovery.kind === "archive" ? (
+                    <p>Backups contain metadata only. Previews appear for photographs whose thumbnails are still stored in this browser.</p>
+                  ) : null}
+                  <div className="recovery-confirm-actions">
+                    <button type="button" className="secondary-action" onClick={() => void handleConfirmRecovery()} disabled={isRecovering}>
+                      {isRecovering ? "Working…" : "Save snapshot and replace"}
+                    </button>
+                    <button type="button" className="secondary-action" onClick={() => setPendingRecovery(null)} disabled={isRecovering}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {recoveryMessage ? (
+                <p className="result-count" role="status" data-testid="recovery-message" data-tone={recoveryMessage.tone}>
+                  {recoveryMessage.text}
+                </p>
+              ) : null}
+
+              {safetySnapshots.length > 0 ? (
+                <ul className="recovery-snapshot-list" data-testid="safety-snapshot-list">
+                  {safetySnapshots.map((snapshot) => (
+                    <li key={snapshot.id}>
+                      <strong>{new Date(snapshot.createdAt).toLocaleString()}</strong>
+                      <small>{snapshot.reason}</small>
+                      <small>{formatRecoveryCounts(snapshot.counts)}</small>
+                      <div className="recovery-confirm-actions">
+                        <button type="button" className="secondary-action" onClick={() => void handleRestoreSafetySnapshot(snapshot)} disabled={isRecovering}>
+                          Restore
+                        </button>
+                        <button type="button" className="secondary-action" onClick={() => handleDownloadSafetySnapshot(snapshot)}>
+                          Download
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="result-count">No safety snapshots yet. One is saved automatically before any draft load or restore.</p>
+              )}
             </section>
           </>
         )}
@@ -2049,7 +2342,11 @@ function App() {
               <span>Review &amp; Curate</span>
             </nav>
 
-            <LivingMapPanel selectedPlaceId={archivePlaceFilter} onPlaceSelect={setArchivePlaceFilter} />
+            <LivingMapPanel
+              selectedPlaceId={archivePlaceFilter}
+              onPlaceSelect={setArchivePlaceFilter}
+              placeCounts={importVisit ? placeImageCounts : undefined}
+            />
 
             <section className="archive-attention-card" data-testid="archive-next-action">
               <div>
@@ -2459,7 +2756,57 @@ function App() {
                   Hero
                 </button>
               </div>
+
+              <div className="filter-row filter-row-compact" aria-label="Curation filters" data-testid="curation-filters">
+                <button
+                  type="button"
+                  className={archivePlaceFilter === UNASSIGNED_PLACE_FILTER ? "active" : ""}
+                  aria-pressed={archivePlaceFilter === UNASSIGNED_PLACE_FILTER}
+                  disabled={!importVisit}
+                  onClick={() => setArchivePlaceFilter((current) => (current === UNASSIGNED_PLACE_FILTER ? null : UNASSIGNED_PLACE_FILTER))}
+                >
+                  Unassigned place
+                </button>
+                <button
+                  type="button"
+                  className={curationFilters.unreviewedOnly ? "active" : ""}
+                  aria-pressed={curationFilters.unreviewedOnly}
+                  disabled={!importVisit}
+                  onClick={() => setCurationFilters((current) => ({ ...current, unreviewedOnly: !current.unreviewedOnly }))}
+                >
+                  Unreviewed
+                </button>
+                <button
+                  type="button"
+                  className={curationFilters.storySelectedOnly ? "active" : ""}
+                  aria-pressed={curationFilters.storySelectedOnly}
+                  disabled={!importVisit}
+                  onClick={() => setCurationFilters((current) => ({ ...current, storySelectedOnly: !current.storySelectedOnly }))}
+                >
+                  Story selected
+                </button>
+                <button
+                  type="button"
+                  className={curationFilters.showHidden ? "active" : ""}
+                  aria-pressed={curationFilters.showHidden}
+                  disabled={!importVisit}
+                  onClick={() => setCurationFilters((current) => ({ ...current, showHidden: !current.showHidden }))}
+                >
+                  Show hidden ({hiddenEntryCount})
+                </button>
+              </div>
             </div>
+
+            {importVisit && timelineItems.length === 0 ? (
+              <div className="selected-timeline-empty" data-testid="gallery-empty">
+                <strong>No photographs match these filters.</strong>
+                {hasActiveGalleryFilters ? (
+                  <button type="button" className="secondary-action" onClick={handleClearGalleryFilters}>
+                    Clear filters
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
 
             <section className="gallery-grid">
               {timelineItems.map((timelineItem, timelineIndex) => {
