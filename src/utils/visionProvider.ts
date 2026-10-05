@@ -1,5 +1,6 @@
 import type {
   HeroAssessment,
+  PlaceMatchClassification,
   HeroAssessmentRole,
   VisualAnalysisResult,
   VisualEvidenceSignal,
@@ -53,11 +54,135 @@ export interface VisionAnalysisRequest {
   canonicalPlaceName?: string;
 }
 
+export interface PlaceSignature {
+  core: string[];
+  supporting: string[];
+  contextual: string[];
+}
+
+export interface PlaceSignatureRequest {
+  placeName: string;
+  anchorImageDataUrls: string[];
+}
+
+export interface PlaceMatchRequest {
+  placeId: string;
+  signature: PlaceSignature;
+  placeName: string;
+  imageRecordId: string;
+  candidateImageDataUrl: string;
+  anchorImageDataUrls: string[];
+}
+
+export interface PlaceMatchOutcome {
+  placeId: string;
+  imageRecordId: string;
+  classification: PlaceMatchClassification;
+  matchedFeatures: string[];
+  score: number;
+  reason: string;
+  provider: string;
+  analysisVersion: number;
+}
+
+const PLACE_MATCH_REASON_MAX_LENGTH = 280;
+export const MIN_SAME_PLACE_FEATURES = 2;
+
+const PLACE_MATCH_CLASSIFICATIONS: ReadonlySet<string> = new Set([
+  "SAME_PLACE",
+  "NEARBY_CONTEXT",
+  "DIFFERENT_PLACE",
+]);
+
+// Score is secondary to classification, so it is bounded by the class it belongs to.
+const PLACE_MATCH_SCORE_CEILING: Record<PlaceMatchClassification, number> = {
+  SAME_PLACE: 1,
+  NEARBY_CONTEXT: 0.5,
+  DIFFERENT_PLACE: 0.2,
+};
+
+/**
+ * Strictly parses the Vision model's match output. Throws instead of fabricating a result.
+ * A SAME_PLACE claim backed by fewer than two distinct place-defining features is downgraded
+ * to NEARBY_CONTEXT, so the model cannot grant it on a single feature or on context alone.
+ */
+export function parsePlaceMatchOutput(
+  outputText: string,
+  context: { placeId: string; imageRecordId: string; provider: string }
+): PlaceMatchOutcome {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(outputText);
+  } catch {
+    throw new Error("Vision proxy returned invalid place-match JSON.");
+  }
+
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Vision proxy returned an invalid place-match result.");
+  }
+
+  const { classification, score, reason, matched_features } = parsed as {
+    classification?: unknown;
+    score?: unknown;
+    reason?: unknown;
+    matched_features?: unknown;
+  };
+
+  if (typeof classification !== "string" || !PLACE_MATCH_CLASSIFICATIONS.has(classification)) {
+    throw new Error("Place-match result did not contain a valid classification.");
+  }
+
+  if (typeof score !== "number" || !Number.isFinite(score)) {
+    throw new Error("Place-match result did not contain a numeric score.");
+  }
+
+  if (typeof reason !== "string" || reason.trim() === "") {
+    throw new Error("Place-match result did not contain a visual reason.");
+  }
+
+  if (!Array.isArray(matched_features) || !matched_features.every((feature) => typeof feature === "string")) {
+    throw new Error("Place-match result did not contain matched_features.");
+  }
+
+  const seen = new Set<string>();
+  const matchedFeatures: string[] = [];
+
+  for (const feature of matched_features as string[]) {
+    const trimmed = feature.trim();
+    const key = trimmed.toLowerCase();
+
+    if (trimmed && !seen.has(key)) {
+      seen.add(key);
+      matchedFeatures.push(trimmed);
+    }
+  }
+
+  let finalClassification = classification as PlaceMatchClassification;
+
+  if (finalClassification === "SAME_PLACE" && matchedFeatures.length < MIN_SAME_PLACE_FEATURES) {
+    finalClassification = "NEARBY_CONTEXT";
+  }
+
+  return {
+    placeId: context.placeId,
+    imageRecordId: context.imageRecordId,
+    classification: finalClassification,
+    matchedFeatures,
+    score: Math.min(PLACE_MATCH_SCORE_CEILING[finalClassification], Math.max(0, score)),
+    reason: reason.trim().slice(0, PLACE_MATCH_REASON_MAX_LENGTH),
+    provider: context.provider,
+    analysisVersion: VISION_ANALYSIS_VERSION,
+  };
+}
+
 // Provider boundary: real image analysis must be implemented behind this interface
 // so the rest of the app (and tests) never depend on a specific vision API.
 export interface VisionProvider {
   readonly id: string;
   analyzeImage(request: VisionAnalysisRequest): Promise<VisualAnalysisResult>;
+  derivePlaceSignature?(request: PlaceSignatureRequest): Promise<PlaceSignature>;
+  matchPlaceCandidate?(request: PlaceMatchRequest): Promise<PlaceMatchOutcome>;
 }
 
 /**
@@ -78,7 +203,15 @@ export class NotConfiguredVisionProvider implements VisionProvider {
         "to that provider; the API key must not be embedded in browser code."
     );
   }
+
+  async matchPlaceCandidate(_request: PlaceMatchRequest): Promise<PlaceMatchOutcome> {
+    throw new Error(PLACE_MATCH_UNAVAILABLE);
+  }
 }
+
+const PLACE_MATCH_UNAVAILABLE =
+  "Place matching needs the genuine Vision proxy provider (VITE_VISION_ENGINE_MODE=proxy). " +
+  "No match was fabricated.";
 
 const DEFAULT_FIXTURE_SIGNALS: VisualEvidenceSignal[] = [
   {
@@ -105,6 +238,10 @@ export class FixtureVisionProvider implements VisionProvider {
   readonly id = "fixture-vision-provider-dev";
 
   private readonly fixturesByFilename: Record<string, VisualEvidenceSignal[]>;
+
+  async matchPlaceCandidate(_request: PlaceMatchRequest): Promise<PlaceMatchOutcome> {
+    throw new Error(PLACE_MATCH_UNAVAILABLE);
+  }
 
   constructor(fixturesByFilename: Record<string, VisualEvidenceSignal[]> = {}) {
     this.fixturesByFilename = fixturesByFilename;
@@ -162,6 +299,79 @@ async function imageUrlToDataUrl(imageUrl: string): Promise<string> {
 
 export class ProxyVisionProvider implements VisionProvider {
   readonly id = "blomzip-vision-proxy";
+
+  async derivePlaceSignature(request: PlaceSignatureRequest): Promise<PlaceSignature> {
+    const response = await fetch("/api/vision/place-signature", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ placeName: request.placeName, anchorImageDataUrls: request.anchorImageDataUrls }),
+    });
+
+    const responseText = await response.text();
+    let payload: { error?: string; signature?: unknown };
+
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      throw new Error(`Vision proxy returned invalid signature JSON (status ${response.status}): ${responseText.slice(0, 160)}`);
+    }
+
+    if (!response.ok) {
+      throw new Error(payload.error ?? `Place signature derivation failed with status ${response.status}.`);
+    }
+
+    const signature = payload.signature as Partial<PlaceSignature> | undefined;
+    const isStrings = (value: unknown) => Array.isArray(value) && value.every((item) => typeof item === "string");
+
+    if (!signature || !isStrings(signature.core) || !isStrings(signature.supporting) || !isStrings(signature.contextual)) {
+      throw new Error("Vision proxy response did not contain a valid place signature.");
+    }
+
+    return signature as PlaceSignature;
+  }
+
+  async matchPlaceCandidate(request: PlaceMatchRequest): Promise<PlaceMatchOutcome> {
+    const response = await fetch("/api/vision/match-place", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        placeName: request.placeName,
+        candidateImageDataUrl: request.candidateImageDataUrl,
+        anchorImageDataUrls: request.anchorImageDataUrls,
+        signature: request.signature,
+      }),
+    });
+
+    const responseText = await response.text();
+
+    if (!responseText) {
+      throw new Error(`Vision proxy returned an empty HTTP response (status ${response.status}).`);
+    }
+
+    let payload: { error?: string; outputText?: string };
+
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      throw new Error(
+        `Vision proxy returned invalid HTTP JSON (status ${response.status}): ${responseText.slice(0, 160)}`
+      );
+    }
+
+    if (!response.ok) {
+      throw new Error(payload.error ?? `Place matching failed with status ${response.status}.`);
+    }
+
+    if (typeof payload.outputText !== "string") {
+      throw new Error("Vision proxy response did not contain outputText.");
+    }
+
+    return parsePlaceMatchOutput(payload.outputText, {
+      placeId: request.placeId,
+      imageRecordId: request.imageRecordId,
+      provider: this.id,
+    });
+  }
 
   async analyzeImage(request: VisionAnalysisRequest): Promise<VisualAnalysisResult> {
     if (!request.imageUrl) {

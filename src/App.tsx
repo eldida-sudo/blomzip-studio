@@ -4,6 +4,7 @@ import { getPlaceById, listCanonicalPlaces } from "./data/canonicalPlaces";
 import { EntryReview } from "./components/EntryReview";
 import { LivingMapPanel } from "./components/LivingMapPanel";
 import { PlaceMapReference } from "./components/PlaceMapReference";
+import { PlaceTrainingPanel } from "./components/PlaceTrainingPanel";
 import { MockObservationEngine, type ObservationEngine } from "./components/observationEngine";
 import { ZipImportPanel } from "./components/ZipImportPanel";
 import type {
@@ -12,6 +13,7 @@ import type {
   Entry,
   EntrySuggestionCategory,
   ImageRecord,
+  PlaceTrainingState,
   Visit,
 } from "./models/blomzip";
 import {
@@ -64,6 +66,7 @@ import {
 } from "./utils/entryRecommendations";
 import { applyStoryRecommendations } from "./utils/storyRecommendations";
 import { createVisionProvider } from "./utils/visionProvider";
+import { approveMatch, createEmptyPlaceTrainingState, rejectMatch } from "./utils/placeTraining";
 import type { VisionPlaceCandidateGroup } from "./utils/discoverPlacesVisionEngine";
 import type { ZipImportSummary } from "./utils/readZipImages";
 import "./App.css";
@@ -469,6 +472,8 @@ function App() {
   const selectedTimelineRef = useRef<HTMLElement | null>(null);
   const managedThumbnailObjectUrlsRef = useRef<Set<string>>(new Set());
   const latestImportVisitRef = useRef<Visit | null>(null);
+  const [placeTraining, setPlaceTraining] = useState<PlaceTrainingState>(() => createEmptyPlaceTrainingState());
+  const latestPlaceTrainingRef = useRef<PlaceTrainingState>(placeTraining);
   const savedDrafts = draftWorkspace.drafts;
   const hasExportableArchive = Boolean(importVisit || savedDrafts.length > 0);
 
@@ -479,6 +484,34 @@ function App() {
 
     latestImportVisitRef.current = nextVisit;
     setImportVisit(nextVisit);
+  }
+
+  function commitPlaceTraining(updater: (current: PlaceTrainingState) => PlaceTrainingState) {
+    const next = updater(latestPlaceTrainingRef.current);
+    latestPlaceTrainingRef.current = next;
+    setPlaceTraining(next);
+  }
+
+  function handleApprovePlaceMatch(resultId: string): string | null {
+    const visit = latestImportVisitRef.current;
+
+    if (!visit) {
+      return "There is no archive to assign this photograph in.";
+    }
+
+    const outcome = approveMatch(visit, latestPlaceTrainingRef.current, resultId);
+
+    if (!outcome.ok) {
+      return outcome.error;
+    }
+
+    commitImportVisit(outcome.visit);
+    commitPlaceTraining(() => outcome.state);
+    return null;
+  }
+
+  function handleRejectPlaceMatch(resultId: string) {
+    commitPlaceTraining((current) => rejectMatch(current, resultId));
   }
 
   useEffect(() => {
@@ -515,6 +548,7 @@ function App() {
 
         commitImportVisit(nextSnapshot.importVisit);
         setDraftWorkspace(nextSnapshot.draftWorkspace);
+        commitPlaceTraining(() => nextSnapshot.placeTraining);
       }
 
       setIsArchiveHydrated(true);
@@ -562,8 +596,8 @@ function App() {
       importThumbnailCount: importVisit?.imageRecords?.filter((record) => Boolean(record.thumbnailUrl)).length ?? 0,
     });
 
-    void saveArchiveState(createArchiveStateSnapshot({ importVisit, draftWorkspace }));
-  }, [draftWorkspace, hasExportableArchive, importVisit, isArchiveHydrated]);
+    void saveArchiveState(createArchiveStateSnapshot({ importVisit, draftWorkspace, placeTraining }));
+  }, [draftWorkspace, hasExportableArchive, importVisit, isArchiveHydrated, placeTraining]);
 
   useEffect(() => {
     const activeUrls = collectManagedBlobUrls(importVisit, draftWorkspace);
@@ -681,7 +715,11 @@ function App() {
   }
 
   function getCurrentArchiveState(): ArchiveState {
-    return createArchiveStateSnapshot({ importVisit: latestImportVisitRef.current, draftWorkspace });
+    return createArchiveStateSnapshot({
+      importVisit: latestImportVisitRef.current,
+      draftWorkspace,
+      placeTraining: latestPlaceTrainingRef.current,
+    });
   }
 
   function resetSessionStateForReplacedArchive() {
@@ -783,6 +821,7 @@ function App() {
     resetSessionStateForReplacedArchive();
     commitImportVisit(nextState.importVisit);
     setDraftWorkspace(nextState.draftWorkspace);
+    commitPlaceTraining(() => nextState.placeTraining);
   }
 
   async function handleConfirmRecovery() {
@@ -1673,7 +1712,7 @@ function App() {
       return;
     }
 
-    const backup = createArchiveStateSnapshot({ importVisit, draftWorkspace });
+    const backup = createArchiveStateSnapshot({ importVisit, draftWorkspace, placeTraining });
     const backupBlob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
     const backupUrl = URL.createObjectURL(backupBlob);
     const backupLink = document.createElement("a");
@@ -2161,7 +2200,7 @@ function App() {
                       : formatRecoveryCounts(getArchiveStateCounts(pendingRecovery.state))}
                   </p>
                   {pendingRecovery.kind === "archive" ? (
-                    <p>Backups contain metadata only. Previews appear for photographs whose thumbnails are still stored in this browser.</p>
+                    <p>Backups contain metadata only. Previews appear for photographs whose thumbnails are still stored in this browser. Uploaded place-training images (visual anchors) are not included in backups and may need to be re-uploaded after restoring on another browser or device.</p>
                   ) : null}
                   <div className="recovery-confirm-actions">
                     <button type="button" className="secondary-action" onClick={() => void handleConfirmRecovery()} disabled={isRecovering}>
@@ -2347,6 +2386,20 @@ function App() {
               onPlaceSelect={setArchivePlaceFilter}
               placeCounts={importVisit ? placeImageCounts : undefined}
             />
+
+            {importVisit && archivePlaceFilter && getPlaceById(archivePlaceFilter) ? (
+              <PlaceTrainingPanel
+                key={getPlaceById(archivePlaceFilter)?.id}
+                place={getPlaceById(archivePlaceFilter) as NonNullable<ReturnType<typeof getPlaceById>>}
+                visit={importVisit}
+                training={placeTraining}
+                getTraining={() => latestPlaceTrainingRef.current}
+                onTrainingChange={commitPlaceTraining}
+                onApproveMatch={handleApprovePlaceMatch}
+                onRejectMatch={handleRejectPlaceMatch}
+                visionProvider={visionProvider}
+              />
+            ) : null}
 
             <section className="archive-attention-card" data-testid="archive-next-action">
               <div>

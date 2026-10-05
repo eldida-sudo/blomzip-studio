@@ -90,6 +90,44 @@ export interface ImageRecord {
   custom?: Record<string, string | number | boolean>;
 }
 
+// Reference image used to teach Studio what one canonical place looks like.
+// It is NOT an archive photograph; its bytes live in IndexedDB, never in ArchiveState.
+export interface PlaceVisualAnchor {
+  id: string;
+  placeId: string;
+  filename: string;
+  mimeType: string;
+  createdAt: string;
+  width?: number;
+  height?: number;
+  source: "upload" | "archive-photo";
+  sourceImageRecordId?: string;
+}
+
+export type PlaceMatchClassification = "SAME_PLACE" | "NEARBY_CONTEXT" | "DIFFERENT_PLACE";
+
+export type PlaceMatchStatus = "pending" | "approved" | "rejected";
+
+export interface PlaceMatchResult {
+  id: string;
+  placeId: string;
+  imageRecordId: string;
+  // Absent on results saved before classification existed; those are treated as unverified.
+  classification?: PlaceMatchClassification;
+  matchedFeatures?: string[];
+  score: number;
+  reason: string;
+  provider: string;
+  analysisVersion: number;
+  matchedAt: string;
+  status: PlaceMatchStatus;
+}
+
+export interface PlaceTrainingState {
+  anchorsByPlaceId: Record<string, PlaceVisualAnchor[]>;
+  matchResults: PlaceMatchResult[];
+}
+
 export interface Entry {
   id: string;
   imageRecordId: string;

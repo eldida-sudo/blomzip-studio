@@ -1,7 +1,8 @@
 const ARCHIVE_DATABASE_NAME = "blomzip-studio-archive";
-const ARCHIVE_DATABASE_VERSION = 2;
+const ARCHIVE_DATABASE_VERSION = 3;
 const ARCHIVE_STATE_STORE_NAME = "archive-state";
 const ARCHIVE_THUMBNAIL_STORE_NAME = "archive-thumbnails";
+const PLACE_ANCHOR_IMAGE_STORE_NAME = "place-anchor-images";
 
 function ensureStore(database: IDBDatabase, storeName: string, options?: IDBObjectStoreParameters) {
   if (!database.objectStoreNames.contains(storeName)) {
@@ -21,6 +22,7 @@ export function openArchiveDatabase(): Promise<IDBDatabase> {
       const database = request.result;
       ensureStore(database, ARCHIVE_STATE_STORE_NAME, { keyPath: "key" });
       ensureStore(database, ARCHIVE_THUMBNAIL_STORE_NAME, { keyPath: "imageRecordId" });
+      ensureStore(database, PLACE_ANCHOR_IMAGE_STORE_NAME, { keyPath: "anchorId" });
     };
 
     request.onerror = () => {
@@ -38,4 +40,5 @@ export {
   ARCHIVE_DATABASE_VERSION,
   ARCHIVE_STATE_STORE_NAME,
   ARCHIVE_THUMBNAIL_STORE_NAME,
+  PLACE_ANCHOR_IMAGE_STORE_NAME,
 };

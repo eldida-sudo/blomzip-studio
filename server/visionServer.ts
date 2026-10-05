@@ -2,6 +2,14 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import OpenAI from "openai";
+import { buildPlaceMatchInstructions, buildPlaceSignatureInstructions } from "./placeMatchPrompt";
+import {
+  describePlaceMatchViolation,
+  describePlaceSignatureViolation,
+  enforcePlaceSignature,
+  parsePlaceSignature,
+  type PlaceSignature,
+} from "./placeMatchContract";
 
 const app = express();
 const port = Number(process.env.VISION_SERVER_PORT ?? 8787);
@@ -302,6 +310,211 @@ app.post("/api/vision/compare-map", async (req, res) => {
     console.error(error);
     res.status(500).json({
       error: error instanceof Error ? error.message : "Vision comparison failed",
+    });
+  }
+});
+
+const MAX_PLACE_ANCHORS = 8;
+const MIN_PLACE_ANCHORS = 3;
+
+function isImageDataUrl(value: unknown): value is string {
+  return typeof value === "string" && /^data:image\/(jpeg|png);base64,/.test(value);
+}
+
+const stringArraySchema = { type: "array", items: { type: "string" } } as const;
+
+app.post("/api/vision/place-signature", async (req, res) => {
+  try {
+    const { placeName, anchorImageDataUrls } = req.body ?? {};
+
+    if (typeof placeName !== "string" || !placeName.trim()) {
+      return res.status(400).json({ error: "placeName is required" });
+    }
+
+    if (
+      !Array.isArray(anchorImageDataUrls) ||
+      anchorImageDataUrls.length < MIN_PLACE_ANCHORS ||
+      anchorImageDataUrls.length > MAX_PLACE_ANCHORS ||
+      !anchorImageDataUrls.every(isImageDataUrl)
+    ) {
+      return res.status(400).json({
+        error: `anchorImageDataUrls must contain ${MIN_PLACE_ANCHORS}-${MAX_PLACE_ANCHORS} JPEG or PNG data URLs`,
+      });
+    }
+
+    const response = await client.responses.create({
+      model: "gpt-5-mini",
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: buildPlaceSignatureInstructions(placeName.trim(), anchorImageDataUrls.length) },
+            ...anchorImageDataUrls.flatMap((url: string, index: number) => [
+              { type: "input_text" as const, text: `REFERENCE ${index + 1}:` },
+              { type: "input_image" as const, image_url: url, detail: "high" as const },
+            ]),
+          ],
+        },
+      ],
+      reasoning: { effort: "low" },
+      max_output_tokens: 1600,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "blomzip_place_signature",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: { core: stringArraySchema, supporting: stringArraySchema, contextual: stringArraySchema },
+            required: ["core", "supporting", "contextual"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+
+    if (response.status === "incomplete") {
+      return res.status(502).json({
+        error: `Vision response incomplete: ${response.incomplete_details?.reason ?? "unknown reason"}`,
+        usage: response.usage,
+      });
+    }
+
+    if (!response.output_text) {
+      return res.status(502).json({ error: "Vision response contained no output text.", usage: response.usage });
+    }
+
+    const parsed = parsePlaceSignature(response.output_text);
+
+    if ("violation" in parsed) {
+      console.error("Place-signature contract violation:", { violation: parsed.violation, outputText: response.output_text });
+      return res.status(502).json({
+        error: `Place-signature response violated the schema: ${parsed.violation}.`,
+        rawOutputText: response.output_text.slice(0, 2000),
+        usage: response.usage,
+      });
+    }
+
+    console.log("Place signature derived:", { placeName: placeName.trim(), signature: parsed.signature });
+    res.json({ signature: parsed.signature, usage: response.usage });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Place signature derivation failed",
+    });
+  }
+});
+
+app.post("/api/vision/match-place", async (req, res) => {
+  try {
+    const { placeName, candidateImageDataUrl, anchorImageDataUrls, signature } = req.body ?? {};
+
+    if (typeof placeName !== "string" || !placeName.trim()) {
+      return res.status(400).json({ error: "placeName is required" });
+    }
+
+    if (!isImageDataUrl(candidateImageDataUrl)) {
+      return res.status(400).json({ error: "candidateImageDataUrl must be a JPEG or PNG data URL" });
+    }
+
+    if (
+      !Array.isArray(anchorImageDataUrls) ||
+      anchorImageDataUrls.length < MIN_PLACE_ANCHORS ||
+      anchorImageDataUrls.length > MAX_PLACE_ANCHORS ||
+      !anchorImageDataUrls.every(isImageDataUrl)
+    ) {
+      return res.status(400).json({
+        error: `anchorImageDataUrls must contain ${MIN_PLACE_ANCHORS}-${MAX_PLACE_ANCHORS} JPEG or PNG data URLs`,
+      });
+    }
+
+    const signatureViolation = describePlaceSignatureViolation(signature);
+
+    if (signatureViolation) {
+      return res.status(400).json({ error: `Invalid place signature: ${signatureViolation}.` });
+    }
+
+    const placeSignature = signature as PlaceSignature;
+
+    const content: Array<
+      { type: "input_text"; text: string } | { type: "input_image"; image_url: string; detail: "high" }
+    > = [
+      {
+        type: "input_text",
+        text: buildPlaceMatchInstructions(placeName.trim(), anchorImageDataUrls.length, placeSignature),
+      },
+      ...anchorImageDataUrls.flatMap((url: string, index: number) => [
+        { type: "input_text" as const, text: `REFERENCE ${index + 1}:` },
+        { type: "input_image" as const, image_url: url, detail: "high" as const },
+      ]),
+      { type: "input_text", text: "CANDIDATE:" },
+      { type: "input_image", image_url: candidateImageDataUrl, detail: "high" },
+    ];
+
+    const response = await client.responses.create({
+      model: "gpt-5-mini",
+      input: [{ role: "user", content }],
+      reasoning: { effort: "low" },
+      max_output_tokens: 1600,
+      text: {
+        format: {
+          type: "json_schema",
+          name: "blomzip_place_match",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              classification: { type: "string", enum: ["SAME_PLACE", "NEARBY_CONTEXT", "DIFFERENT_PLACE"] },
+              score: { type: "number" },
+              reason: { type: "string" },
+              core_matched: stringArraySchema,
+              supporting_matched: stringArraySchema,
+            },
+            required: ["classification", "score", "reason", "core_matched", "supporting_matched"],
+            additionalProperties: false,
+          },
+        },
+      },
+    });
+
+    if (response.status === "incomplete") {
+      return res.status(502).json({
+        error: `Vision response incomplete: ${response.incomplete_details?.reason ?? "unknown reason"}`,
+        usage: response.usage,
+      });
+    }
+
+    if (!response.output_text) {
+      return res.status(502).json({ error: "Vision response contained no output text.", usage: response.usage });
+    }
+
+    const violation = describePlaceMatchViolation(response.output_text);
+
+    if (violation) {
+      console.error("Place-match contract violation:", {
+        violation,
+        status: response.status,
+        outputTypes: response.output?.map((item) => item.type),
+        outputText: response.output_text,
+      });
+      return res.status(502).json({
+        error: `Place-match response violated the schema: ${violation}.`,
+        rawOutputText: response.output_text.slice(0, 2000),
+        usage: response.usage,
+      });
+    }
+
+    const { result, dropped } = enforcePlaceSignature(response.output_text, placeSignature);
+
+    if (dropped.length > 0) {
+      console.warn("Place-match dropped features outside the signature:", dropped);
+    }
+
+    res.json({ outputText: JSON.stringify(result), usage: response.usage });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({
+      error: error instanceof Error ? error.message : "Place matching failed",
     });
   }
 });

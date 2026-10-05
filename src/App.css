@@ -1,4 +1,13 @@
 :root {
+  --action-bg: #f7f1e5;
+  --action-bg-hover: #ede4d2;
+  --action-border: #cfc5b2;
+  --action-border-hover: #6c7d65;
+  --action-text: #243126;
+  --action-focus-ring: #243126;
+  --action-disabled-bg: #ece6d8;
+  --action-disabled-text: #5c6057;
+  --action-disabled-border: #d9d1bf;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
   color: #243126;
@@ -304,13 +313,55 @@ textarea {
   flex-shrink: 0;
 }
 
+/* Light theme is the default; the dark sidebar overrides the tokens below. */
 .secondary-action {
+  --secondary-bg: var(--action-bg);
+  --secondary-bg-hover: var(--action-bg-hover);
+  --secondary-border: var(--action-border);
+  --secondary-border-hover: var(--action-border-hover);
+  --secondary-text: var(--action-text);
+  --secondary-focus: var(--action-focus-ring);
+  --secondary-disabled-bg: var(--action-disabled-bg);
+  --secondary-disabled-text: var(--action-disabled-text);
+  --secondary-disabled-border: var(--action-disabled-border);
   border-radius: 999px;
-  background: rgba(247, 244, 236, 0.1);
-  border: 1px solid rgba(247, 244, 236, 0.24);
-  color: #f7f4ec;
+  background: var(--secondary-bg);
+  border: 1px solid var(--secondary-border);
+  color: var(--secondary-text);
   padding: 6px 10px;
   font-size: 11px;
+}
+
+.sidebar .secondary-action {
+  --secondary-bg: rgba(247, 244, 236, 0.1);
+  --secondary-bg-hover: rgba(247, 244, 236, 0.2);
+  --secondary-border: rgba(247, 244, 236, 0.24);
+  --secondary-border-hover: rgba(247, 244, 236, 0.5);
+  --secondary-text: #f7f4ec;
+  --secondary-focus: #f7f4ec;
+  --secondary-disabled-bg: rgba(247, 244, 236, 0.05);
+  --secondary-disabled-text: rgba(247, 244, 236, 0.55);
+  --secondary-disabled-border: rgba(247, 244, 236, 0.14);
+}
+
+.secondary-action:hover:not(:disabled):not(.is-disabled),
+.secondary-action:focus-visible {
+  background: var(--secondary-bg-hover);
+  border-color: var(--secondary-border-hover);
+}
+
+.secondary-action:focus-visible {
+  outline: 2px solid var(--secondary-focus);
+  outline-offset: 2px;
+}
+
+.secondary-action:disabled,
+.secondary-action.is-disabled {
+  background: var(--secondary-disabled-bg);
+  border-color: var(--secondary-disabled-border);
+  color: var(--secondary-disabled-text);
+  cursor: not-allowed;
+  opacity: 1;
 }
 
 .batch-list {
@@ -3267,4 +3318,134 @@ button.active {
 
 [data-testid="recovery-message"][data-tone="error"] {
   color: #b3261e;
+}
+
+.place-training-panel {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  padding: 1rem 1.25rem;
+  border: 1px solid #cfc5b2;
+  border-radius: 14px;
+  background: #f7f1e5;
+  color: #243126;
+}
+
+.place-training-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.place-training-header h3 {
+  margin: 0;
+}
+
+.place-anchor-grid,
+.place-match-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.place-anchor-grid {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+}
+
+.place-anchor-item {
+  margin: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.place-anchor-item img,
+.place-anchor-missing {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+.place-anchor-missing {
+  display: grid;
+  place-items: center;
+  background: #ede4d2;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.place-anchor-item figcaption {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.place-anchor-actions,
+.place-training-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.place-anchor-upload {
+  cursor: pointer;
+}
+
+
+.place-match-item {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.place-match-item img {
+  width: 140px;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+.place-match-item p {
+  margin: 0.25rem 0 0.5rem;
+}
+
+.place-training-message.error {
+  color: #8a2b1c;
+}
+
+.place-match-confidence {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.place-match-confidence.strong {
+  background: #243126;
+  color: #fffaf0;
+}
+
+.place-match-confidence.possible {
+  background: #e9d9a6;
+  color: #3d2f0a;
+}
+
+.place-match-confidence.low {
+  background: #e4ded0;
+  color: #4a4d45;
+}
+
+.place-match-score {
+  color: #5a5f55;
+}
+
+.place-match-features {
+  font-size: 0.85rem;
+  color: #3f463c;
+}
+
+.place-match-list summary {
+  cursor: pointer;
+  font-weight: 600;
 }

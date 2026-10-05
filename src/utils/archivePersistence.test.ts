@@ -109,7 +109,7 @@ describe("archivePersistence", () => {
 
     expect(restored).toEqual(expect.objectContaining({
       schema: "blomzip.archive-state",
-      schemaVersion: 2,
+      schemaVersion: 3,
       importVisit: expect.objectContaining({
         id: visit.id,
         entries: expect.arrayContaining([
@@ -211,7 +211,7 @@ describe("archivePersistence", () => {
 
     expect(restored).toEqual(expect.objectContaining({
       schema: "blomzip.archive-state",
-      schemaVersion: 2,
+      schemaVersion: 3,
       importVisit: expect.objectContaining({ id: visit.id }),
     }));
   });
@@ -241,7 +241,7 @@ describe("archivePersistence", () => {
 
     const restored = await loadArchiveState();
 
-    expect(restored?.schemaVersion).toBe(2);
+    expect(restored?.schemaVersion).toBe(3);
     expect(restored?.importVisit?.entries[0]?.analysisSuggestions).toEqual(expect.objectContaining({
       categories: ["story-candidate"],
       recommendations: undefined,
@@ -530,7 +530,7 @@ describe("archivePersistence", () => {
 
     expect(restored).toEqual(expect.objectContaining({
       schema: "blomzip.archive-state",
-      schemaVersion: 2,
+      schemaVersion: 3,
       savedAt: "2026-06-15T10:12:00.000Z",
     }));
 

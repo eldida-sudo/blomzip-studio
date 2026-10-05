@@ -4,6 +4,9 @@ import type {
   EntryRecommendation,
   ImageRecord,
   Observation,
+  PlaceMatchResult,
+  PlaceTrainingState,
+  PlaceVisualAnchor,
   VisualAnalysisResult,
   Visit,
 } from "../models/blomzip";
@@ -11,7 +14,8 @@ import { ARCHIVE_STATE_STORE_NAME, openArchiveDatabase } from "./archiveIndexedD
 
 const ARCHIVE_STORAGE_KEY = "blomzip-studio:archive-state:v1";
 const ARCHIVE_SCHEMA = "blomzip.archive-state";
-const ARCHIVE_SCHEMA_VERSION = 2;
+const ARCHIVE_SCHEMA_VERSION = 3;
+const PREVIOUS_ARCHIVE_SCHEMA_VERSION = 2;
 const LEGACY_ARCHIVE_SCHEMA_VERSION = 1;
 
 export interface ArchiveState {
@@ -20,6 +24,53 @@ export interface ArchiveState {
   savedAt: string;
   importVisit: Visit | null;
   draftWorkspace: DraftWorkspace;
+  // Metadata only: anchor image bytes live in their own IndexedDB store.
+  placeTraining: PlaceTrainingState;
+}
+
+function sanitizePlaceTraining(value: unknown): PlaceTrainingState {
+  const empty: PlaceTrainingState = { anchorsByPlaceId: {}, matchResults: [] };
+
+  if (!isRecord(value)) {
+    return empty;
+  }
+
+  const anchorsByPlaceId: Record<string, PlaceVisualAnchor[]> = {};
+
+  if (isRecord(value.anchorsByPlaceId)) {
+    for (const [placeId, anchors] of Object.entries(value.anchorsByPlaceId)) {
+      if (!Array.isArray(anchors)) {
+        continue;
+      }
+
+      const valid = anchors
+        .filter(
+          (anchor): anchor is PlaceVisualAnchor =>
+            isRecord(anchor) && typeof anchor.id === "string" && typeof anchor.filename === "string"
+        )
+        .map((anchor) => ({ ...anchor, placeId }));
+
+      if (valid.length > 0) {
+        anchorsByPlaceId[placeId] = valid;
+      }
+    }
+  }
+
+  const matchResults = Array.isArray(value.matchResults)
+    ? value.matchResults
+        .filter(
+          (result): result is PlaceMatchResult =>
+            isRecord(result) &&
+            typeof result.id === "string" &&
+            typeof result.placeId === "string" &&
+            typeof result.imageRecordId === "string" &&
+            typeof result.score === "number" &&
+            (result.status === "pending" || result.status === "approved" || result.status === "rejected")
+        )
+        .map((result) => ({ ...result }))
+    : [];
+
+  return { anchorsByPlaceId, matchResults };
 }
 
 function sanitizeObservationForPersistence(observation: Observation): Observation {
@@ -124,6 +175,7 @@ function sanitizeArchiveState(state: ArchiveState): ArchiveState {
     savedAt: typeof state.savedAt === "string" ? state.savedAt : new Date().toISOString(),
     importVisit: state.importVisit ? sanitizeVisitForPersistence(state.importVisit) : null,
     draftWorkspace: sanitizeDraftWorkspaceForArchivePersistence(state.draftWorkspace),
+    placeTraining: sanitizePlaceTraining(state.placeTraining),
   };
 }
 
@@ -150,6 +202,10 @@ function chooseNewestArchiveState(localSnapshot: ArchiveState | null, indexedDbS
     : localSnapshot;
 }
 
+function createEmptyTraining(): PlaceTrainingState {
+  return { anchorsByPlaceId: {}, matchResults: [] };
+}
+
 function migrateArchiveState(value: unknown): ArchiveState | null {
   if (!value || typeof value !== "object") {
     return null;
@@ -159,7 +215,9 @@ function migrateArchiveState(value: unknown): ArchiveState | null {
 
   if (
     raw.schema === ARCHIVE_SCHEMA &&
-    (raw.schemaVersion === ARCHIVE_SCHEMA_VERSION || raw.schemaVersion === LEGACY_ARCHIVE_SCHEMA_VERSION)
+    (raw.schemaVersion === ARCHIVE_SCHEMA_VERSION ||
+      raw.schemaVersion === PREVIOUS_ARCHIVE_SCHEMA_VERSION ||
+      raw.schemaVersion === LEGACY_ARCHIVE_SCHEMA_VERSION)
   ) {
     if (!isDraftWorkspace(raw.draftWorkspace)) {
       return null;
@@ -171,6 +229,7 @@ function migrateArchiveState(value: unknown): ArchiveState | null {
       savedAt: typeof raw.savedAt === "string" ? raw.savedAt : new Date().toISOString(),
       importVisit: raw.importVisit ?? null,
       draftWorkspace: raw.draftWorkspace,
+      placeTraining: raw.placeTraining ?? createEmptyTraining(),
     });
   }
 
@@ -187,6 +246,7 @@ function migrateArchiveState(value: unknown): ArchiveState | null {
     savedAt: typeof raw.savedAt === "string" ? raw.savedAt : new Date().toISOString(),
     importVisit: legacyVisit,
     draftWorkspace: legacyWorkspace,
+    placeTraining: createEmptyTraining(),
   });
 }
 
@@ -312,6 +372,7 @@ export async function saveArchiveState(snapshot: ArchiveState): Promise<void> {
 export function createArchiveStateSnapshot(options: {
   importVisit: Visit | null;
   draftWorkspace: DraftWorkspace;
+  placeTraining?: PlaceTrainingState;
 }): ArchiveState {
   return sanitizeArchiveState({
     schema: ARCHIVE_SCHEMA,
@@ -319,11 +380,16 @@ export function createArchiveStateSnapshot(options: {
     savedAt: new Date().toISOString(),
     importVisit: options.importVisit,
     draftWorkspace: options.draftWorkspace,
+    placeTraining: options.placeTraining ?? createEmptyTraining(),
   });
 }
 
 export function archiveStateHasContent(snapshot: ArchiveState): boolean {
-  return Boolean(snapshot.importVisit || snapshot.draftWorkspace.drafts.length > 0);
+  return Boolean(
+    snapshot.importVisit ||
+      snapshot.draftWorkspace.drafts.length > 0 ||
+      Object.keys(snapshot.placeTraining.anchorsByPlaceId).length > 0
+  );
 }
 
 export interface ArchiveStateCounts {
@@ -377,7 +443,9 @@ export function validateArchiveBackup(value: unknown): ArchiveBackupParseResult 
     return { ok: false, error: "This file is not a Blomzip archive backup." };
   }
 
-  if (value.schemaVersion !== ARCHIVE_SCHEMA_VERSION && value.schemaVersion !== LEGACY_ARCHIVE_SCHEMA_VERSION) {
+  if (value.schemaVersion !== ARCHIVE_SCHEMA_VERSION &&
+    value.schemaVersion !== PREVIOUS_ARCHIVE_SCHEMA_VERSION &&
+    value.schemaVersion !== LEGACY_ARCHIVE_SCHEMA_VERSION) {
     return { ok: false, error: "This backup was made with an unsupported version of Studio." };
   }
 

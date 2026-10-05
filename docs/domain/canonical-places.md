@@ -42,3 +42,6 @@ The registry is intentionally small and stable. It defines the authoritative pla
 - `courtyard-rabatt-vid-husvagg` maps to `house-wall`.
 - `courtyard-sittplatsen-vid-hacken` maps to `seating-area`.
 - The content-label ids `courtyard-bukett-fran-innergarden` and `courtyard-gronska` have no canonical place target and must be re-reviewed or cleared if they exist in old archives.
+## Backlog: viewpoint (not implemented)
+
+A photograph can belong to a canonical place and also be taken from a particular viewpoint, e.g. place `rock-garden` photographed from the balcony. Viewpoint should eventually be modelled as a separate attribute on the image, never as a competing canonical place. Until then, such photographs are assigned only to their place, and place training treats a different vantage point of the same place as the same place.
