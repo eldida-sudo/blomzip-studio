@@ -17,6 +17,8 @@ import {
   addPlaceAnchors,
   createEmptyPlaceTrainingState,
   getPlaceAnchors,
+  markMatchUnsure,
+  reassignMatch,
   removePlaceAnchor,
   upsertMatchResult,
 } from "./placeTraining";
@@ -180,5 +182,43 @@ describe("place training persistence", () => {
 
   it("reports missing bytes instead of inventing them", async () => {
     expect((await getAnchorImages(["never-stored"])).size).toBe(0);
+  });
+
+  it("persists review decisions across reload and backup, and drops only a malformed review", async () => {
+    const base = {
+      placeId: "seating-area",
+      score: 0.8,
+      reason: "r",
+      provider: "p",
+      analysisVersion: 1,
+      matchedAt: "2026-10-05T00:00:00.000Z",
+      status: "pending" as const,
+    };
+    let training = upsertMatchResult(createEmptyPlaceTrainingState(), { ...base, id: "m1", imageRecordId: "image-1" });
+    training = upsertMatchResult(training, { ...base, id: "m2", imageRecordId: "image-2" });
+    const reassigned = reassignMatch(
+      { ...visit, imageRecords: [{ id: "image-1", filename: "1.jpg", fileSize: 1, format: "jpeg", sourcePath: "1.jpg" }] },
+      training,
+      "m1",
+      "raised-bed"
+    );
+    if (!reassigned.ok) throw new Error("setup");
+    training = markMatchUnsure(reassigned.state, "m2");
+
+    const snapshot = createArchiveStateSnapshot({ importVisit: visit, draftWorkspace: emptyWorkspace, placeTraining: training });
+    await saveArchiveState(snapshot);
+    const loaded = await loadArchiveState();
+    const decisionOf = (id: string) => loaded?.placeTraining.matchResults.find((r) => r.id === id)?.review?.decision;
+    expect([decisionOf("m1"), decisionOf("m2")]).toEqual(["reassigned", "unsure"]);
+
+    const parsed = parseArchiveBackup(JSON.stringify(snapshot));
+    expect(parsed.ok && parsed.state.placeTraining.matchResults.find((r) => r.id === "m1")?.review).toMatchObject({ assignedPlaceId: "raised-bed" });
+
+    const corrupted = JSON.parse(JSON.stringify(snapshot));
+    corrupted.placeTraining.matchResults.find((r: { id: string }) => r.id === "m1").review = { decision: "bogus" };
+    const reparsed = parseArchiveBackup(JSON.stringify(corrupted));
+    const m1 = reparsed.ok ? reparsed.state.placeTraining.matchResults.find((r) => r.id === "m1") : undefined;
+    expect(m1).toMatchObject({ status: "rejected" });
+    expect(m1?.review).toBeUndefined();
   });
 });

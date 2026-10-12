@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { CanonicalPlace } from "../data/canonicalPlaces";
+import { getPlaceById, listCanonicalPlaces, type CanonicalPlace } from "../data/canonicalPlaces";
 import type {
   ImageRecord,
   PlaceMatchResult,
@@ -38,7 +38,9 @@ interface PlaceTrainingPanelProps {
   getTraining: () => PlaceTrainingState;
   onTrainingChange: (updater: (current: PlaceTrainingState) => PlaceTrainingState) => void;
   onApproveMatch: (resultId: string) => string | null;
-  onRejectMatch: (resultId: string) => void;
+  onReassignMatch: (resultId: string, targetPlaceId: string) => string | null;
+  onMarkUnsure: (resultId: string) => void;
+  onUndoReview: (resultId: string) => string | null;
   visionProvider: VisionProvider;
 }
 
@@ -62,13 +64,16 @@ export function PlaceTrainingPanel({
   getTraining,
   onTrainingChange,
   onApproveMatch,
-  onRejectMatch,
+  onReassignMatch,
+  onMarkUnsure,
+  onUndoReview,
   visionProvider,
 }: PlaceTrainingPanelProps) {
   const anchors = getPlaceAnchors(training, place.id);
   const [anchorImages, setAnchorImages] = useState<Map<string, StoredAnchorImage>>(new Map());
   const [previewUrls, setPreviewUrls] = useState<Map<string, string>>(new Map());
   const [message, setMessage] = useState<{ tone: "error" | "info"; text: string } | null>(null);
+  const [undoResultId, setUndoResultId] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const [isMatching, setIsMatching] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
@@ -377,7 +382,38 @@ export function PlaceTrainingPanel({
 
   function handleApprove(resultId: string) {
     const error = onApproveMatch(resultId);
+    setUndoResultId(null);
     setMessage(error ? { tone: "error", text: error } : { tone: "info", text: `Assigned to ${place.displayName}.` });
+  }
+
+  function handleReassign(resultId: string, targetPlaceId: string) {
+    if (!targetPlaceId) {
+      return;
+    }
+
+    const error = onReassignMatch(resultId, targetPlaceId);
+    setUndoResultId(error ? null : resultId);
+    setMessage(
+      error
+        ? { tone: "error", text: error }
+        : { tone: "info", text: `Assigned to ${getPlaceById(targetPlaceId)?.displayName ?? targetPlaceId}.` }
+    );
+  }
+
+  function handleUnsure(resultId: string) {
+    onMarkUnsure(resultId);
+    setUndoResultId(resultId);
+    setMessage({ tone: "info", text: "Left unassigned. It can still be matched to other places." });
+  }
+
+  function handleUndo() {
+    if (!undoResultId) {
+      return;
+    }
+
+    const error = onUndoReview(undoResultId);
+    setUndoResultId(null);
+    setMessage(error ? { tone: "error", text: error } : { tone: "info", text: "Review undone." });
   }
 
   return (
@@ -503,6 +539,14 @@ export function PlaceTrainingPanel({
       {message ? (
         <p className={`place-training-message ${message.tone}`} role={message.tone === "error" ? "alert" : "status"}>
           {message.text}
+          {undoResultId ? (
+            <>
+              {" "}
+              <button type="button" className="secondary-action" onClick={handleUndo}>
+                Undo
+              </button>
+            </>
+          ) : null}
         </p>
       ) : null}
 
@@ -527,10 +571,24 @@ export function PlaceTrainingPanel({
                   ) : null}
                   <div className="place-anchor-actions">
                     <button type="button" className="secondary-action" onClick={() => handleApprove(match.id)}>
-                      Approve place
+                      Approve suggested place
                     </button>
-                    <button type="button" className="secondary-action" onClick={() => onRejectMatch(match.id)}>
-                      Reject
+                    <select
+                      aria-label="Assign another place"
+                      value=""
+                      onChange={(event) => handleReassign(match.id, event.target.value)}
+                    >
+                      <option value="">Assign another place…</option>
+                      {listCanonicalPlaces()
+                        .filter((candidate) => candidate.id !== place.id)
+                        .map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.displayName}
+                          </option>
+                        ))}
+                    </select>
+                    <button type="button" className="secondary-action" onClick={() => handleUnsure(match.id)}>
+                      Not sure
                     </button>
                   </div>
                 </div>

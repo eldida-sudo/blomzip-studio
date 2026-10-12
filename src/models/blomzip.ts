@@ -108,6 +108,15 @@ export type PlaceMatchClassification = "SAME_PLACE" | "NEARBY_CONTEXT" | "DIFFER
 
 export type PlaceMatchStatus = "pending" | "approved" | "rejected";
 
+export type PlaceMatchReviewDecision = "reassigned" | "unsure";
+
+// "reassigned" is confirmed negative feedback for result.placeId. "unsure" is not evidence either way.
+export interface PlaceMatchReview {
+  decision: PlaceMatchReviewDecision;
+  assignedPlaceId?: string;
+  decidedAt: string;
+}
+
 export interface PlaceMatchResult {
   id: string;
   placeId: string;
@@ -121,6 +130,7 @@ export interface PlaceMatchResult {
   analysisVersion: number;
   matchedAt: string;
   status: PlaceMatchStatus;
+  review?: PlaceMatchReview;
 }
 
 export interface PlaceTrainingState {

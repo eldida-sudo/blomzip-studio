@@ -1,3 +1,4 @@
+import { getPlaceById } from "../data/canonicalPlaces";
 import type {
   ImageRecord,
   PlaceMatchClassification,
@@ -179,6 +180,7 @@ function listPendingByClassification(
         result.placeId === placeId &&
         result.status === "pending" &&
         result.classification === classification &&
+        !result.review &&
         unassignedIds.has(result.imageRecordId)
     )
     .sort((left, right) => right.score - left.score);
@@ -239,6 +241,114 @@ export function rejectMatch(state: PlaceTrainingState, resultId: string): PlaceT
     matchResults: state.matchResults.map((result) =>
       result.id === resultId ? { ...result, status: "rejected" } : result
     ),
+  };
+}
+
+export type ReviewOutcome =
+  | { ok: true; visit: Visit; state: PlaceTrainingState }
+  | { ok: false; error: string };
+
+/**
+ * Assigns the photograph to a different canonical place. The original suggestion stays recorded as a
+ * rejected result so it is not offered again. Never overwrites an existing placeId.
+ */
+export function reassignMatch(
+  visit: Visit,
+  state: PlaceTrainingState,
+  resultId: string,
+  targetPlaceId: string,
+  now: string = new Date().toISOString()
+): ReviewOutcome {
+  const result = state.matchResults.find((candidate) => candidate.id === resultId);
+
+  if (!result) {
+    return { ok: false, error: "That match result no longer exists." };
+  }
+
+  if (!getPlaceById(targetPlaceId)) {
+    return { ok: false, error: "That place is not a known canonical place." };
+  }
+
+  if (targetPlaceId === result.placeId) {
+    return { ok: false, error: "Choose a different place, or approve the suggestion." };
+  }
+
+  const record = visit.imageRecords?.find((candidate) => candidate.id === result.imageRecordId);
+
+  if (!record) {
+    return { ok: false, error: "That photograph is no longer in the archive." };
+  }
+
+  if (record.placeId) {
+    return { ok: false, error: "This photograph already has a place, so it was left unchanged." };
+  }
+
+  return {
+    ok: true,
+    visit: {
+      ...visit,
+      imageRecords: (visit.imageRecords ?? []).map((candidate) =>
+        candidate.id === record.id ? { ...candidate, placeId: targetPlaceId } : candidate
+      ),
+    },
+    state: upsertMatchResult(state, {
+      ...result,
+      status: "rejected",
+      review: { decision: "reassigned", assignedPlaceId: targetPlaceId, decidedAt: now },
+    }),
+  };
+}
+
+/** Leaves the photograph unassigned. Not negative feedback: the result stays pending, only hidden from review. */
+export function markMatchUnsure(
+  state: PlaceTrainingState,
+  resultId: string,
+  now: string = new Date().toISOString()
+): PlaceTrainingState {
+  return {
+    ...state,
+    matchResults: state.matchResults.map((result) =>
+      result.id === resultId && result.status === "pending" && !result.review
+        ? { ...result, review: { decision: "unsure", decidedAt: now } }
+        : result
+    ),
+  };
+}
+
+/** Reverts a reassignment or "not sure" decision. Refuses if the photograph's place changed since. */
+export function undoReview(visit: Visit, state: PlaceTrainingState, resultId: string): ReviewOutcome {
+  const result = state.matchResults.find((candidate) => candidate.id === resultId);
+
+  if (!result?.review) {
+    return { ok: false, error: "There is nothing to undo for this photograph." };
+  }
+
+  const { review, ...rest } = result;
+  const restored: PlaceMatchResult = { ...rest, status: "pending" };
+
+  if (review.decision === "unsure") {
+    return { ok: true, visit, state: upsertMatchResult(state, restored) };
+  }
+
+  const record = visit.imageRecords?.find((candidate) => candidate.id === result.imageRecordId);
+
+  if (!record || record.placeId !== review.assignedPlaceId) {
+    return { ok: false, error: "This photograph's place has changed since, so it was left unchanged." };
+  }
+
+  return {
+    ok: true,
+    visit: {
+      ...visit,
+      imageRecords: (visit.imageRecords ?? []).map((candidate) => {
+        if (candidate.id !== record.id) {
+          return candidate;
+        }
+        const { placeId: _removed, ...withoutPlace } = candidate;
+        return withoutPlace;
+      }),
+    },
+    state: upsertMatchResult(state, restored),
   };
 }
 

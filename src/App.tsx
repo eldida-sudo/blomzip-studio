@@ -66,7 +66,13 @@ import {
 } from "./utils/entryRecommendations";
 import { applyStoryRecommendations } from "./utils/storyRecommendations";
 import { createVisionProvider } from "./utils/visionProvider";
-import { approveMatch, createEmptyPlaceTrainingState, rejectMatch } from "./utils/placeTraining";
+import {
+  approveMatch,
+  createEmptyPlaceTrainingState,
+  markMatchUnsure,
+  reassignMatch,
+  undoReview,
+} from "./utils/placeTraining";
 import type { VisionPlaceCandidateGroup } from "./utils/discoverPlacesVisionEngine";
 import type { ZipImportSummary } from "./utils/readZipImages";
 import "./App.css";
@@ -510,8 +516,38 @@ function App() {
     return null;
   }
 
-  function handleRejectPlaceMatch(resultId: string) {
-    commitPlaceTraining((current) => rejectMatch(current, resultId));
+  function applyReviewOutcome(outcome: ReturnType<typeof reassignMatch>): string | null {
+    if (!outcome.ok) {
+      return outcome.error;
+    }
+
+    commitImportVisit(outcome.visit);
+    commitPlaceTraining(() => outcome.state);
+    return null;
+  }
+
+  function handleReassignPlaceMatch(resultId: string, targetPlaceId: string): string | null {
+    const visit = latestImportVisitRef.current;
+
+    if (!visit) {
+      return "There is no archive to assign this photograph in.";
+    }
+
+    return applyReviewOutcome(reassignMatch(visit, latestPlaceTrainingRef.current, resultId, targetPlaceId));
+  }
+
+  function handleMarkPlaceMatchUnsure(resultId: string) {
+    commitPlaceTraining((current) => markMatchUnsure(current, resultId));
+  }
+
+  function handleUndoPlaceReview(resultId: string): string | null {
+    const visit = latestImportVisitRef.current;
+
+    if (!visit) {
+      return "There is no archive to restore this photograph in.";
+    }
+
+    return applyReviewOutcome(undoReview(visit, latestPlaceTrainingRef.current, resultId));
   }
 
   useEffect(() => {
@@ -2396,7 +2432,9 @@ function App() {
                 getTraining={() => latestPlaceTrainingRef.current}
                 onTrainingChange={commitPlaceTraining}
                 onApproveMatch={handleApprovePlaceMatch}
-                onRejectMatch={handleRejectPlaceMatch}
+                onReassignMatch={handleReassignPlaceMatch}
+                onMarkUnsure={handleMarkPlaceMatchUnsure}
+                onUndoReview={handleUndoPlaceReview}
                 visionProvider={visionProvider}
               />
             ) : null}

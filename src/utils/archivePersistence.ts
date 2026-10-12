@@ -5,6 +5,7 @@ import type {
   ImageRecord,
   Observation,
   PlaceMatchResult,
+  PlaceMatchReview,
   PlaceTrainingState,
   PlaceVisualAnchor,
   VisualAnalysisResult,
@@ -26,6 +27,15 @@ export interface ArchiveState {
   draftWorkspace: DraftWorkspace;
   // Metadata only: anchor image bytes live in their own IndexedDB store.
   placeTraining: PlaceTrainingState;
+}
+
+function isValidReview(value: unknown): value is PlaceMatchReview {
+  return (
+    isRecord(value) &&
+    (value.decision === "unsure" ||
+      (value.decision === "reassigned" && typeof value.assignedPlaceId === "string")) &&
+    typeof value.decidedAt === "string"
+  );
 }
 
 function sanitizePlaceTraining(value: unknown): PlaceTrainingState {
@@ -67,7 +77,10 @@ function sanitizePlaceTraining(value: unknown): PlaceTrainingState {
             typeof result.score === "number" &&
             (result.status === "pending" || result.status === "approved" || result.status === "rejected")
         )
-        .map((result) => ({ ...result }))
+        .map((result) => {
+          const { review, ...rest } = result;
+          return isValidReview(review) ? { ...rest, review: { ...review } } : rest;
+        })
     : [];
 
   return { anchorsByPlaceId, matchResults };

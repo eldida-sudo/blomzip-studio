@@ -12,6 +12,9 @@ import {
   isAcceptedAnchorFile,
   listNearbyContextMatches,
   listPendingMatches,
+  markMatchUnsure,
+  reassignMatch,
+  undoReview,
   MAX_PLACE_ANCHORS,
   rejectMatch,
   removePlaceAnchor,
@@ -231,5 +234,89 @@ describe("classification-aware results", () => {
   it("re-evaluates unverified legacy pending results but not classified ones", () => {
     const ids = selectMatchCandidates(visit, "seating-area", state).map((item) => item.id);
     expect(ids).toEqual(["legacy"]);
+  });
+});
+
+describe("curator review corrections", () => {
+  const resultId = createMatchResultId("seating-area", "img-1");
+  const setup = () => ({
+    visit: visitWith([record("img-1"), record("img-2")]),
+    state: upsertMatchResult(createEmptyPlaceTrainingState(), match("img-1")),
+  });
+
+  it("reassigns to another canonical place, records negative feedback, and adds no anchors", () => {
+    const { visit, state } = setup();
+    const outcome = reassignMatch(visit, state, resultId, "raised-bed", "2026-10-06T00:00:00.000Z");
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+
+    expect(outcome.visit.imageRecords?.find((r) => r.id === "img-1")?.placeId).toBe("raised-bed");
+    expect(outcome.visit.imageRecords?.find((r) => r.id === "img-2")?.placeId).toBeUndefined();
+    expect(outcome.state.matchResults[0]).toMatchObject({
+      status: "rejected",
+      review: { decision: "reassigned", assignedPlaceId: "raised-bed" },
+    });
+    expect(outcome.state.anchorsByPlaceId).toEqual(state.anchorsByPlaceId);
+    expect(listPendingMatches(outcome.visit, "seating-area", outcome.state)).toEqual([]);
+  });
+
+  it("refuses unknown, identical, and already-assigned targets without changes", () => {
+    const { visit, state } = setup();
+    expect(reassignMatch(visit, state, resultId, "nowhere").ok).toBe(false);
+    expect(reassignMatch(visit, state, resultId, "seating-area").ok).toBe(false);
+    expect(reassignMatch(visit, state, "missing", "raised-bed").ok).toBe(false);
+
+    const assigned = visitWith([record("img-1", { placeId: "parking" }), record("img-2")]);
+    expect(reassignMatch(assigned, state, resultId, "raised-bed").ok).toBe(false);
+    expect(assigned.imageRecords?.[0].placeId).toBe("parking");
+  });
+
+  it("undoes a reassignment, restoring the unassigned photograph and pending result", () => {
+    const { visit, state } = setup();
+    const done = reassignMatch(visit, state, resultId, "raised-bed");
+    if (!done.ok) throw new Error("setup");
+
+    const undone = undoReview(done.visit, done.state, resultId);
+    expect(undone.ok).toBe(true);
+    if (!undone.ok) return;
+
+    expect(undone.visit.imageRecords?.[0]).toEqual(visit.imageRecords?.[0]);
+    expect("placeId" in (undone.visit.imageRecords?.[0] ?? {})).toBe(false);
+    expect(undone.state.matchResults[0]).toEqual(state.matchResults[0]);
+    expect(listPendingMatches(undone.visit, "seating-area", undone.state)).toHaveLength(1);
+  });
+
+  it("refuses to undo when the photograph's place changed since", () => {
+    const { visit, state } = setup();
+    const done = reassignMatch(visit, state, resultId, "raised-bed");
+    if (!done.ok) throw new Error("setup");
+
+    const changed = {
+      ...done.visit,
+      imageRecords: done.visit.imageRecords?.map((r) => (r.id === "img-1" ? { ...r, placeId: "parking" } : r)),
+    };
+    const undone = undoReview(changed, done.state, resultId);
+    expect(undone.ok).toBe(false);
+    expect(changed.imageRecords?.[0].placeId).toBe("parking");
+    expect(undoReview(visit, state, resultId).ok).toBe(false);
+  });
+
+  it("'not sure' is not negative feedback and keeps the photograph eligible for other places", () => {
+    const { visit, state } = setup();
+    const unsure = markMatchUnsure(state, resultId, "2026-10-06T00:00:00.000Z");
+
+    expect(unsure.matchResults[0].status).toBe("pending");
+    expect(unsure.matchResults[0].review).toMatchObject({ decision: "unsure" });
+    expect(unsure.matchResults.some((r) => r.status === "rejected")).toBe(false);
+    expect(visit.imageRecords?.[0].placeId).toBeUndefined();
+    expect(listPendingMatches(visit, "seating-area", unsure)).toEqual([]);
+    expect(selectMatchCandidates(visit, "seating-area", unsure).map((r) => r.id)).toEqual(["img-2"]);
+    expect(selectMatchCandidates(visit, "raised-bed", unsure).map((r) => r.id)).toEqual(["img-1", "img-2"]);
+  });
+
+  it("undoes 'not sure' so the suggestion reappears", () => {
+    const { visit, state } = setup();
+    const undone = undoReview(visit, markMatchUnsure(state, resultId), resultId);
+    expect(undone.ok && undone.state.matchResults[0]).toEqual(state.matchResults[0]);
   });
 });
