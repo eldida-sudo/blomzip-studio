@@ -1,9 +1,11 @@
 const CLASSIFICATIONS = ["SAME_PLACE", "NEARBY_CONTEXT", "DIFFERENT_PLACE"];
-const MODEL_OUTPUT_KEYS = ["classification", "core_matched", "reason", "score", "supporting_matched"];
+const MODEL_OUTPUT_KEYS = ["classification", "conflicts", "core_matched", "reason", "score", "supporting_matched"];
 const SIGNATURE_KEYS = ["contextual", "core", "supporting"];
 
 export const MAX_CORE_FEATURES = 4;
 export const MIN_SAME_PLACE_SIGNATURE_FEATURES = 2;
+export const MIN_SAME_PLACE_CORE_FEATURES_WHEN_MULTIPLE = 2;
+export const DOWNGRADED_SCORE_CAP = 0.5;
 
 export interface PlaceSignature {
   core: string[];
@@ -137,25 +139,43 @@ export function describePlaceMatchViolation(outputText: string): string | null {
     return "supporting_matched is not a string array";
   }
 
+  if (!isStringArray(record.conflicts)) {
+    return "conflicts is not a string array";
+  }
+
   return null;
+}
+
+/** How many verified core features SAME_PLACE needs for a signature with this many core features. */
+export function requiredCoreFeatures(signatureCoreCount: number): number {
+  return signatureCoreCount >= 2 ? MIN_SAME_PLACE_CORE_FEATURES_WHEN_MULTIPLE : 1;
+}
+
+export interface PlaceMatchEnforcement {
+  result: PlaceMatchResult;
+  dropped: string[];
+  downgradeReasons: string[];
 }
 
 /**
  * Applies the fixed anchor-derived signature to a contract-valid model output. Matched features
  * that are not verbatim entries of the right signature list are dropped, never repaired.
- * SAME_PLACE survives only with >=1 core feature and >=2 distinct core/supporting features;
- * otherwise it is downgraded to NEARBY_CONTEXT.
+ *
+ * SAME_PLACE survives only with enough verified core features (two when the signature has two or more
+ * core features, otherwise one), at least two distinct core/supporting features in total, and no
+ * contradiction. `conflicts` may only name verbatim core features that the model reports as clearly
+ * contradicted by what is visible. Features that are merely absent, out of frame or obscured are not
+ * conflicts and must not be listed. A conflict, or a feature reported both matched and conflicting,
+ * downgrades SAME_PLACE to NEARBY_CONTEXT. Downgrades never go further and never upgrade.
  */
-export function enforcePlaceSignature(
-  outputText: string,
-  signature: PlaceSignature
-): { result: PlaceMatchResult; dropped: string[] } {
+export function enforcePlaceSignature(outputText: string, signature: PlaceSignature): PlaceMatchEnforcement {
   const record = JSON.parse(outputText) as {
     classification: PlaceMatchResult["classification"];
     score: number;
     reason: string;
     core_matched: string[];
     supporting_matched: string[];
+    conflicts: string[];
   };
 
   const dropped: string[] = [];
@@ -175,16 +195,37 @@ export function enforcePlaceSignature(
 
   const core = keep(record.core_matched, signature.core);
   const supporting = keep(record.supporting_matched, signature.supporting);
+  const conflicts = keep(record.conflicts, signature.core);
   const matchedFeatures = [...core, ...supporting];
 
-  const classification =
-    record.classification === "SAME_PLACE" &&
-    (core.length < 1 || matchedFeatures.length < MIN_SAME_PLACE_SIGNATURE_FEATURES)
-      ? "NEARBY_CONTEXT"
-      : record.classification;
+  const downgradeReasons: string[] = [];
+
+  if (record.classification === "SAME_PLACE") {
+    const requiredCore = requiredCoreFeatures(signature.core.length);
+
+    if (core.length < requiredCore) {
+      downgradeReasons.push(`needs ${requiredCore} core feature(s), verified ${core.length}`);
+    }
+
+    if (matchedFeatures.length < MIN_SAME_PLACE_SIGNATURE_FEATURES) {
+      downgradeReasons.push(`needs ${MIN_SAME_PLACE_SIGNATURE_FEATURES} verified features, verified ${matchedFeatures.length}`);
+    }
+
+    if (conflicts.length > 0) {
+      downgradeReasons.push(`contradicted core feature(s): ${conflicts.join(", ")}`);
+    }
+  }
+
+  const downgraded = downgradeReasons.length > 0;
 
   return {
-    result: { classification, score: record.score, reason: record.reason, matched_features: matchedFeatures },
+    result: {
+      classification: downgraded ? "NEARBY_CONTEXT" : record.classification,
+      score: downgraded ? Math.min(record.score, DOWNGRADED_SCORE_CAP) : record.score,
+      reason: record.reason,
+      matched_features: matchedFeatures,
+    },
     dropped,
+    downgradeReasons,
   };
 }

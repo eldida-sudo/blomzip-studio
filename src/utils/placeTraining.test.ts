@@ -188,9 +188,9 @@ describe("match confidence categories", () => {
 
   it("uses curator-facing labels", () => {
     expect(MATCH_CONFIDENCE_LABELS).toEqual({
-      strong: "Strong match",
-      possible: "Possible match",
-      low: "Low confidence",
+      strong: "High model score",
+      possible: "Medium model score",
+      low: "Low model score",
     });
   });
 

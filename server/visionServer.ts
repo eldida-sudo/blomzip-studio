@@ -395,7 +395,14 @@ app.post("/api/vision/place-signature", async (req, res) => {
       });
     }
 
-    console.log("Place signature derived:", { placeName: placeName.trim(), signature: parsed.signature });
+    if (process.env.NODE_ENV !== "production") {
+      // Diagnostic only: feature text and counts, never image data.
+      console.log("Place signature derived:", {
+        placeName: placeName.trim(),
+        anchorCount: anchorImageDataUrls.length,
+        signature: parsed.signature,
+      });
+    }
     res.json({ signature: parsed.signature, usage: response.usage });
   } catch (error) {
     console.error(error);
@@ -469,8 +476,9 @@ app.post("/api/vision/match-place", async (req, res) => {
               reason: { type: "string" },
               core_matched: stringArraySchema,
               supporting_matched: stringArraySchema,
+              conflicts: stringArraySchema,
             },
-            required: ["classification", "score", "reason", "core_matched", "supporting_matched"],
+            required: ["classification", "score", "reason", "core_matched", "supporting_matched", "conflicts"],
             additionalProperties: false,
           },
         },
@@ -504,7 +512,11 @@ app.post("/api/vision/match-place", async (req, res) => {
       });
     }
 
-    const { result, dropped } = enforcePlaceSignature(response.output_text, placeSignature);
+    const { result, dropped, downgradeReasons } = enforcePlaceSignature(response.output_text, placeSignature);
+
+    if (downgradeReasons.length > 0 && process.env.NODE_ENV !== "production") {
+      console.info("Place-match SAME_PLACE downgraded:", { placeName: placeName.trim(), downgradeReasons });
+    }
 
     if (dropped.length > 0) {
       console.warn("Place-match dropped features outside the signature:", dropped);

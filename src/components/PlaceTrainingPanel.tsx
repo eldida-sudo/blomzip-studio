@@ -564,7 +564,7 @@ export function PlaceTrainingPanel({
                   <strong className={`place-match-confidence ${getMatchConfidence(match.score)}`}>
                     {MATCH_CONFIDENCE_LABELS[getMatchConfidence(match.score)]}
                   </strong>
-                  <small className="place-match-score"> score {percent(match.score)}</small>
+                  <small className="place-match-score"> model-estimated score {percent(match.score)} (not a measured probability)</small>
                   <p>{match.reason}</p>
                   {match.matchedFeatures?.length ? (
                     <p className="place-match-features">Matched: {match.matchedFeatures.join(", ")}</p>

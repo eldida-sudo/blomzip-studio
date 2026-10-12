@@ -358,9 +358,9 @@ export const STRONG_MATCH_MIN_SCORE = 0.8;
 export const POSSIBLE_MATCH_MIN_SCORE = 0.55;
 
 export const MATCH_CONFIDENCE_LABELS: Record<MatchConfidence, string> = {
-  strong: "Strong match",
-  possible: "Possible match",
-  low: "Low confidence",
+  strong: "High model score",
+  possible: "Medium model score",
+  low: "Low model score",
 };
 
 /** Presentation only: a category never triggers an assignment. */
