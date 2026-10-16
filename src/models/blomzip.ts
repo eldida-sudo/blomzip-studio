@@ -66,6 +66,12 @@ export interface ExternalClassification {
   classifiedAt: string;
 }
 
+export interface OverviewClassification {
+  classifiedAt: string;
+  // Optional secondary references only; never a primary assignment or a visual anchor.
+  visiblePlaceIds?: string[];
+}
+
 export interface ImageRecord {
   id: string;
   importBatchId?: string;
@@ -90,6 +96,10 @@ export interface ImageRecord {
   // Curator-set only: photographed outside the courtyard (e.g. inspiration). Never inferred from model output.
   // Independent of placeId; removing it restores the photograph to the normal archive pool.
   externalClassification?: ExternalClassification;
+
+  // Curator-set only: shows the courtyard as a whole (e.g. a balcony view). Independent of placeId and
+  // externalClassification; removing it restores the photograph to the normal archive pool.
+  overviewClassification?: OverviewClassification;
 
   // Sidecar-provided metadata
   location?: Location;

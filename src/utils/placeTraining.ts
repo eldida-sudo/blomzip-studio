@@ -10,6 +10,7 @@ import type {
 } from "../models/blomzip";
 
 import { EXTERNAL_BLOCKED_MESSAGE, isExternalRecord, isPlaceMatchEligible } from "./externalClassification";
+import { isOverviewRecord, OVERVIEW_BLOCKED_MESSAGE } from "./courtyardOverview";
 
 export const MIN_PLACE_ANCHORS = 3;
 export const MAX_PLACE_ANCHORS = 8;
@@ -341,6 +342,10 @@ export function approveMatch(visit: Visit, state: PlaceTrainingState, resultId: 
     return { ok: false, error: EXTERNAL_BLOCKED_MESSAGE };
   }
 
+  if (isOverviewRecord(record)) {
+    return { ok: false, error: OVERVIEW_BLOCKED_MESSAGE };
+  }
+
   if (record.placeId) {
     return { ok: false, error: "This photograph already has a place, so it was left unchanged." };
   }
@@ -404,6 +409,10 @@ export function reassignMatch(
 
   if (isExternalRecord(record)) {
     return { ok: false, error: EXTERNAL_BLOCKED_MESSAGE };
+  }
+
+  if (isOverviewRecord(record)) {
+    return { ok: false, error: OVERVIEW_BLOCKED_MESSAGE };
   }
 
   if (record.placeId) {

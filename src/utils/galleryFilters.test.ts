@@ -34,7 +34,7 @@ describe("galleryFilters", () => {
   });
 
   it("counts per place, honouring only the hidden rule", () => {
-    expect(countImagesByPlace(items, false)).toEqual({ total: 2, unassigned: 1, external: 0, byPlace: { "rock-garden": 1 } });
-    expect(countImagesByPlace(items, true)).toEqual({ total: 4, unassigned: 2, external: 0, byPlace: { "rock-garden": 2 } });
+    expect(countImagesByPlace(items, false)).toEqual({ total: 2, unassigned: 1, external: 0, overview: 0, byPlace: { "rock-garden": 1 } });
+    expect(countImagesByPlace(items, true)).toEqual({ total: 4, unassigned: 2, external: 0, overview: 0, byPlace: { "rock-garden": 2 } });
   });
 });

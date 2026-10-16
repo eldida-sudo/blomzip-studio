@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Entry, EntryRecommendationEvidence, EntryRecommendationKind, EntrySuggestionCategory, Observation, VisualEvidenceSignalId, Visit } from "../models/blomzip";
 import { listCanonicalPlaces } from "../data/canonicalPlaces";
 import { EXTERNAL_PLACE_LABEL, isExternalRecord } from "../utils/externalClassification";
+import { isOverviewRecord, OVERVIEW_PLACE_LABEL } from "../utils/courtyardOverview";
 import { createThumbnailUrlForRecord } from "../utils/createThumbnailUrls";
 import { getEntryEditorialRecommendations } from "../utils/entryRecommendations";
 import { applyStoryRecommendations } from "../utils/storyRecommendations";
@@ -17,6 +18,8 @@ interface EntryReviewProps {
   onVisitFinalized?: (visit: Visit) => void;
   onImageRecordPlaceChanged?: (imageRecordId: string, placeId: string | null) => void;
   onExternalClassificationChanged?: (imageRecordId: string, external: boolean) => void;
+  onOverviewClassificationChanged?: (imageRecordId: string, overview: boolean) => void;
+  onOverviewVisiblePlacesChanged?: (imageRecordId: string, placeIds: string[]) => void;
   visionProvider?: VisionProvider;
 }
 
@@ -147,7 +150,7 @@ function formatCapturedDate(captureDate: string | undefined): string {
   return parsed.toLocaleString();
 }
 
-export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpdated, onVisitFinalized, onImageRecordPlaceChanged, onExternalClassificationChanged, visionProvider: visionProviderProp }: EntryReviewProps) {
+export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpdated, onVisitFinalized, onImageRecordPlaceChanged, onExternalClassificationChanged, onOverviewClassificationChanged, onOverviewVisiblePlacesChanged, visionProvider: visionProviderProp }: EntryReviewProps) {
   const [currentEntryId, setCurrentEntryId] = useState<string | null>(() => {
     if (visit.entries.length === 0) {
       return null;
@@ -260,6 +263,31 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
 
     setConfirmingExternalForId(null);
     onExternalClassificationChanged?.(imageRecord.id, true);
+  }
+
+  const [confirmingOverviewForId, setConfirmingOverviewForId] = useState<string | null>(null);
+  const isOverview = isOverviewRecord(imageRecord);
+  const isConfirmingOverview = Boolean(imageRecord && confirmingOverviewForId === imageRecord.id);
+  const overviewPlaceIds = imageRecord?.overviewClassification?.visiblePlaceIds ?? [];
+
+  function handleConfirmOverview() {
+    if (!imageRecord) return;
+
+    setConfirmingOverviewForId(null);
+    onOverviewClassificationChanged?.(imageRecord.id, true);
+  }
+
+  function handleUndoOverview() {
+    if (!imageRecord) return;
+
+    onOverviewClassificationChanged?.(imageRecord.id, false);
+  }
+
+  function handleOverviewPlaceToggle(placeId: string, checked: boolean) {
+    if (!imageRecord) return;
+
+    const next = checked ? [...overviewPlaceIds, placeId] : overviewPlaceIds.filter((id) => id !== placeId);
+    onOverviewVisiblePlacesChanged?.(imageRecord.id, next);
   }
 
   function handleReturnToArchivePool() {
@@ -1044,7 +1072,7 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
                 id="entry-review-canonical-place-select"
                 data-testid="canonical-place-select"
                 value={imageRecord?.placeId ?? ""}
-                disabled={isExternal}
+                disabled={isExternal || isOverview}
                 onChange={(event) => handleCanonicalPlaceChange(event.target.value)}
               >
                 <option value="">Unassigned</option>
@@ -1084,7 +1112,7 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
                   <button
                     type="button"
                     data-testid="external-mark-button"
-                    disabled={Boolean(imageRecord?.placeId) || !imageRecord}
+                    disabled={Boolean(imageRecord?.placeId) || isOverview || !imageRecord}
                     onClick={() => imageRecord && setConfirmingExternalForId(imageRecord.id)}
                   >
                     Mark as External / Inspiration
@@ -1093,6 +1121,66 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
                     {imageRecord?.placeId
                       ? "This photograph is assigned to a place. Set the place to Unassigned first; nothing is unassigned automatically."
                       : "For photographs taken elsewhere, such as inspiration images. Your choice only; Studio never sets this itself."}
+                  </p>
+                </>
+              )}
+            </div>
+            <div className="entry-review-field entry-review-overview" data-testid="panel-overview-classification">
+              <span className="entry-review-label-on-light">{OVERVIEW_PLACE_LABEL}</span>
+              {isOverview ? (
+                <>
+                  <p data-testid="overview-status">
+                    Marked {OVERVIEW_PLACE_LABEL}. This photograph shows the courtyard as a whole, so Studio will not pick a
+                    single primary place for it.
+                  </p>
+                  <fieldset className="entry-review-overview-places" data-testid="overview-places">
+                    <legend>Visible places (optional reference only, not an assignment)</legend>
+                    {canonicalPlaces.map((place) => (
+                      <label key={place.id}>
+                        <input
+                          type="checkbox"
+                          data-testid={`overview-place-${place.id}`}
+                          checked={overviewPlaceIds.includes(place.id)}
+                          onChange={(event) => handleOverviewPlaceToggle(place.id, event.target.checked)}
+                        />{" "}
+                        {place.displayName}
+                      </label>
+                    ))}
+                  </fieldset>
+                  <button type="button" data-testid="overview-undo-button" onClick={handleUndoOverview}>
+                    Return to archive pool
+                  </button>
+                </>
+              ) : isConfirmingOverview ? (
+                <>
+                  <p data-testid="overview-confirm-text">
+                    Confirm: this photograph shows several places or the courtyard as a whole. It stays in the archive,
+                    timeline and Story workflow but is excluded from primary-place matching and sorting. You can reverse
+                    this at any time.
+                  </p>
+                  <button type="button" data-testid="overview-confirm-button" onClick={handleConfirmOverview}>
+                    Confirm Courtyard Overview
+                  </button>
+                  <button type="button" data-testid="overview-cancel-button" onClick={() => setConfirmingOverviewForId(null)}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    data-testid="overview-mark-button"
+                    disabled={Boolean(imageRecord?.placeId) || isExternal || !imageRecord}
+                    onClick={() => imageRecord && setConfirmingOverviewForId(imageRecord.id)}
+                  >
+                    Mark as Courtyard Overview
+                  </button>
+                  <p className="result-count">
+                    {imageRecord?.placeId
+                      ? "This photograph is assigned to a place. Set the place to Unassigned first; nothing is unassigned automatically."
+                      : isExternal
+                        ? "This photograph is marked External / Inspiration. Return it to the archive pool first."
+                        : "For wide views showing several places at once. Your choice only; Studio never sets this itself."}
                   </p>
                 </>
               )}

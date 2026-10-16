@@ -346,7 +346,7 @@ describe("gallery filters and counts", () => {
   });
 
   it("counts external photographs separately from Unassigned", () => {
-    expect(countImagesByPlace(items, false)).toEqual({ total: 3, unassigned: 1, external: 1, byPlace: { "seating-area": 1 } });
+    expect(countImagesByPlace(items, false)).toEqual({ total: 3, unassigned: 1, external: 1, overview: 0, byPlace: { "seating-area": 1 } });
   });
 });
 

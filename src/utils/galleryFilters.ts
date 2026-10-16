@@ -2,6 +2,7 @@ import type { Entry, ImageRecord } from "../models/blomzip";
 
 export const UNASSIGNED_PLACE_FILTER = "__unassigned__";
 export const EXTERNAL_PLACE_FILTER = "__external__";
+export const OVERVIEW_PLACE_FILTER = "__overview__";
 
 export interface CurationFilters {
   unreviewedOnly: boolean;
@@ -17,7 +18,7 @@ export const DEFAULT_CURATION_FILTERS: CurationFilters = {
 
 interface FilterableItem {
   entry?: Pick<Entry, "hidden" | "reviewed" | "storySelected">;
-  imageRecord?: Pick<ImageRecord, "placeId" | "externalClassification">;
+  imageRecord?: Pick<ImageRecord, "placeId" | "externalClassification" | "overviewClassification">;
 }
 
 export function matchesPlaceFilter(item: FilterableItem, placeFilter: string | null): boolean {
@@ -29,8 +30,12 @@ export function matchesPlaceFilter(item: FilterableItem, placeFilter: string | n
     return Boolean(item.imageRecord?.externalClassification);
   }
 
+  if (placeFilter === OVERVIEW_PLACE_FILTER) {
+    return Boolean(item.imageRecord?.overviewClassification);
+  }
+
   if (placeFilter === UNASSIGNED_PLACE_FILTER) {
-    return !item.imageRecord?.placeId && !item.imageRecord?.externalClassification;
+    return !item.imageRecord?.placeId && !item.imageRecord?.externalClassification && !item.imageRecord?.overviewClassification;
   }
 
   return item.imageRecord?.placeId === placeFilter;
@@ -56,12 +61,13 @@ export interface PlaceImageCounts {
   total: number;
   unassigned: number;
   external: number;
+  overview: number;
   byPlace: Record<string, number>;
 }
 
 /** Counts honour only the hidden rule so a place count means "photographs in this place", whatever other filters are on. */
 export function countImagesByPlace(items: FilterableItem[], showHidden: boolean): PlaceImageCounts {
-  const counts: PlaceImageCounts = { total: 0, unassigned: 0, external: 0, byPlace: {} };
+  const counts: PlaceImageCounts = { total: 0, unassigned: 0, external: 0, overview: 0, byPlace: {} };
 
   for (const item of items) {
     if (item.entry?.hidden && !showHidden) {
@@ -73,6 +79,8 @@ export function countImagesByPlace(items: FilterableItem[], showHidden: boolean)
     const placeId = item.imageRecord?.placeId;
     if (item.imageRecord?.externalClassification && !placeId) {
       counts.external += 1;
+    } else if (item.imageRecord?.overviewClassification && !placeId) {
+      counts.overview += 1;
     } else if (placeId) {
       counts.byPlace[placeId] = (counts.byPlace[placeId] ?? 0) + 1;
     } else {

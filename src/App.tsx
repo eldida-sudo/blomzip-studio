@@ -39,9 +39,17 @@ import {
   markRecordExternal,
 } from "./utils/externalClassification";
 import {
+  clearRecordOverview,
+  isOverviewRecord,
+  markRecordOverview,
+  OVERVIEW_PLACE_LABEL,
+  setOverviewVisiblePlaces,
+} from "./utils/courtyardOverview";
+import {
   countImagesByPlace,
   DEFAULT_CURATION_FILTERS,
   EXTERNAL_PLACE_FILTER,
+  OVERVIEW_PLACE_FILTER,
   matchesCurationFilters,
   matchesPlaceFilter,
   UNASSIGNED_PLACE_FILTER,
@@ -206,7 +214,9 @@ function createDraftGalleryImage(options: {
     ? getPlaceById(imageRecord.placeId)?.displayName ?? "Unknown"
     : isExternalRecord(imageRecord)
       ? EXTERNAL_PLACE_LABEL
-      : "Unknown";
+      : isOverviewRecord(imageRecord)
+        ? OVERVIEW_PLACE_LABEL
+        : "Unknown";
 
   return {
     id: index + 1,
@@ -713,6 +723,32 @@ function App() {
     });
   }
 
+  function handleEntryReviewOverviewChanged(imageRecordId: string, overview: boolean) {
+    commitImportVisit((currentVisit) => {
+      if (!currentVisit) {
+        return currentVisit;
+      }
+
+      const outcome = overview
+        ? markRecordOverview(currentVisit, imageRecordId)
+        : clearRecordOverview(currentVisit, imageRecordId);
+
+      return outcome.ok ? outcome.visit : currentVisit;
+    });
+  }
+
+  function handleEntryReviewOverviewPlacesChanged(imageRecordId: string, placeIds: string[]) {
+    commitImportVisit((currentVisit) => {
+      if (!currentVisit) {
+        return currentVisit;
+      }
+
+      const outcome = setOverviewVisiblePlaces(currentVisit, imageRecordId, placeIds);
+
+      return outcome.ok ? outcome.visit : currentVisit;
+    });
+  }
+
   function handleEntryReviewImageRecordPlaceChanged(imageRecordId: string, placeId: string | null) {
     commitImportVisit((currentVisit) => {
       if (!currentVisit) {
@@ -726,7 +762,7 @@ function App() {
             return record;
           }
 
-          if (placeId !== null && isExternalRecord(record)) {
+          if (placeId !== null && (isExternalRecord(record) || isOverviewRecord(record))) {
             return record;
           }
 
@@ -1915,7 +1951,9 @@ function App() {
         ? getPlaceById(imageRecord.placeId)?.displayName ?? "Unknown"
         : isExternalRecord(imageRecord)
           ? EXTERNAL_PLACE_LABEL
-          : "Unknown"
+          : isOverviewRecord(imageRecord)
+            ? OVERVIEW_PLACE_LABEL
+            : "Unknown"
       : image.location;
 
     return (
@@ -1970,7 +2008,7 @@ function App() {
                 </span>
               ) : null}
 
-              {(image.favorite || image.hero || entry?.storySelected || entry?.hidden || isExternalRecord(imageRecord)) ? (
+              {(image.favorite || image.hero || entry?.storySelected || entry?.hidden || isExternalRecord(imageRecord) || isOverviewRecord(imageRecord)) ? (
                 <div className="gallery-card-curation" data-testid={`gallery-curation-${entry?.id ?? image.id}`} aria-label="Curator selections">
                   {image.favorite ? <span className="gallery-card-curation-chip">Favorite</span> : null}
                   {image.hero ? <span className="gallery-card-curation-chip">Hero</span> : null}
@@ -1979,6 +2017,11 @@ function App() {
                   {isExternalRecord(imageRecord) ? (
                     <span className="gallery-card-curation-chip" data-testid={`gallery-external-${entry?.id ?? image.id}`}>
                       {EXTERNAL_PLACE_LABEL}
+                    </span>
+                  ) : null}
+                  {isOverviewRecord(imageRecord) ? (
+                    <span className="gallery-card-curation-chip" data-testid={`gallery-overview-${entry?.id ?? image.id}`}>
+                      {OVERVIEW_PLACE_LABEL}
                     </span>
                   ) : null}
                 </div>
@@ -2346,6 +2389,8 @@ function App() {
             onVisitFinalized={handleVisitFinalized}
             onImageRecordPlaceChanged={handleEntryReviewImageRecordPlaceChanged}
             onExternalClassificationChanged={handleEntryReviewExternalClassificationChanged}
+            onOverviewClassificationChanged={handleEntryReviewOverviewChanged}
+            onOverviewVisiblePlacesChanged={handleEntryReviewOverviewPlacesChanged}
           />
         ) : (
           <div className="gallery-shell">
@@ -2422,7 +2467,9 @@ function App() {
                         ? getPlaceById(imageRecord.placeId)?.displayName ?? "Unknown"
                         : isExternalRecord(imageRecord)
                           ? EXTERNAL_PLACE_LABEL
-                          : "Unknown";
+                          : isOverviewRecord(imageRecord)
+                            ? OVERVIEW_PLACE_LABEL
+                            : "Unknown";
 
                       return (
                         <article
@@ -2966,6 +3013,16 @@ function App() {
                   onClick={() => setArchivePlaceFilter((current) => (current === EXTERNAL_PLACE_FILTER ? null : EXTERNAL_PLACE_FILTER))}
                 >
                   {EXTERNAL_PLACE_LABEL} ({placeImageCounts.external})
+                </button>
+                <button
+                  type="button"
+                  className={archivePlaceFilter === OVERVIEW_PLACE_FILTER ? "active" : ""}
+                  aria-pressed={archivePlaceFilter === OVERVIEW_PLACE_FILTER}
+                  disabled={!importVisit}
+                  data-testid="filter-overview"
+                  onClick={() => setArchivePlaceFilter((current) => (current === OVERVIEW_PLACE_FILTER ? null : OVERVIEW_PLACE_FILTER))}
+                >
+                  {OVERVIEW_PLACE_LABEL} ({placeImageCounts.overview})
                 </button>
                 <button
                   type="button"

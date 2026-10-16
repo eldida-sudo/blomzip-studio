@@ -1159,4 +1159,94 @@ describe("EntryReview", () => {
       expect((container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement).value).toBe("rock-garden");
     });
   });
+
+  describe("Courtyard Overview", () => {
+    const NOW = "2026-10-16T10:00:00.000Z";
+
+    function Harness({ initial, onChange, onPlaces }: { initial: Visit; onChange?: (id: string, overview: boolean) => void; onPlaces?: (id: string, ids: string[]) => void }) {
+      const [current, setCurrent] = useState(initial);
+      const update = (id: string, fn: (record: NonNullable<Visit["imageRecords"]>[number]) => NonNullable<Visit["imageRecords"]>[number]) =>
+        setCurrent((existing) => ({ ...existing, imageRecords: existing.imageRecords?.map((record) => (record.id === id ? fn(record) : record)) }));
+
+      return (
+        <EntryReview
+          visit={current}
+          onOverviewClassificationChanged={(id, overview) => {
+            onChange?.(id, overview);
+            update(id, (record) => {
+              const { overviewClassification: _removed, ...rest } = record;
+              return overview ? { ...rest, overviewClassification: { classifiedAt: NOW } } : rest;
+            });
+          }}
+          onOverviewVisiblePlacesChanged={(id, ids) => {
+            onPlaces?.(id, ids);
+            update(id, (record) => ({ ...record, overviewClassification: { classifiedAt: NOW, visiblePlaceIds: ids } }));
+          }}
+        />
+      );
+    }
+
+    const click = (testId: string) =>
+      act(() => {
+        container.querySelector(`[data-testid="${testId}"]`)?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    const select = (selector: string) => container.querySelector(selector) as HTMLInputElement | HTMLSelectElement | HTMLButtonElement;
+
+    it("requires confirmation, can be cancelled, records references, and is reversible", () => {
+      const onChange = vi.fn();
+      const onPlaces = vi.fn();
+      act(() => root.render(<Harness initial={visit} onChange={onChange} onPlaces={onPlaces} />));
+
+      click("overview-mark-button");
+      expect(container.querySelector('[data-testid="overview-confirm-text"]')).not.toBeNull();
+      expect(onChange).not.toHaveBeenCalled();
+      click("overview-cancel-button");
+      expect(onChange).not.toHaveBeenCalled();
+
+      click("overview-mark-button");
+      click("overview-confirm-button");
+      expect(onChange).toHaveBeenCalledWith("image-1", true);
+      expect(container.querySelector('[data-testid="overview-status"]')?.textContent).toContain("Courtyard Overview");
+      expect((select('[data-testid="canonical-place-select"]') as HTMLSelectElement).disabled).toBe(true);
+      expect((select('[data-testid="external-mark-button"]') as HTMLButtonElement).disabled).toBe(true);
+
+      click("overview-place-rock-garden");
+      click("overview-place-shade-corner");
+      expect(onPlaces).toHaveBeenLastCalledWith("image-1", ["rock-garden", "shade-corner"]);
+      expect((select('[data-testid="overview-place-rock-garden"]') as HTMLInputElement).checked).toBe(true);
+      click("overview-place-rock-garden");
+      expect(onPlaces).toHaveBeenLastCalledWith("image-1", ["shade-corner"]);
+
+      click("overview-undo-button");
+      expect(onChange).toHaveBeenLastCalledWith("image-1", false);
+      expect(container.querySelector('[data-testid="overview-mark-button"]')).not.toBeNull();
+      expect((select('[data-testid="canonical-place-select"]') as HTMLSelectElement).disabled).toBe(false);
+    });
+
+    it("is not offered for an assigned photograph and never unassigns it", () => {
+      const assigned: Visit = {
+        ...visit,
+        imageRecords: visit.imageRecords?.map((record) => (record.id === "image-1" ? { ...record, placeId: "rock-garden" } : record)),
+      };
+      const onChange = vi.fn();
+      act(() => root.render(<Harness initial={assigned} onChange={onChange} />));
+
+      expect((select('[data-testid="overview-mark-button"]') as HTMLButtonElement).disabled).toBe(true);
+      expect(container.querySelector('[data-testid="panel-overview-classification"]')?.textContent).toContain("nothing is unassigned automatically");
+      click("overview-mark-button");
+      expect(onChange).not.toHaveBeenCalled();
+      expect((select('[data-testid="canonical-place-select"]') as HTMLSelectElement).value).toBe("rock-garden");
+    });
+
+    it("is not offered for an External / Inspiration photograph", () => {
+      const external: Visit = {
+        ...visit,
+        imageRecords: visit.imageRecords?.map((record) => (record.id === "image-1" ? { ...record, externalClassification: { classifiedAt: NOW } } : record)),
+      };
+      act(() => root.render(<Harness initial={external} />));
+
+      expect((select('[data-testid="overview-mark-button"]') as HTMLButtonElement).disabled).toBe(true);
+      expect(container.querySelector('[data-testid="external-status"]')).not.toBeNull();
+    });
+  });
 });

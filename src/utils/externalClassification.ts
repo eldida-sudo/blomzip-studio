@@ -9,8 +9,10 @@ export function isExternalRecord(record: Pick<ImageRecord, "externalClassificati
 }
 
 /** Only unassigned, non-external photographs may be discovered, matched, sorted or assigned. */
-export function isPlaceMatchEligible(record: Pick<ImageRecord, "placeId" | "externalClassification">): boolean {
-  return !record.placeId && !record.externalClassification;
+export function isPlaceMatchEligible(
+  record: Pick<ImageRecord, "placeId" | "externalClassification" | "overviewClassification">
+): boolean {
+  return !record.placeId && !record.externalClassification && !record.overviewClassification;
 }
 
 /** Eligibility against the latest visit, for re-checking before a model request or when its result arrives. */
@@ -33,6 +35,13 @@ export function markRecordExternal(visit: Visit, imageRecordId: string, now: str
     return {
       ok: false,
       error: "This photograph is assigned to a place. Unassign it first if it was not taken in the courtyard.",
+    };
+  }
+
+  if (record.overviewClassification) {
+    return {
+      ok: false,
+      error: "This photograph is marked Courtyard Overview. Return it to the archive pool first if it was taken elsewhere.",
     };
   }
 
