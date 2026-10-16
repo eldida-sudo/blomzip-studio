@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { PreviewThumbnailButton, useImagePreview } from "./ImagePreviewLightbox";
 import { getPlaceById, listCanonicalPlaces, type CanonicalPlace } from "../data/canonicalPlaces";
 import type {
@@ -11,6 +11,7 @@ import type {
 import { blobToDataUrl, createAnalysisImage, imageUrlToBlob } from "../utils/analysisImage";
 import { createThumbnailUrlForRecord } from "../utils/createThumbnailUrls";
 import { resolvePlaceSignature } from "../utils/placeSignatureCache";
+import { createAnchorImageBackup, importAnchorImageBackup } from "../utils/placeAnchorBackup";
 import { getAnchorImages, putAnchorImage, type StoredAnchorImage } from "../utils/placeAnchorStore";
 import {
   addPlaceAnchors,
@@ -85,6 +86,8 @@ export function PlaceTrainingPanel({
   const [message, setMessage] = useState<{ tone: "error" | "info"; text: string } | null>(null);
   const [undoResultId, setUndoResultId] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [anchorReloadCount, setAnchorReloadCount] = useState(0);
+  const [backupStatus, setBackupStatus] = useState<{ tone: "error" | "info"; text: string } | null>(null);
   const [isPickingFromArchive, setIsPickingFromArchive] = useState(false);
   const [pickedRecordIds, setPickedRecordIds] = useState<string[]>([]);
   const [isMatching, setIsMatching] = useState(false);
@@ -126,7 +129,7 @@ export function PlaceTrainingPanel({
     return () => {
       cancelled = true;
     };
-  }, [anchorIdKey]);
+  }, [anchorIdKey, anchorReloadCount]);
 
   useEffect(
     () => () => {
@@ -635,6 +638,57 @@ export function PlaceTrainingPanel({
     setMessage(error ? { tone: "error", text: error } : { tone: "info", text: "Review undone." });
   }
 
+  async function handleExportAnchorImages() {
+    setBackupStatus(null);
+
+    try {
+      const backup = await createAnchorImageBackup();
+      const url = URL.createObjectURL(new Blob([JSON.stringify(backup)], { type: "application/json" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `blomzip-anchor-images-${backup.exportedAt.slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setBackupStatus({ tone: "info", text: `Exported ${backup.images.length} anchor image(s).` });
+    } catch (error) {
+      setBackupStatus({ tone: "error", text: error instanceof Error ? error.message : "Could not export anchor images." });
+    }
+  }
+
+  async function handleImportAnchorImages(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+
+    if (!file) {
+      return;
+    }
+
+    setBackupStatus(null);
+    setIsBusy(true);
+
+    try {
+      const outcome = await importAnchorImageBackup(await file.text());
+
+      if (!outcome.ok) {
+        setBackupStatus({ tone: "error", text: `${outcome.error} Nothing was imported.` });
+        return;
+      }
+
+      const { added, skipped, errors } = outcome.result;
+      setBackupStatus({
+        tone: errors > 0 ? "error" : "info",
+        text: `Import finished: ${added} added, ${skipped} skipped (already present), ${errors} error(s).`,
+      });
+      setAnchorReloadCount((count) => count + 1);
+    } catch {
+      setBackupStatus({ tone: "error", text: "Could not read the selected file. Nothing was imported." });
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   return (
     <section className="place-training-panel" data-testid="place-training-panel" aria-label={`Train ${place.displayName}`}>
       <div className="place-training-header">
@@ -652,9 +706,37 @@ export function PlaceTrainingPanel({
         added to the archive. Use {MIN_PLACE_ANCHORS}–{MAX_PLACE_ANCHORS}.
       </p>
       <p className="result-count" data-testid="place-anchor-backup-note">
-        Uploaded training images are stored in this browser only and are not included in archive backups. After restoring
-        a backup on another browser or device, re-upload them.
+        Anchor images are stored in this browser only and are not part of the normal archive backup. For full recovery
+        keep both: the archive backup (anchor details, assignments and history) and the anchor-image backup (the image
+        files). Importing only adds missing images; existing images are never overwritten.
       </p>
+      <div className="place-training-actions" data-testid="place-anchor-backup-controls">
+        <button
+          type="button"
+          className="secondary-action"
+          data-testid="place-anchor-export-button"
+          disabled={isBusy}
+          onClick={() => void handleExportAnchorImages()}
+        >
+          Export anchor images
+        </button>
+        <label className={`secondary-action${isBusy ? " is-disabled" : ""}`}>
+          Import anchor images
+          <input
+            type="file"
+            accept="application/json,.json"
+            hidden
+            data-testid="place-anchor-import-input"
+            disabled={isBusy}
+            onChange={(event) => void handleImportAnchorImages(event)}
+          />
+        </label>
+      </div>
+      {backupStatus ? (
+        <p className="result-count" role="status" data-testid="place-anchor-backup-status">
+          {backupStatus.text}
+        </p>
+      ) : null}
 
       <div className="place-anchor-grid">
         {anchors.map((anchor) => {
