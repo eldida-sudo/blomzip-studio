@@ -62,6 +62,10 @@ export interface DraftWorkspace {
   activeDraftId: string | null;
 }
 
+export interface ExternalClassification {
+  classifiedAt: string;
+}
+
 export interface ImageRecord {
   id: string;
   importBatchId?: string;
@@ -82,6 +86,10 @@ export interface ImageRecord {
   // Exact content fingerprint and occurrence provenance
   contentHash?: string;
   additionalOccurrences?: ImageOccurrence[];
+
+  // Curator-set only: photographed outside the courtyard (e.g. inspiration). Never inferred from model output.
+  // Independent of placeId; removing it restores the photograph to the normal archive pool.
+  externalClassification?: ExternalClassification;
 
   // Sidecar-provided metadata
   location?: Location;

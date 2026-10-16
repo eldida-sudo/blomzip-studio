@@ -5,7 +5,7 @@
 import { useRef, useState } from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getPlaceById } from "../data/canonicalPlaces";
 import type { PlaceTrainingState, Visit } from "../models/blomzip";
 import {
@@ -178,5 +178,48 @@ describe("PlaceTrainingPanel review actions", () => {
     expect(picker?.textContent).toContain("not proof");
     expect(container.querySelector("[data-testid='archive-anchor-candidate-img-1']")).toBeNull();
     expect((container.querySelector("[data-testid='confirm-archive-anchors']") as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("PlaceTrainingPanel with External / Inspiration photographs", () => {
+  it("hides stale suggestions and counts no candidates for an external photograph, without any provider call", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const externalVisit: Visit = {
+      ...initialVisit,
+      imageRecords: (initialVisit.imageRecords ?? []).map((record) => ({
+        ...record,
+        externalClassification: { classifiedAt: "2026-10-16T10:00:00.000Z" },
+      })),
+    };
+    const provider = { matchPlaceCandidate: vi.fn(), derivePlaceSignature: vi.fn() } as unknown as VisionProvider;
+
+    act(() =>
+      root.render(
+        <PlaceTrainingPanel
+          place={place}
+          visit={externalVisit}
+          training={initialTraining}
+          getTraining={() => initialTraining}
+          onTrainingChange={() => undefined}
+          onApproveMatch={() => null}
+          onReassignMatch={() => null}
+          onMarkUnsure={() => undefined}
+          onUndoReview={() => null}
+          visionProvider={provider}
+        />
+      )
+    );
+
+    expect(container.textContent).not.toContain("Approve suggested place");
+    expect(container.querySelector("[data-testid='place-match-list']")).toBeNull();
+    expect(container.querySelector("[data-testid='reevaluate-place-matches']")?.textContent).toContain("Re-evaluate matches (0)");
+    expect(selectMatchCandidates(externalVisit, "seating-area", createEmptyPlaceTrainingState())).toEqual([]);
+    expect(provider.matchPlaceCandidate).not.toHaveBeenCalled();
+    expect(provider.derivePlaceSignature).not.toHaveBeenCalled();
+
+    act(() => root.unmount());
+    container.remove();
   });
 });

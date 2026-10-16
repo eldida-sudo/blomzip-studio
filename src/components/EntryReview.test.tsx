@@ -1091,4 +1091,72 @@ describe("EntryReview", () => {
     expect(container.textContent).toContain("Story not selected");
     expect(Array.from(container.querySelectorAll("button")).some((button) => button.textContent === "Mark entry reviewed")).toBe(true);
   });
+
+  describe("External / Inspiration", () => {
+    function Harness({ initial, onChange }: { initial: Visit; onChange?: (id: string, external: boolean) => void }) {
+      const [current, setCurrent] = useState(initial);
+
+      return (
+        <EntryReview
+          visit={current}
+          onExternalClassificationChanged={(id, external) => {
+            onChange?.(id, external);
+            setCurrent((existing) => ({
+              ...existing,
+              imageRecords: existing.imageRecords?.map((record) => {
+                if (record.id !== id) return record;
+                const { externalClassification: _removed, ...rest } = record;
+                return external ? { ...rest, externalClassification: { classifiedAt: "2026-10-16T10:00:00.000Z" } } : rest;
+              }),
+            }));
+          }}
+        />
+      );
+    }
+
+    const click = (testId: string) =>
+      act(() => {
+        container.querySelector(`[data-testid="${testId}"]`)?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+
+    it("requires confirmation, can be cancelled, and is reversible", () => {
+      const onChange = vi.fn();
+      act(() => root.render(<Harness initial={visit} onChange={onChange} />));
+
+      click("external-mark-button");
+      expect(container.querySelector('[data-testid="external-confirm-text"]')).not.toBeNull();
+      expect(onChange).not.toHaveBeenCalled();
+
+      click("external-cancel-button");
+      expect(container.querySelector('[data-testid="external-mark-button"]')).not.toBeNull();
+      expect(onChange).not.toHaveBeenCalled();
+
+      click("external-mark-button");
+      click("external-confirm-button");
+      expect(onChange).toHaveBeenCalledWith("image-1", true);
+      expect(container.querySelector('[data-testid="external-status"]')?.textContent).toContain("External / Inspiration");
+      expect((container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement).disabled).toBe(true);
+
+      click("external-return-button");
+      expect(onChange).toHaveBeenLastCalledWith("image-1", false);
+      expect(container.querySelector('[data-testid="external-mark-button"]')).not.toBeNull();
+      expect((container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement).disabled).toBe(false);
+    });
+
+    it("does not offer the action for an assigned photograph and never unassigns it", () => {
+      const assigned: Visit = {
+        ...visit,
+        imageRecords: visit.imageRecords?.map((record) => (record.id === "image-1" ? { ...record, placeId: "rock-garden" } : record)),
+      };
+      const onChange = vi.fn();
+      act(() => root.render(<Harness initial={assigned} onChange={onChange} />));
+
+      const mark = container.querySelector('[data-testid="external-mark-button"]') as HTMLButtonElement;
+      expect(mark.disabled).toBe(true);
+      expect(container.querySelector('[data-testid="panel-external-classification"]')?.textContent).toContain("nothing is unassigned automatically");
+      click("external-mark-button");
+      expect(onChange).not.toHaveBeenCalled();
+      expect((container.querySelector('[data-testid="canonical-place-select"]') as HTMLSelectElement).value).toBe("rock-garden");
+    });
+  });
 });

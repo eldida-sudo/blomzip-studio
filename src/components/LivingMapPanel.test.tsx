@@ -52,7 +52,7 @@ describe("LivingMapPanel", () => {
       root.render(
         <LivingMapPanel
           onPlaceSelect={(placeId) => selected.push(placeId)}
-          placeCounts={{ total: 5, unassigned: 3, byPlace: { "rock-garden": 2 } }}
+          placeCounts={{ total: 5, unassigned: 3, external: 0, byPlace: { "rock-garden": 2 } }}
         />
       )
     );

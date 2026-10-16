@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { listCanonicalPlaces } from "../data/canonicalPlaces";
 import { getPlaceHotspot } from "../data/placeHotspots";
-import { UNASSIGNED_PLACE_FILTER, type PlaceImageCounts } from "../utils/galleryFilters";
+import { EXTERNAL_PLACE_FILTER, UNASSIGNED_PLACE_FILTER, type PlaceImageCounts } from "../utils/galleryFilters";
 import { PlaceMapReference } from "./PlaceMapReference";
 
 const LIVING_MAP_IMAGE = "/images/living-map.png";
@@ -160,7 +160,7 @@ export function LivingMapPanel({ selectedPlaceId: controlledPlaceId, onPlaceSele
         <div className="place-map-overlay" onClick={() => setIsFullMapOpen(false)}>
           <div className="place-map-popover" onClick={(event) => event.stopPropagation()}>
             <PlaceMapReference
-              selectedPlaceId={activePlaceId && activePlaceId !== UNASSIGNED_PLACE_FILTER ? activePlaceId : undefined}
+              selectedPlaceId={activePlaceId && activePlaceId !== UNASSIGNED_PLACE_FILTER && activePlaceId !== EXTERNAL_PLACE_FILTER ? activePlaceId : undefined}
               onClose={() => setIsFullMapOpen(false)}
             />
           </div>

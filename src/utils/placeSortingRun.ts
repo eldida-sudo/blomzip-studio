@@ -1,5 +1,6 @@
 import type { ImageRecord, PlaceTrainingState, Visit } from "../models/blomzip";
 import { getPlaceById } from "../data/canonicalPlaces";
+import { isRecordEligibleNow } from "./externalClassification";
 import { planSortingRun, listSortablePlaceIds, type SortingRunPlan } from "./placeSorting";
 import {
   computeAnchorSetKey,
@@ -62,6 +63,8 @@ export interface SortingRunDeps {
   anchorImages: SortingAnchorImages;
   prepareCandidateImage: (record: ImageRecord) => Promise<string>;
   isCancelled: () => boolean;
+  /** Latest visit; lets a curator's External / Inspiration decision stop in-flight work. Defaults to the starting visit. */
+  getVisit?: () => Visit | null;
   onProgress?: (done: number, total: number) => void;
   hash?: BlobHasher;
   now?: () => string;
@@ -97,6 +100,8 @@ export async function runSortingBatch(visit: Visit, deps: SortingRunDeps): Promi
 
   deps.onProgress?.(0, total);
 
+  const stillEligible = (imageRecordId: string) => isRecordEligibleNow(deps.getVisit ? deps.getVisit() : visit, imageRecordId);
+
   for (const item of readiness.plan.items) {
     if (deps.isCancelled()) {
       summary.stopped = true;
@@ -109,6 +114,12 @@ export async function runSortingBatch(visit: Visit, deps: SortingRunDeps): Promi
       if (deps.isCancelled()) {
         summary.stopped = true;
         break;
+      }
+
+      if (!stillEligible(item.record.id)) {
+        done += 1;
+        deps.onProgress?.(done, total);
+        continue;
       }
 
       try {
@@ -144,6 +155,12 @@ export async function runSortingBatch(visit: Visit, deps: SortingRunDeps): Promi
           anchorImageDataUrls: resolved.anchorDataUrls,
           signature: resolved.signature,
         });
+
+        if (!stillEligible(item.record.id)) {
+          done += 1;
+          deps.onProgress?.(done, total);
+          continue;
+        }
 
         const resultId = createMatchResultId(outcome.placeId, outcome.imageRecordId);
         commit((current) =>

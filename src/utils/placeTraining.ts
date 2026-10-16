@@ -9,6 +9,8 @@ import type {
   Visit,
 } from "../models/blomzip";
 
+import { EXTERNAL_BLOCKED_MESSAGE, isExternalRecord, isPlaceMatchEligible } from "./externalClassification";
+
 export const MIN_PLACE_ANCHORS = 3;
 export const MAX_PLACE_ANCHORS = 8;
 export const MAX_MATCH_CANDIDATES_PER_RUN = 20;
@@ -147,7 +149,7 @@ export function selectMatchCandidates(
   );
 
   return visit.imageRecords
-    .filter((record) => !record.placeId && hasRuntimeImageData(record) && !judged.has(record.id))
+    .filter((record) => isPlaceMatchEligible(record) && hasRuntimeImageData(record) && !judged.has(record.id))
     .slice(0, limit);
 }
 
@@ -160,7 +162,7 @@ function isReevaluationEligible(
   state: PlaceTrainingState,
   record: ImageRecord
 ): boolean {
-  if (record.placeId || !hasRuntimeImageData(record)) {
+  if (!isPlaceMatchEligible(record) || !hasRuntimeImageData(record)) {
     return false;
   }
 
@@ -288,7 +290,7 @@ function listPendingByClassification(
   classification: PlaceMatchClassification
 ): PlaceMatchResult[] {
   const unassignedIds = new Set(
-    (visit?.imageRecords ?? []).filter((record) => !record.placeId).map((record) => record.id)
+    (visit?.imageRecords ?? []).filter(isPlaceMatchEligible).map((record) => record.id)
   );
 
   return state.matchResults
@@ -333,6 +335,10 @@ export function approveMatch(visit: Visit, state: PlaceTrainingState, resultId: 
 
   if (result.classification !== "SAME_PLACE") {
     return { ok: false, error: "Only photographs classified as the same place can be approved." };
+  }
+
+  if (isExternalRecord(record)) {
+    return { ok: false, error: EXTERNAL_BLOCKED_MESSAGE };
   }
 
   if (record.placeId) {
@@ -394,6 +400,10 @@ export function reassignMatch(
 
   if (!record) {
     return { ok: false, error: "That photograph is no longer in the archive." };
+  }
+
+  if (isExternalRecord(record)) {
+    return { ok: false, error: EXTERNAL_BLOCKED_MESSAGE };
   }
 
   if (record.placeId) {

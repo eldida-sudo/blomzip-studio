@@ -80,6 +80,8 @@ export function PlaceSortingQueue({
   const [message, setMessage] = useState<{ tone: "error" | "info"; text: string } | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const cancelRef = useRef(false);
+  const visitRef = useRef(visit);
+  visitRef.current = visit;
 
   const anchorIdKey = Object.values(training.anchorsByPlaceId)
     .flatMap((anchors) => anchors.map((anchor) => anchor.id))
@@ -150,6 +152,7 @@ export function PlaceSortingQueue({
             (await createAnalysisImage(await imageUrlToBlob(createThumbnailUrlForRecord(record) as string))).blob
           ),
         isCancelled: () => cancelRef.current,
+        getVisit: () => visitRef.current,
         onProgress: (done, total) => setProgress({ done, total }),
       });
       const calls = summary.comparisonCalls + summary.signatureCalls;

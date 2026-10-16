@@ -15,6 +15,7 @@ import {
   upsertMatchResult,
   type ReviewOutcome,
 } from "./placeTraining";
+import { EXTERNAL_BLOCKED_MESSAGE, isExternalRecord, isPlaceMatchEligible } from "./externalClassification";
 import { MIN_SAME_PLACE_FEATURES } from "./visionProvider";
 
 export const SORTING_BATCH_SIZE = 5;
@@ -139,7 +140,7 @@ function hasUnsureDecision(state: PlaceTrainingState, imageRecordId: string): bo
 }
 
 function listUnassigned(visit: Visit | null): ImageRecord[] {
-  return (visit?.imageRecords ?? []).filter((record) => !record.placeId);
+  return (visit?.imageRecords ?? []).filter(isPlaceMatchEligible);
 }
 
 /** Unassigned photographs awaiting a curator decision, excluding those set aside as "not sure". */
@@ -240,6 +241,10 @@ export function assignSortingPhoto(
 
   if (!record) {
     return { ok: false, error: "That photograph is no longer in the archive." };
+  }
+
+  if (isExternalRecord(record)) {
+    return { ok: false, error: EXTERNAL_BLOCKED_MESSAGE };
   }
 
   if (record.placeId) {

@@ -11,6 +11,7 @@ import type {
 import { blobToDataUrl, createAnalysisImage, imageUrlToBlob } from "../utils/analysisImage";
 import { createThumbnailUrlForRecord } from "../utils/createThumbnailUrls";
 import { resolvePlaceSignature } from "../utils/placeSignatureCache";
+import { isRecordEligibleNow } from "../utils/externalClassification";
 import { createAnchorImageBackup, importAnchorImageBackup } from "../utils/placeAnchorBackup";
 import { getAnchorImages, putAnchorImage, type StoredAnchorImage } from "../utils/placeAnchorStore";
 import {
@@ -407,17 +408,34 @@ export function PlaceTrainingPanel({
           break;
         }
 
+        if (!isRecordEligibleNow(visitRef.current, record.id)) {
+          setProgress({ done: index + 1, total: candidates.length });
+          continue;
+        }
+
         try {
           const url = createThumbnailUrlForRecord(record) as string;
           const analysisImage = await createAnalysisImage(await imageUrlToBlob(url));
+          const candidateImageDataUrl = await blobToDataUrl(analysisImage.blob);
+
+          if (!isRecordEligibleNow(visitRef.current, record.id)) {
+            setProgress({ done: index + 1, total: candidates.length });
+            continue;
+          }
+
           const outcome = await matchFn({
             placeId: place.id,
             placeName: place.displayName,
             imageRecordId: record.id,
-            candidateImageDataUrl: await blobToDataUrl(analysisImage.blob),
+            candidateImageDataUrl,
             anchorImageDataUrls: anchorDataUrls,
             signature,
           });
+
+          if (!isRecordEligibleNow(visitRef.current, record.id)) {
+            setProgress({ done: index + 1, total: candidates.length });
+            continue;
+          }
 
           onTrainingChange((current) =>
             upsertMatchResult(current, {
@@ -516,20 +534,37 @@ export function PlaceTrainingPanel({
           break;
         }
 
+        if (!isRecordEligibleNow(visitRef.current, record.id)) {
+          setProgress({ done: index + 1, total: candidates.length });
+          continue;
+        }
+
         try {
           const url = createThumbnailUrlForRecord(record);
           if (!url) {
             throw new Error("Photograph image data is no longer available.");
           }
           const analysisImage = await createAnalysisImage(await imageUrlToBlob(url));
+          const candidateImageDataUrl = await blobToDataUrl(analysisImage.blob);
+
+          if (!isRecordEligibleNow(visitRef.current, record.id)) {
+            setProgress({ done: index + 1, total: candidates.length });
+            continue;
+          }
+
           const outcome = await matchFn({
             placeId: place.id,
             placeName: place.displayName,
             imageRecordId: record.id,
-            candidateImageDataUrl: await blobToDataUrl(analysisImage.blob),
+            candidateImageDataUrl,
             anchorImageDataUrls: anchorDataUrls,
             signature,
           });
+
+          if (!isRecordEligibleNow(visitRef.current, record.id)) {
+            setProgress({ done: index + 1, total: candidates.length });
+            continue;
+          }
 
           if (!outcome.engineVersion) {
             throw new Error("Vision proxy response did not identify the matching engine version.");

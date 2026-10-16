@@ -1,5 +1,6 @@
 import type { Entry, ImageRecord, Visit } from "../models/blomzip";
 import { parseCaptureDate } from "./captureDate";
+import { isPlaceMatchEligible } from "./externalClassification";
 
 export interface VisionPlaceCandidateGroup {
   id: string;
@@ -140,7 +141,7 @@ function buildFeatureRows(visit: Visit, importBatchId?: string | null): FeatureR
     ? imageRecords.filter((record) => record.importBatchId === importBatchId)
     : imageRecords;
 
-  const unassignedRecords = recordsToAnalyze.filter((record) => !record.placeId);
+  const unassignedRecords = recordsToAnalyze.filter(isPlaceMatchEligible);
 
   return unassignedRecords.map((record, index) => {
     const width = record.width ?? 0;

@@ -32,8 +32,16 @@ import {
   type SafetySnapshotSummary,
 } from "./utils/archivePersistence";
 import {
+  clearRecordExternal,
+  EXTERNAL_PLACE_LABEL,
+  isExternalRecord,
+  isPlaceMatchEligible,
+  markRecordExternal,
+} from "./utils/externalClassification";
+import {
   countImagesByPlace,
   DEFAULT_CURATION_FILTERS,
+  EXTERNAL_PLACE_FILTER,
   matchesCurationFilters,
   matchesPlaceFilter,
   UNASSIGNED_PLACE_FILTER,
@@ -196,7 +204,9 @@ function createDraftGalleryImage(options: {
   const filename = imageRecord?.filename ?? `entry-${index + 1}`;
   const placeLabel = imageRecord?.placeId
     ? getPlaceById(imageRecord.placeId)?.displayName ?? "Unknown"
-    : "Unknown";
+    : isExternalRecord(imageRecord)
+      ? EXTERNAL_PLACE_LABEL
+      : "Unknown";
 
   return {
     id: index + 1,
@@ -241,7 +251,8 @@ function assignCanonicalPlaceToVisionGroup(options: {
     }
 
     // Approved assignments are immutable; never overwrite an existing place id.
-    if (record.placeId) {
+    // External / Inspiration photographs are never assigned a courtyard place.
+    if (!isPlaceMatchEligible(record)) {
       return record;
     }
 
@@ -688,6 +699,20 @@ function App() {
     });
   }
 
+  function handleEntryReviewExternalClassificationChanged(imageRecordId: string, external: boolean) {
+    commitImportVisit((currentVisit) => {
+      if (!currentVisit) {
+        return currentVisit;
+      }
+
+      const outcome = external
+        ? markRecordExternal(currentVisit, imageRecordId)
+        : clearRecordExternal(currentVisit, imageRecordId);
+
+      return outcome.ok ? outcome.visit : currentVisit;
+    });
+  }
+
   function handleEntryReviewImageRecordPlaceChanged(imageRecordId: string, placeId: string | null) {
     commitImportVisit((currentVisit) => {
       if (!currentVisit) {
@@ -698,6 +723,10 @@ function App() {
         ...currentVisit,
         imageRecords: (currentVisit.imageRecords ?? []).map((record) => {
           if (record.id !== imageRecordId) {
+            return record;
+          }
+
+          if (placeId !== null && isExternalRecord(record)) {
             return record;
           }
 
@@ -1347,7 +1376,7 @@ function App() {
           }
 
           const record = imageRecordsById.get(recordId);
-          return Boolean(record && !record.placeId);
+          return Boolean(record && isPlaceMatchEligible(record));
         });
         const actionablePoolIdSet = new Set(actionablePoolIds);
 
@@ -1800,7 +1829,7 @@ function App() {
       }
 
       const record = imageRecordsById.get(recordId);
-      return Boolean(record && !record.placeId);
+      return Boolean(record && isPlaceMatchEligible(record));
     });
   }
 
@@ -1884,7 +1913,9 @@ function App() {
     const placeLabel = importVisit
       ? imageRecord?.placeId
         ? getPlaceById(imageRecord.placeId)?.displayName ?? "Unknown"
-        : "Unknown"
+        : isExternalRecord(imageRecord)
+          ? EXTERNAL_PLACE_LABEL
+          : "Unknown"
       : image.location;
 
     return (
@@ -1939,12 +1970,17 @@ function App() {
                 </span>
               ) : null}
 
-              {(image.favorite || image.hero || entry?.storySelected || entry?.hidden) ? (
+              {(image.favorite || image.hero || entry?.storySelected || entry?.hidden || isExternalRecord(imageRecord)) ? (
                 <div className="gallery-card-curation" data-testid={`gallery-curation-${entry?.id ?? image.id}`} aria-label="Curator selections">
                   {image.favorite ? <span className="gallery-card-curation-chip">Favorite</span> : null}
                   {image.hero ? <span className="gallery-card-curation-chip">Hero</span> : null}
                   {entry?.storySelected ? <span className="gallery-card-curation-chip">Story</span> : null}
                   {entry?.hidden ? <span className="gallery-card-curation-chip">Hidden</span> : null}
+                  {isExternalRecord(imageRecord) ? (
+                    <span className="gallery-card-curation-chip" data-testid={`gallery-external-${entry?.id ?? image.id}`}>
+                      {EXTERNAL_PLACE_LABEL}
+                    </span>
+                  ) : null}
                 </div>
               ) : null}
 
@@ -2309,6 +2345,7 @@ function App() {
             onEntryUpdated={handleImportEntryUpdated}
             onVisitFinalized={handleVisitFinalized}
             onImageRecordPlaceChanged={handleEntryReviewImageRecordPlaceChanged}
+            onExternalClassificationChanged={handleEntryReviewExternalClassificationChanged}
           />
         ) : (
           <div className="gallery-shell">
@@ -2383,7 +2420,9 @@ function App() {
                       const thumbnailSrc = resolveGalleryThumbnailSrc(image, imageRecord);
                       const placeLabel = imageRecord?.placeId
                         ? getPlaceById(imageRecord.placeId)?.displayName ?? "Unknown"
-                        : "Unknown";
+                        : isExternalRecord(imageRecord)
+                          ? EXTERNAL_PLACE_LABEL
+                          : "Unknown";
 
                       return (
                         <article
@@ -2917,6 +2956,16 @@ function App() {
                   onClick={() => setArchivePlaceFilter((current) => (current === UNASSIGNED_PLACE_FILTER ? null : UNASSIGNED_PLACE_FILTER))}
                 >
                   Unassigned place
+                </button>
+                <button
+                  type="button"
+                  className={archivePlaceFilter === EXTERNAL_PLACE_FILTER ? "active" : ""}
+                  aria-pressed={archivePlaceFilter === EXTERNAL_PLACE_FILTER}
+                  disabled={!importVisit}
+                  data-testid="filter-external"
+                  onClick={() => setArchivePlaceFilter((current) => (current === EXTERNAL_PLACE_FILTER ? null : EXTERNAL_PLACE_FILTER))}
+                >
+                  {EXTERNAL_PLACE_LABEL} ({placeImageCounts.external})
                 </button>
                 <button
                   type="button"

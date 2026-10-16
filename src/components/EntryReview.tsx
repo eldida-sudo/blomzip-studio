@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Entry, EntryRecommendationEvidence, EntryRecommendationKind, EntrySuggestionCategory, Observation, VisualEvidenceSignalId, Visit } from "../models/blomzip";
 import { listCanonicalPlaces } from "../data/canonicalPlaces";
+import { EXTERNAL_PLACE_LABEL, isExternalRecord } from "../utils/externalClassification";
 import { createThumbnailUrlForRecord } from "../utils/createThumbnailUrls";
 import { getEntryEditorialRecommendations } from "../utils/entryRecommendations";
 import { applyStoryRecommendations } from "../utils/storyRecommendations";
@@ -15,6 +16,7 @@ interface EntryReviewProps {
   onEntryUpdated?: (entry: Entry) => void;
   onVisitFinalized?: (visit: Visit) => void;
   onImageRecordPlaceChanged?: (imageRecordId: string, placeId: string | null) => void;
+  onExternalClassificationChanged?: (imageRecordId: string, external: boolean) => void;
   visionProvider?: VisionProvider;
 }
 
@@ -145,7 +147,7 @@ function formatCapturedDate(captureDate: string | undefined): string {
   return parsed.toLocaleString();
 }
 
-export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpdated, onVisitFinalized, onImageRecordPlaceChanged, visionProvider: visionProviderProp }: EntryReviewProps) {
+export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpdated, onVisitFinalized, onImageRecordPlaceChanged, onExternalClassificationChanged, visionProvider: visionProviderProp }: EntryReviewProps) {
   const [currentEntryId, setCurrentEntryId] = useState<string | null>(() => {
     if (visit.entries.length === 0) {
       return null;
@@ -249,8 +251,25 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
   const draft = useMemo(() => drafts.find((item) => item.id === entry?.id), [drafts, entry]);
   const canonicalPlaces = useMemo(() => listCanonicalPlaces(), []);
 
-  function handleCanonicalPlaceChange(value: string) {
+  const [confirmingExternalForId, setConfirmingExternalForId] = useState<string | null>(null);
+  const isExternal = isExternalRecord(imageRecord);
+  const isConfirmingExternal = Boolean(imageRecord && confirmingExternalForId === imageRecord.id);
+
+  function handleConfirmExternal() {
     if (!imageRecord) return;
+
+    setConfirmingExternalForId(null);
+    onExternalClassificationChanged?.(imageRecord.id, true);
+  }
+
+  function handleReturnToArchivePool() {
+    if (!imageRecord) return;
+
+    onExternalClassificationChanged?.(imageRecord.id, false);
+  }
+
+  function handleCanonicalPlaceChange(value: string) {
+    if (!imageRecord || isExternal) return;
 
     onImageRecordPlaceChanged?.(imageRecord.id, value === "" ? null : value);
   }
@@ -1025,6 +1044,7 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
                 id="entry-review-canonical-place-select"
                 data-testid="canonical-place-select"
                 value={imageRecord?.placeId ?? ""}
+                disabled={isExternal}
                 onChange={(event) => handleCanonicalPlaceChange(event.target.value)}
               >
                 <option value="">Unassigned</option>
@@ -1035,6 +1055,48 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
                 ))}
               </select>
             </label>
+            <div className="entry-review-field entry-review-external" data-testid="panel-external-classification">
+              <span className="entry-review-label-on-light">{EXTERNAL_PLACE_LABEL}</span>
+              {isExternal ? (
+                <>
+                  <p data-testid="external-status">
+                    Marked {EXTERNAL_PLACE_LABEL}. Studio will not match or sort this photograph to a courtyard place.
+                  </p>
+                  <button type="button" data-testid="external-return-button" onClick={handleReturnToArchivePool}>
+                    Return to archive pool
+                  </button>
+                </>
+              ) : isConfirmingExternal ? (
+                <>
+                  <p data-testid="external-confirm-text">
+                    Confirm: this photograph was taken outside the courtyard. It stays in the archive, gallery and Story
+                    workflow but is excluded from place discovery and matching. You can reverse this at any time.
+                  </p>
+                  <button type="button" data-testid="external-confirm-button" onClick={handleConfirmExternal}>
+                    Confirm External / Inspiration
+                  </button>
+                  <button type="button" data-testid="external-cancel-button" onClick={() => setConfirmingExternalForId(null)}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    data-testid="external-mark-button"
+                    disabled={Boolean(imageRecord?.placeId) || !imageRecord}
+                    onClick={() => imageRecord && setConfirmingExternalForId(imageRecord.id)}
+                  >
+                    Mark as External / Inspiration
+                  </button>
+                  <p className="result-count">
+                    {imageRecord?.placeId
+                      ? "This photograph is assigned to a place. Set the place to Unassigned first; nothing is unassigned automatically."
+                      : "For photographs taken elsewhere, such as inspiration images. Your choice only; Studio never sets this itself."}
+                  </p>
+                </>
+              )}
+            </div>
           </div>
 
           <label className="entry-review-field" data-testid="panel-notes">

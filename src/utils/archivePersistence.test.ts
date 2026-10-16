@@ -1005,6 +1005,24 @@ describe("backup validation and safety snapshots", () => {
     expect((await loadSafetySnapshot("missing")).ok).toBe(false);
   });
 
+  it("keeps External / Inspiration classifications in safety snapshots", async () => {
+    stubKeyValueIndexedDb();
+    const externalVisit: Visit = {
+      ...visit,
+      imageRecords: (visit.imageRecords ?? []).map((record, index) =>
+        index === 0 ? { ...record, externalClassification: { classifiedAt: "2026-10-16T10:00:00.000Z" } } : record
+      ),
+    };
+
+    await saveSafetySnapshot(createArchiveStateSnapshot({ importVisit: externalVisit, draftWorkspace }), "external");
+    const [summary] = await listSafetySnapshots();
+    const loaded = await loadSafetySnapshot(summary.id);
+
+    expect(loaded.ok && loaded.state.importVisit?.imageRecords?.[0].externalClassification).toEqual({
+      classifiedAt: "2026-10-16T10:00:00.000Z",
+    });
+  });
+
   it("rejects when no storage is available so callers can abort before replacing data", async () => {
     vi.stubGlobal("indexedDB", undefined);
 
