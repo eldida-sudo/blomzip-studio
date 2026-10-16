@@ -114,6 +114,15 @@ describe("PlaceTrainingPanel review actions", () => {
     expect(values).not.toContain("seating-area");
   });
 
+  it("shows the safe existing-match re-evaluation action and candidate count", () => {
+    const action = container.querySelector("[data-testid='reevaluate-place-matches']") as HTMLButtonElement;
+    expect(action.textContent).toContain("Re-evaluate matches (1)");
+    expect(action.disabled).toBe(true);
+    expect(container.querySelector("[data-testid='reevaluation-candidate-count']")?.textContent).toContain(
+      "1 existing unreviewed match eligible"
+    );
+  });
+
   it("assigns another place and Undo restores the photograph and the suggestion", () => {
     const select = container.querySelector("select[aria-label='Assign another place']") as HTMLSelectElement;
     act(() => {
@@ -143,5 +152,31 @@ describe("PlaceTrainingPanel review actions", () => {
 
     act(() => button("Undo")?.click());
     expect(container.querySelector("[data-testid='place-match-img-1']")).toBeTruthy();
+  });
+
+  it("opens a likely-match photograph preview without changing review state", () => {
+    const trigger = container.querySelector("[data-testid='place-match-img-1'] .image-preview-trigger") as HTMLButtonElement;
+    expect(trigger.getAttribute("aria-label")).toBe("Preview larger: one.jpg");
+    const before = latest.training;
+
+    act(() => trigger.click());
+
+    expect(container.querySelector("[data-testid='image-preview-filename']")?.textContent).toBe("one.jpg");
+    expect(container.querySelector("[data-testid='image-preview-image']")?.getAttribute("src")).toBe("blob:one");
+    expect(latest.training).toBe(before);
+
+    act(() => (container.querySelector(".image-preview-close") as HTMLButtonElement).click());
+    expect(container.querySelector("[role='dialog']")).toBeNull();
+    expect(container.querySelector("[data-testid='place-match-img-1']")).toBeTruthy();
+  });
+
+  it("opens the archive picker with nothing pre-selected and no confirmation possible", () => {
+    const open = container.querySelector("[data-testid='select-archive-anchors']") as HTMLButtonElement;
+    act(() => open.click());
+    const picker = container.querySelector("[data-testid='archive-anchor-picker']");
+    expect(picker).toBeTruthy();
+    expect(picker?.textContent).toContain("not proof");
+    expect(container.querySelector("[data-testid='archive-anchor-candidate-img-1']")).toBeNull();
+    expect((container.querySelector("[data-testid='confirm-archive-anchors']") as HTMLButtonElement).disabled).toBe(true);
   });
 });

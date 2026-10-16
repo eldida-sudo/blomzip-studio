@@ -3,8 +3,9 @@ const MODEL_OUTPUT_KEYS = ["classification", "conflicts", "core_matched", "reaso
 const SIGNATURE_KEYS = ["contextual", "core", "supporting"];
 
 export const MAX_CORE_FEATURES = 4;
-export const MIN_SAME_PLACE_SIGNATURE_FEATURES = 2;
-export const MIN_SAME_PLACE_CORE_FEATURES_WHEN_MULTIPLE = 2;
+export const PLACE_MATCH_ENGINE_VERSION = "place-match-precision-v2";
+export const MIN_SAME_PLACE_CORE_FEATURES = 2;
+export const MIN_SAME_PLACE_SUPPORTING_FEATURES_WITH_ONE_CORE = 2;
 export const DOWNGRADED_SCORE_CAP = 0.5;
 
 export interface PlaceSignature {
@@ -146,11 +147,6 @@ export function describePlaceMatchViolation(outputText: string): string | null {
   return null;
 }
 
-/** How many verified core features SAME_PLACE needs for a signature with this many core features. */
-export function requiredCoreFeatures(signatureCoreCount: number): number {
-  return signatureCoreCount >= 2 ? MIN_SAME_PLACE_CORE_FEATURES_WHEN_MULTIPLE : 1;
-}
-
 export interface PlaceMatchEnforcement {
   result: PlaceMatchResult;
   dropped: string[];
@@ -161,12 +157,12 @@ export interface PlaceMatchEnforcement {
  * Applies the fixed anchor-derived signature to a contract-valid model output. Matched features
  * that are not verbatim entries of the right signature list are dropped, never repaired.
  *
- * SAME_PLACE survives only with enough verified core features (two when the signature has two or more
- * core features, otherwise one), at least two distinct core/supporting features in total, and no
- * contradiction. `conflicts` may only name verbatim core features that the model reports as clearly
- * contradicted by what is visible. Features that are merely absent, out of frame or obscured are not
- * conflicts and must not be listed. A conflict, or a feature reported both matched and conflicting,
- * downgrades SAME_PLACE to NEARBY_CONTEXT. Downgrades never go further and never upgrade.
+ * SAME_PLACE survives only with either two verified core features, or one verified core feature
+ * and two verified supporting features, and no contradiction. `conflicts` may only name verbatim
+ * core features that the model reports as clearly contradicted by what is visible. Features that
+ * are merely absent, out of frame or obscured are not conflicts and must not be listed. A conflict,
+ * or a feature reported both matched and conflicting, downgrades SAME_PLACE to NEARBY_CONTEXT.
+ * Downgrades never go further and never upgrade.
  */
 export function enforcePlaceSignature(outputText: string, signature: PlaceSignature): PlaceMatchEnforcement {
   const record = JSON.parse(outputText) as {
@@ -201,14 +197,15 @@ export function enforcePlaceSignature(outputText: string, signature: PlaceSignat
   const downgradeReasons: string[] = [];
 
   if (record.classification === "SAME_PLACE") {
-    const requiredCore = requiredCoreFeatures(signature.core.length);
+    const hasTwoCoreFeatures = core.length >= MIN_SAME_PLACE_CORE_FEATURES;
+    const hasOneCoreAndTwoSupportingFeatures =
+      core.length >= 1 && supporting.length >= MIN_SAME_PLACE_SUPPORTING_FEATURES_WITH_ONE_CORE;
 
-    if (core.length < requiredCore) {
-      downgradeReasons.push(`needs ${requiredCore} core feature(s), verified ${core.length}`);
-    }
-
-    if (matchedFeatures.length < MIN_SAME_PLACE_SIGNATURE_FEATURES) {
-      downgradeReasons.push(`needs ${MIN_SAME_PLACE_SIGNATURE_FEATURES} verified features, verified ${matchedFeatures.length}`);
+    if (!hasTwoCoreFeatures && !hasOneCoreAndTwoSupportingFeatures) {
+      downgradeReasons.push(
+        `needs either ${MIN_SAME_PLACE_CORE_FEATURES} core features or 1 core and ` +
+          `${MIN_SAME_PLACE_SUPPORTING_FEATURES_WITH_ONE_CORE} supporting features, verified ${core.length} core and ${supporting.length} supporting`
+      );
     }
 
     if (conflicts.length > 0) {

@@ -2,6 +2,7 @@ import { getPlaceById } from "../data/canonicalPlaces";
 import type {
   ImageRecord,
   PlaceMatchClassification,
+  PlaceMatchEvaluationSnapshot,
   PlaceMatchResult,
   PlaceTrainingState,
   PlaceVisualAnchor,
@@ -11,6 +12,7 @@ import type {
 export const MIN_PLACE_ANCHORS = 3;
 export const MAX_PLACE_ANCHORS = 8;
 export const MAX_MATCH_CANDIDATES_PER_RUN = 20;
+export const MAX_REEVALUATION_CANDIDATES_PER_RUN = 5;
 export const ACCEPTED_ANCHOR_MIME_TYPES: readonly string[] = ["image/jpeg", "image/png"];
 
 export type TrainingResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -151,6 +153,121 @@ export function selectMatchCandidates(
 
 export function countRemainingCandidates(visit: Visit | null, placeId: string, state: PlaceTrainingState): number {
   return selectMatchCandidates(visit, placeId, state, Number.MAX_SAFE_INTEGER).length;
+}
+
+function isReevaluationEligible(
+  placeId: string,
+  state: PlaceTrainingState,
+  record: ImageRecord
+): boolean {
+  if (record.placeId || !hasRuntimeImageData(record)) {
+    return false;
+  }
+
+  return state.matchResults.some(
+    (result) =>
+      result.placeId === placeId &&
+      result.imageRecordId === record.id &&
+      result.status === "pending" &&
+      !result.review &&
+      (result.classification === "SAME_PLACE" || result.classification === "NEARBY_CONTEXT")
+  );
+}
+
+/** Existing unreviewed, unassigned classified results; never includes rejected or unsure results. */
+export function selectReevaluationCandidates(
+  visit: Visit | null,
+  placeId: string,
+  state: PlaceTrainingState,
+  limit: number = MAX_REEVALUATION_CANDIDATES_PER_RUN
+): ImageRecord[] {
+  return (visit?.imageRecords ?? [])
+    .filter((record) => isReevaluationEligible(placeId, state, record))
+    .slice(0, limit);
+}
+
+export function countReevaluationCandidates(visit: Visit | null, placeId: string, state: PlaceTrainingState): number {
+  return selectReevaluationCandidates(visit, placeId, state, Number.MAX_SAFE_INTEGER).length;
+}
+
+export interface PlaceMatchEvaluationComparison {
+  result: PlaceMatchResult;
+  record: ImageRecord;
+  previous: PlaceMatchEvaluationSnapshot;
+  classificationChanged: boolean;
+}
+
+/** Builds comparisons from saved result history for one completed run, with changed classes first. */
+export function listReevaluationComparisons(
+  visit: Visit | null,
+  state: PlaceTrainingState,
+  resultIds: string[]
+): PlaceMatchEvaluationComparison[] {
+  const ids = new Set(resultIds);
+  const recordsById = new Map((visit?.imageRecords ?? []).map((record) => [record.id, record]));
+
+  return state.matchResults
+    .filter((result) => ids.has(result.id) && (result.previousEvaluations?.length ?? 0) > 0)
+    .flatMap((result) => {
+      const record = recordsById.get(result.imageRecordId);
+      const previous = result.previousEvaluations?.[result.previousEvaluations.length - 1];
+
+      return record && previous
+        ? [{
+            result,
+            record,
+            previous,
+            classificationChanged: previous.classification !== result.classification,
+          }]
+        : [];
+    })
+    .sort((left, right) => Number(right.classificationChanged) - Number(left.classificationChanged));
+}
+
+/**
+ * Replaces only an eligible current result and appends its prior evaluation for comparison.
+ * Returns null if the result or photograph became reviewed/assigned while evaluation was running.
+ */
+export function saveReevaluatedMatch(
+  visit: Visit | null,
+  state: PlaceTrainingState,
+  replacement: PlaceMatchResult
+): { state: PlaceTrainingState; classificationChanged: boolean } | null {
+  const previous = state.matchResults.find(
+    (result) => result.id === replacement.id && result.placeId === replacement.placeId
+  );
+  const record = visit?.imageRecords?.find((image) => image.id === replacement.imageRecordId);
+
+  if (
+    !previous ||
+    !record ||
+    previous.imageRecordId !== replacement.imageRecordId ||
+    (previous.classification !== "SAME_PLACE" && previous.classification !== "NEARBY_CONTEXT") ||
+    !isReevaluationEligible(replacement.placeId, state, record)
+  ) {
+    return null;
+  }
+
+  const snapshot: PlaceMatchEvaluationSnapshot = {
+    classification: previous.classification as PlaceMatchClassification,
+    matchedFeatures: previous.matchedFeatures,
+    score: previous.score,
+    reason: previous.reason,
+    provider: previous.provider,
+    analysisVersion: previous.analysisVersion,
+    engineVersion: previous.engineVersion,
+    matchedAt: previous.matchedAt,
+  };
+  const nextResult: PlaceMatchResult = {
+    ...replacement,
+    status: "pending",
+    previousEvaluations: [...(previous.previousEvaluations ?? []), snapshot],
+  };
+
+  return {
+    state: upsertMatchResult(state, nextResult),
+    classificationChanged: previous.classification !== replacement.classification,
+  };
 }
 
 export function createMatchResultId(placeId: string, imageRecordId: string): string {
@@ -370,4 +487,89 @@ export function getMatchConfidence(score: number): MatchConfidence {
   }
 
   return score >= POSSIBLE_MATCH_MIN_SCORE ? "possible" : "low";
+}
+
+export interface ArchiveAnchorCandidate {
+  record: ImageRecord;
+  /** True only when the curator approved a match for this place. Plain assignment is not verification. */
+  verified: boolean;
+  alreadyAnchor: boolean;
+  hasImageData: boolean;
+}
+
+/** Photographs currently assigned to the place, offered as anchor candidates. Nothing is selected or assumed correct. */
+export function listArchiveAnchorCandidates(
+  visit: Visit | null,
+  state: PlaceTrainingState,
+  placeId: string
+): ArchiveAnchorCandidate[] {
+  const anchors = getPlaceAnchors(state, placeId);
+  const records = visit?.imageRecords ?? [];
+  const anchoredIds = new Set(anchors.map((anchor) => anchor.sourceImageRecordId).filter(Boolean));
+  const anchoredHashes = new Set(
+    records.filter((record) => anchoredIds.has(record.id) && record.contentHash).map((record) => record.contentHash)
+  );
+  const approvedIds = new Set(
+    state.matchResults.filter((result) => result.placeId === placeId && result.status === "approved").map((result) => result.imageRecordId)
+  );
+
+  return records
+    .filter((record) => record.placeId === placeId)
+    .map((record) => ({
+      record,
+      verified: approvedIds.has(record.id),
+      alreadyAnchor: anchoredIds.has(record.id) || Boolean(record.contentHash && anchoredHashes.has(record.contentHash)),
+      hasImageData: hasRuntimeImageData(record),
+    }));
+}
+
+/**
+ * Validates a curator's archive selection against the anchor limits. Existing anchors are never removed and
+ * duplicates (same photograph, or identical content) are rejected. Pure: no storage, no model calls.
+ */
+export function validateArchiveAnchorSelection(
+  visit: Visit | null,
+  state: PlaceTrainingState,
+  placeId: string,
+  selectedRecordIds: readonly string[]
+): TrainingResult<ImageRecord[]> {
+  const candidates = new Map(listArchiveAnchorCandidates(visit, state, placeId).map((candidate) => [candidate.record.id, candidate]));
+  const chosen: ImageRecord[] = [];
+  const seenHashes = new Set<string>();
+
+  for (const id of new Set(selectedRecordIds)) {
+    const candidate = candidates.get(id);
+
+    if (!candidate) {
+      return { ok: false, error: "A selected photograph is no longer assigned to this place." };
+    }
+
+    if (candidate.alreadyAnchor) {
+      return { ok: false, error: `${candidate.record.filename} is already a visual anchor.` };
+    }
+
+    if (!candidate.hasImageData) {
+      return { ok: false, error: `${candidate.record.filename} has no image data in this browser.` };
+    }
+
+    const hash = candidate.record.contentHash;
+    if (hash && seenHashes.has(hash)) {
+      return { ok: false, error: "Two selected photographs are identical; choose only one." };
+    }
+    if (hash) seenHashes.add(hash);
+
+    chosen.push(candidate.record);
+  }
+
+  const total = getPlaceAnchors(state, placeId).length + chosen.length;
+
+  if (chosen.length === 0 || total < MIN_PLACE_ANCHORS) {
+    return { ok: false, error: `Select photographs so this place has at least ${MIN_PLACE_ANCHORS} visual anchors (currently ${total}).` };
+  }
+
+  if (total > MAX_PLACE_ANCHORS) {
+    return { ok: false, error: `A place can have at most ${MAX_PLACE_ANCHORS} visual anchors (this would make ${total}).` };
+  }
+
+  return { ok: true, value: chosen };
 }

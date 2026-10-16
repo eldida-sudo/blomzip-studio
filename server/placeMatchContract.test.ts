@@ -4,6 +4,7 @@ import {
   describePlaceSignatureViolation,
   enforcePlaceSignature,
   parsePlaceSignature,
+  PLACE_MATCH_ENGINE_VERSION,
   type PlaceSignature,
 } from "./placeMatchContract";
 
@@ -48,6 +49,12 @@ describe("describePlaceMatchViolation", () => {
     expect(describePlaceMatchViolation(JSON.stringify({ ...raw, conflicts: "x" }))).toContain("conflicts");
     expect(describePlaceMatchViolation("```json\n{}\n```")).toBe("output is not valid JSON");
     expect(describePlaceMatchViolation("[]")).toBe("output is not a JSON object");
+  });
+});
+
+describe("place-match engine version", () => {
+  it("identifies the strict place-matching implementation", () => {
+    expect(PLACE_MATCH_ENGINE_VERSION).toBe("place-match-precision-v2");
   });
 });
 
@@ -97,17 +104,39 @@ describe("enforcePlaceSignature", () => {
     expect(run({ supporting_matched: [] }).result.classification).toBe("NEARBY_CONTEXT");
   });
 
-  it("confusing neighbour: one shared core feature plus a supporting feature is not enough when the signature has two core features", () => {
+  it("downgrades one core feature plus one supporting feature", () => {
     const { result, downgradeReasons } = run({});
     expect(result.classification).toBe("NEARBY_CONTEXT");
     expect(result.score).toBe(0.5);
-    expect(downgradeReasons[0]).toContain("needs 2 core feature(s)");
+    expect(downgradeReasons[0]).toContain("1 core and 2 supporting features");
   });
 
-  it("still accepts one core plus one supporting feature when the signature has only one core feature", () => {
-    const single = { ...signature, core: ["lattice screen"] };
-    expect(run({}, single).result.classification).toBe("SAME_PLACE");
-    expect(run({ supporting_matched: [] }, single).result.classification).toBe("NEARBY_CONTEXT");
+  it("accepts one core plus two distinct supporting features", () => {
+    const { result } = run({
+      core_matched: ["lattice screen"],
+      supporting_matched: ["gravel bay", "distinctive drain"],
+    }, { ...signature, supporting: ["gravel bay", "distinctive drain"] });
+    expect(result.classification).toBe("SAME_PLACE");
+    expect(result.matched_features).toEqual(["lattice screen", "gravel bay", "distinctive drain"]);
+  });
+
+  it("does not count duplicate supporting evidence toward the threshold", () => {
+    const { result } = run({
+      core_matched: ["lattice screen"],
+      supporting_matched: ["gravel bay", "gravel bay"],
+    });
+    expect(result.classification).toBe("NEARBY_CONTEXT");
+    expect(result.matched_features).toEqual(["lattice screen", "gravel bay"]);
+  });
+
+  it("drops invented supporting evidence and downgrades the insufficient match", () => {
+    const { result, dropped } = run({
+      core_matched: ["lattice screen"],
+      supporting_matched: ["invented feature one", "invented feature two"],
+    });
+    expect(result.classification).toBe("NEARBY_CONTEXT");
+    expect(result.matched_features).toEqual(["lattice screen"]);
+    expect(dropped).toEqual(["invented feature one", "invented feature two"]);
   });
 
   it("downgrades on a clearly contradicted core feature even when enough features matched", () => {
@@ -131,7 +160,7 @@ describe("enforcePlaceSignature", () => {
     expect(downgradeReasons).toEqual([]);
   });
 
-  it("missing evidence is not a conflict: unmatched core features with no conflicts do not trigger a contradiction downgrade", () => {
+  it("two core features are sufficient when other core features are missing", () => {
     const three = { ...signature, core: ["lattice screen", "climbing frame", "stone urn"] };
     const { result, downgradeReasons } = run({ core_matched: ["lattice screen", "climbing frame"], conflicts: [] }, three);
     expect(result.classification).toBe("SAME_PLACE");

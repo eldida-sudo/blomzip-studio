@@ -20,6 +20,10 @@ import {
   removePlaceAnchor,
   replacePlaceAnchor,
   selectMatchCandidates,
+  countReevaluationCandidates,
+  selectReevaluationCandidates,
+  saveReevaluatedMatch,
+  listReevaluationComparisons,
   upsertMatchResult,
 } from "./placeTraining";
 
@@ -138,6 +142,155 @@ describe("candidate selection", () => {
   it("caps a run", () => {
     const visit = visitWith(Array.from({ length: 30 }, (_, index) => record(`p${index}`)));
     expect(selectMatchCandidates(visit, "seating-area", createEmptyPlaceTrainingState(), 20)).toHaveLength(20);
+  });
+});
+
+describe("existing match re-evaluation", () => {
+  it("selects only unassigned pending SAME_PLACE and NEARBY_CONTEXT results", () => {
+    const visit = visitWith([
+      record("same"),
+      record("nearby"),
+      record("assigned", { placeId: "seating-area" }),
+      record("rejected"),
+      record("unsure"),
+      record("different"),
+      record("missing-image", { thumbnailUrl: undefined }),
+    ]);
+    const state = [
+      match("same"),
+      match("nearby", { classification: "NEARBY_CONTEXT" }),
+      match("assigned"),
+      match("rejected", { status: "rejected" }),
+      match("unsure", { review: { decision: "unsure", decidedAt: "2026-10-06T00:00:00.000Z" } }),
+      match("different", { classification: "DIFFERENT_PLACE" }),
+      match("missing-image"),
+    ].reduce(upsertMatchResult, createEmptyPlaceTrainingState());
+
+    expect(selectReevaluationCandidates(visit, "seating-area", state).map((item) => item.id)).toEqual(["same", "nearby"]);
+    expect(countReevaluationCandidates(visit, "seating-area", state)).toBe(2);
+  });
+
+  it("caps a run at five candidates", () => {
+    const records = Array.from({ length: 8 }, (_, index) => record(`match-${index}`));
+    const state = records
+      .map((item) => match(item.id))
+      .reduce(upsertMatchResult, createEmptyPlaceTrainingState());
+    expect(selectReevaluationCandidates(visitWith(records), "seating-area", state)).toHaveLength(5);
+  });
+
+  it("preserves the prior evaluation and reports whether classification changed", () => {
+    const visit = visitWith([record("p1")]);
+    const previous = match("p1", {
+      previousEvaluations: [{
+        classification: "NEARBY_CONTEXT",
+        score: 0.4,
+        reason: "Earlier run",
+        provider: "old-provider",
+        analysisVersion: 1,
+        matchedAt: "2026-10-04T00:00:00.000Z",
+      }],
+    });
+    const state = upsertMatchResult(createEmptyPlaceTrainingState(), previous);
+    const replacement = match("p1", {
+      classification: "NEARBY_CONTEXT",
+      score: 0.45,
+      engineVersion: "place-match-precision-v2",
+      matchedAt: "2026-10-06T00:00:00.000Z",
+    });
+
+    const saved = saveReevaluatedMatch(visit, state, replacement);
+    expect(saved?.classificationChanged).toBe(true);
+    expect(saved?.state.matchResults[0]).toMatchObject({
+      classification: "NEARBY_CONTEXT",
+      engineVersion: "place-match-precision-v2",
+      previousEvaluations: [
+        previous.previousEvaluations?.[0],
+        expect.objectContaining({
+          classification: "SAME_PLACE",
+          score: 0.8,
+          reason: "Same hedge and bench.",
+        }),
+      ],
+    });
+
+    const unchanged = saveReevaluatedMatch(visit, saved!.state, {
+      ...replacement,
+      classification: "NEARBY_CONTEXT",
+    });
+    expect(unchanged?.classificationChanged).toBe(false);
+    expect(unchanged?.state.matchResults[0].previousEvaluations).toHaveLength(3);
+  });
+
+  it("accepts a new DIFFERENT_PLACE classification and records it as a change", () => {
+    const visit = visitWith([record("p1")]);
+    const state = upsertMatchResult(createEmptyPlaceTrainingState(), match("p1"));
+    const saved = saveReevaluatedMatch(
+      visit,
+      state,
+      match("p1", { classification: "DIFFERENT_PLACE", score: 0.1 })
+    );
+    expect(saved?.classificationChanged).toBe(true);
+    expect(saved?.state.matchResults[0].classification).toBe("DIFFERENT_PLACE");
+    expect(saved?.state.matchResults[0].previousEvaluations?.[0].classification).toBe("SAME_PLACE");
+  });
+
+  it("builds comparisons from saved history and sorts changed classifications first", () => {
+    const visit = visitWith([record("same"), record("changed")]);
+    const same = match("same", {
+      classification: "NEARBY_CONTEXT",
+      previousEvaluations: [{
+        classification: "NEARBY_CONTEXT",
+        score: 0.4,
+        reason: "Earlier nearby",
+        provider: "old",
+        analysisVersion: 1,
+        matchedAt: "2026-10-04T00:00:00.000Z",
+      }],
+    });
+    const changed = match("changed", {
+      classification: "NEARBY_CONTEXT",
+      previousEvaluations: [{
+        classification: "SAME_PLACE",
+        score: 0.85,
+        reason: "Earlier same place",
+        provider: "old",
+        analysisVersion: 1,
+        matchedAt: "2026-10-04T00:00:00.000Z",
+      }],
+    });
+    const state = [same, changed].reduce(upsertMatchResult, createEmptyPlaceTrainingState());
+
+    expect(listReevaluationComparisons(visit, state, [same.id, changed.id])).toMatchObject([
+      {
+        result: { imageRecordId: "changed", classification: "NEARBY_CONTEXT", score: 0.8 },
+        previous: { classification: "SAME_PLACE", score: 0.85 },
+        classificationChanged: true,
+      },
+      {
+        result: { imageRecordId: "same", classification: "NEARBY_CONTEXT" },
+        previous: { classification: "NEARBY_CONTEXT", score: 0.4 },
+        classificationChanged: false,
+      },
+    ]);
+  });
+
+  it("refuses to replace an approved, rejected, or manually reviewed result", () => {
+    const records = [record("approved", { placeId: "seating-area" }), record("rejected"), record("unsure")];
+    const visit = visitWith(records);
+    const state = [
+      match("approved", { status: "approved" }),
+      match("rejected", { status: "rejected" }),
+      match("unsure", { review: { decision: "unsure", decidedAt: "2026-10-06T00:00:00.000Z" } }),
+    ].reduce(upsertMatchResult, createEmptyPlaceTrainingState());
+    const replacement = match("unsure", { classification: "NEARBY_CONTEXT" });
+
+    expect(selectReevaluationCandidates(visit, "seating-area", state)).toEqual([]);
+    expect(saveReevaluatedMatch(visit, state, replacement)).toBeNull();
+    expect(state.matchResults.map(({ status, review }) => ({ status, review }))).toEqual([
+      { status: "approved", review: undefined },
+      { status: "rejected", review: undefined },
+      { status: "pending", review: { decision: "unsure", decidedAt: "2026-10-06T00:00:00.000Z" } },
+    ]);
   });
 });
 

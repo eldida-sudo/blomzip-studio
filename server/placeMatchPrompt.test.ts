@@ -16,6 +16,8 @@ describe("buildPlaceSignatureInstructions", () => {
     expect(prompt).toMatch(/1 to 4 entries/);
     expect(prompt).toMatch(/Never put generic materials/);
     expect(prompt).toMatch(/empty core/);
+    expect(prompt).toMatch(/fixed physical geometry and spatial relationships/);
+    expect(prompt).toMatch(/Generic objects, vegetation and paving are weak evidence/);
     expect(prompt).not.toMatch(/trellis|rock garden/i);
   });
 
@@ -48,23 +50,24 @@ describe("buildPlaceMatchInstructions", () => {
     expect(prompt).toMatch(/DIFFERENT_PLACE:/);
   });
 
-  it("requires stricter core evidence when the signature has several core features", () => {
-    const multi = buildPlaceMatchInstructions("P", 4, { ...signature, core: ["a", "b"] });
-    expect(multi).toMatch(/at least TWO distinct CORE features are clearly visible/);
-    expect(prompt).toMatch(/at least ONE CORE feature is clearly visible/);
-  });
-
   it("separates missing evidence from contradictory evidence", () => {
     expect(prompt).toMatch(/outside the frame, hidden, blurred, too small or simply not visible is MISSING/);
     expect(prompt).toMatch(/Missing evidence is not a conflict/);
     expect(prompt).toMatch(/When in doubt, leave conflicts empty and prefer NEARBY_CONTEXT/);
   });
 
-  it("requires a core feature plus a second feature and excludes context features", () => {
-    expect(prompt).toMatch(/TWO distinct core or supporting features in total/);
+  it("requires two core features or one core and two supporting features", () => {
+    expect(prompt).toMatch(/at least TWO distinct CORE features, OR at least ONE CORE feature and TWO distinct SUPPORTING features/);
     expect(prompt).toMatch(/Context features alone can never produce SAME_PLACE/);
+    expect(prompt).toMatch(/never invent, infer or reword supporting evidence/);
     expect(prompt).toMatch(/uncertain between SAME_PLACE and NEARBY_CONTEXT, choose NEARBY_CONTEXT/);
     expect(prompt).toMatch(/VERBATIM/);
+  });
+
+  it("prioritizes fixed geometry over generic objects, vegetation, paving and shared context", () => {
+    expect(prompt).toMatch(/fixed geometry and spatial relationships as stronger evidence/);
+    expect(prompt).toMatch(/broad object or material match is weak/);
+    expect(prompt).toMatch(/shared with nearby areas/);
   });
 
   it("renders empty lists explicitly", () => {

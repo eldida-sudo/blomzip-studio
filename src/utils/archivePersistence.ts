@@ -6,6 +6,8 @@ import type {
   Observation,
   PlaceMatchResult,
   PlaceMatchReview,
+  PlaceSignatureCacheEntry,
+  PlaceSortingCorrection,
   PlaceTrainingState,
   PlaceVisualAnchor,
   VisualAnalysisResult,
@@ -36,6 +38,63 @@ function isValidReview(value: unknown): value is PlaceMatchReview {
       (value.decision === "reassigned" && typeof value.assignedPlaceId === "string")) &&
     typeof value.decidedAt === "string"
   );
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function sanitizeSignatureCache(value: unknown): Record<string, PlaceSignatureCacheEntry> | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const cache: Record<string, PlaceSignatureCacheEntry> = {};
+
+  for (const [placeId, entry] of Object.entries(value)) {
+    if (
+      isRecord(entry) &&
+      typeof entry.anchorSetKey === "string" &&
+      typeof entry.provider === "string" &&
+      typeof entry.derivedAt === "string" &&
+      isRecord(entry.signature) &&
+      isStringArray(entry.signature.core) &&
+      isStringArray(entry.signature.supporting) &&
+      isStringArray(entry.signature.contextual)
+    ) {
+      cache[placeId] = {
+        anchorSetKey: entry.anchorSetKey,
+        provider: entry.provider,
+        derivedAt: entry.derivedAt,
+        signature: {
+          core: [...entry.signature.core],
+          supporting: [...entry.signature.supporting],
+          contextual: [...entry.signature.contextual],
+        },
+      };
+    }
+  }
+
+  return Object.keys(cache).length > 0 ? cache : undefined;
+}
+
+function sanitizeSortingCorrections(value: unknown): PlaceSortingCorrection[] | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const valid = value.filter(
+    (item): item is PlaceSortingCorrection =>
+      isRecord(item) &&
+      typeof item.id === "string" &&
+      typeof item.imageRecordId === "string" &&
+      (item.decision === "approved" || item.decision === "corrected" || item.decision === "unsure") &&
+      typeof item.proposalStatus === "string" &&
+      typeof item.decidedAt === "string" &&
+      Array.isArray(item.candidates)
+  );
+
+  return valid.length > 0 ? valid : undefined;
 }
 
 function sanitizePlaceTraining(value: unknown): PlaceTrainingState {
@@ -83,7 +142,19 @@ function sanitizePlaceTraining(value: unknown): PlaceTrainingState {
         })
     : [];
 
-  return { anchorsByPlaceId, matchResults };
+  const result: PlaceTrainingState = { anchorsByPlaceId, matchResults };
+  const signatureCache = sanitizeSignatureCache(value.signatureCache);
+  const sortingCorrections = sanitizeSortingCorrections(value.sortingCorrections);
+
+  if (signatureCache) {
+    result.signatureCache = signatureCache;
+  }
+
+  if (sortingCorrections) {
+    result.sortingCorrections = sortingCorrections;
+  }
+
+  return result;
 }
 
 function sanitizeObservationForPersistence(observation: Observation): Observation {

@@ -1291,6 +1291,13 @@ describe("App", () => {
       representativeButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
+    expect(container.querySelector('[data-testid="image-preview-dialog"]')).toBeTruthy();
+    expect(container.textContent).not.toContain("Entry 2 of 2");
+
+    act(() => {
+      (container.querySelector('[data-testid="image-preview-open-review"]') as HTMLButtonElement).click();
+    });
+
     expect(container.textContent).toContain("Entry 2 of 2");
     expect(container.textContent).toContain("courtyard-02.jpg");
 
@@ -1317,6 +1324,13 @@ describe("App", () => {
 
     act(() => {
       previewButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector('[data-testid="image-preview-dialog"]')).toBeTruthy();
+    expect(container.textContent).not.toContain("Entry 2 of 2");
+
+    act(() => {
+      (container.querySelector('[data-testid="image-preview-open-review"]') as HTMLButtonElement).click();
     });
 
     expect(container.textContent).toContain("Entry 1 of 2");

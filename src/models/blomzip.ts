@@ -117,6 +117,17 @@ export interface PlaceMatchReview {
   decidedAt: string;
 }
 
+export interface PlaceMatchEvaluationSnapshot {
+  classification: PlaceMatchClassification;
+  matchedFeatures?: string[];
+  score: number;
+  reason: string;
+  provider: string;
+  analysisVersion: number;
+  engineVersion?: string;
+  matchedAt: string;
+}
+
 export interface PlaceMatchResult {
   id: string;
   placeId: string;
@@ -128,14 +139,41 @@ export interface PlaceMatchResult {
   reason: string;
   provider: string;
   analysisVersion: number;
+  engineVersion?: string;
   matchedAt: string;
   status: PlaceMatchStatus;
   review?: PlaceMatchReview;
+  previousEvaluations?: PlaceMatchEvaluationSnapshot[];
+}
+
+// Derived from one exact anchor set; a different key means the signature is stale.
+export interface PlaceSignatureCacheEntry {
+  anchorSetKey: string;
+  signature: { core: string[]; supporting: string[]; contextual: string[] };
+  provider: string;
+  derivedAt: string;
+}
+
+export type PlaceSortingProposalStatus = "proposed" | "uncertain" | "unassigned" | "incomplete";
+
+// Audit trail of curator decisions in the sorting queue, kept for later error analysis only.
+// It is never used as training data or to create anchors.
+export interface PlaceSortingCorrection {
+  id: string;
+  imageRecordId: string;
+  decision: "approved" | "corrected" | "unsure";
+  proposalStatus: PlaceSortingProposalStatus;
+  proposedPlaceId?: string;
+  assignedPlaceId?: string;
+  candidates: { placeId: string; classification: PlaceMatchClassification; score: number }[];
+  decidedAt: string;
 }
 
 export interface PlaceTrainingState {
   anchorsByPlaceId: Record<string, PlaceVisualAnchor[]>;
   matchResults: PlaceMatchResult[];
+  signatureCache?: Record<string, PlaceSignatureCacheEntry>;
+  sortingCorrections?: PlaceSortingCorrection[];
 }
 
 export interface Entry {

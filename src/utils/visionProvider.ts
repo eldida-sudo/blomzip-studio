@@ -83,6 +83,7 @@ export interface PlaceMatchOutcome {
   reason: string;
   provider: string;
   analysisVersion: number;
+  engineVersion?: string;
 }
 
 const PLACE_MATCH_REASON_MAX_LENGTH = 280;
@@ -348,7 +349,7 @@ export class ProxyVisionProvider implements VisionProvider {
       throw new Error(`Vision proxy returned an empty HTTP response (status ${response.status}).`);
     }
 
-    let payload: { error?: string; outputText?: string };
+    let payload: { error?: string; outputText?: string; engineVersion?: string };
 
     try {
       payload = JSON.parse(responseText);
@@ -366,11 +367,18 @@ export class ProxyVisionProvider implements VisionProvider {
       throw new Error("Vision proxy response did not contain outputText.");
     }
 
-    return parsePlaceMatchOutput(payload.outputText, {
+    if (typeof payload.engineVersion !== "string" || payload.engineVersion.length === 0) {
+      throw new Error("Vision proxy response did not contain a place-match engine version.");
+    }
+
+    return {
+      ...parsePlaceMatchOutput(payload.outputText, {
       placeId: request.placeId,
       imageRecordId: request.imageRecordId,
       provider: this.id,
-    });
+      }),
+      engineVersion: payload.engineVersion,
+    };
   }
 
   async analyzeImage(request: VisionAnalysisRequest): Promise<VisualAnalysisResult> {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { PreviewThumbnailButton, useImagePreview } from "./ImagePreviewLightbox";
 import { getPlaceById, listCanonicalPlaces, type CanonicalPlace } from "../data/canonicalPlaces";
 import type {
   ImageRecord,
@@ -9,24 +10,32 @@ import type {
 } from "../models/blomzip";
 import { blobToDataUrl, createAnalysisImage, imageUrlToBlob } from "../utils/analysisImage";
 import { createThumbnailUrlForRecord } from "../utils/createThumbnailUrls";
+import { resolvePlaceSignature } from "../utils/placeSignatureCache";
 import { getAnchorImages, putAnchorImage, type StoredAnchorImage } from "../utils/placeAnchorStore";
 import {
   addPlaceAnchors,
   countRemainingCandidates,
+  countReevaluationCandidates,
   createMatchResultId,
   getMatchConfidence,
   getMatchingReadiness,
   MATCH_CONFIDENCE_LABELS,
   getPlaceAnchors,
   isAcceptedAnchorFile,
+  listArchiveAnchorCandidates,
+  validateArchiveAnchorSelection,
+  listReevaluationComparisons,
   listNearbyContextMatches,
   listPendingMatches,
   MAX_MATCH_CANDIDATES_PER_RUN,
+  MAX_REEVALUATION_CANDIDATES_PER_RUN,
   MAX_PLACE_ANCHORS,
   MIN_PLACE_ANCHORS,
   removePlaceAnchor,
   replacePlaceAnchor,
   selectMatchCandidates,
+  selectReevaluationCandidates,
+  saveReevaluatedMatch,
   upsertMatchResult,
 } from "../utils/placeTraining";
 import type { VisionProvider } from "../utils/visionProvider";
@@ -70,15 +79,28 @@ export function PlaceTrainingPanel({
   visionProvider,
 }: PlaceTrainingPanelProps) {
   const anchors = getPlaceAnchors(training, place.id);
+  const { open: openImagePreview, lightbox: imagePreviewLightbox } = useImagePreview();
   const [anchorImages, setAnchorImages] = useState<Map<string, StoredAnchorImage>>(new Map());
   const [previewUrls, setPreviewUrls] = useState<Map<string, string>>(new Map());
   const [message, setMessage] = useState<{ tone: "error" | "info"; text: string } | null>(null);
   const [undoResultId, setUndoResultId] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const [isPickingFromArchive, setIsPickingFromArchive] = useState(false);
+  const [pickedRecordIds, setPickedRecordIds] = useState<string[]>([]);
   const [isMatching, setIsMatching] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [reevaluationSummary, setReevaluationSummary] = useState<{
+    changed: number;
+    same: number;
+    failures: number;
+    engineVersion: string | null;
+    stopped: boolean;
+    resultIds: string[];
+  } | null>(null);
   const previewUrlsRef = useRef<Map<string, string>>(new Map());
   const cancelRef = useRef(false);
+  const visitRef = useRef(visit);
+  visitRef.current = visit;
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const replaceTargetRef = useRef<string | null>(null);
 
@@ -120,6 +142,11 @@ export function PlaceTrainingPanel({
   const pendingMatches = listPendingMatches(visit, place.id, training);
   const nearbyMatches = listNearbyContextMatches(visit, place.id, training);
   const remainingCandidates = countRemainingCandidates(visit, place.id, training);
+  const reevaluationCandidateCount = countReevaluationCandidates(visit, place.id, training);
+  const reevaluationComparisons = reevaluationSummary
+    ? listReevaluationComparisons(visit, training, reevaluationSummary.resultIds)
+    : [];
+  const archiveCandidates = isPickingFromArchive ? listArchiveAnchorCandidates(visit, training, place.id) : [];
   const recordsById = new Map<string, ImageRecord>((visit?.imageRecords ?? []).map((record) => [record.id, record]));
   const promotableApproved = training.matchResults.filter(
     (result) =>
@@ -286,6 +313,53 @@ export function PlaceTrainingPanel({
     }
   }
 
+  async function handleConfirmArchiveAnchors() {
+    const selection = validateArchiveAnchorSelection(visit, getTraining(), place.id, pickedRecordIds);
+
+    if (!selection.ok) {
+      setMessage({ tone: "error", text: selection.error });
+      return;
+    }
+
+    setIsBusy(true);
+    setMessage(null);
+
+    try {
+      // Image bytes are stored before the metadata is committed, so a failure leaves no dangling anchor.
+      const created: PlaceVisualAnchor[] = [];
+      for (const record of selection.value) {
+        created.push(
+          await createStoredAnchor(await imageUrlToBlob(createThumbnailUrlForRecord(record) as string), {
+            filename: record.filename,
+            source: "archive-photo",
+            sourceImageRecordId: record.id,
+          })
+        );
+      }
+
+      const added = addPlaceAnchors(getTraining(), place.id, created);
+      if (!added.ok) {
+        setMessage({ tone: "error", text: added.error });
+        return;
+      }
+
+      onTrainingChange((current) => {
+        const next = addPlaceAnchors(current, place.id, created);
+        return next.ok ? next.value : current;
+      });
+      setPickedRecordIds([]);
+      setIsPickingFromArchive(false);
+      setMessage({ tone: "info", text: `Added ${created.length} visual ${created.length === 1 ? "anchor" : "anchors"} from the archive.` });
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text: error instanceof Error ? `Could not add the visual anchors: ${error.message}` : "Could not add the visual anchors.",
+      });
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   async function handleFindMatches() {
     const matchFn = visionProvider.matchPlaceCandidate?.bind(visionProvider);
     const signatureFn = visionProvider.derivePlaceSignature?.bind(visionProvider);
@@ -316,10 +390,14 @@ export function PlaceTrainingPanel({
     let lastError = "";
 
     try {
-      const anchorDataUrls = await Promise.all(
-        currentAnchors.map((anchor) => blobToDataUrl((anchorImages.get(anchor.id) as StoredAnchorImage).blob))
-      );
-      const signature = await signatureFn({ placeName: place.displayName, anchorImageDataUrls: anchorDataUrls });
+      const { signature, anchorDataUrls } = await resolvePlaceSignature({
+        provider: visionProvider,
+        placeId: place.id,
+        placeName: place.displayName,
+        anchors: currentAnchors.map((anchor) => ({ id: anchor.id, blob: (anchorImages.get(anchor.id) as StoredAnchorImage).blob })),
+        getTraining,
+        commit: onTrainingChange,
+      });
 
       for (const [index, record] of candidates.entries()) {
         if (cancelRef.current) {
@@ -349,6 +427,7 @@ export function PlaceTrainingPanel({
               reason: outcome.reason,
               provider: outcome.provider,
               analysisVersion: outcome.analysisVersion,
+              engineVersion: outcome.engineVersion,
               matchedAt: new Date().toISOString(),
               status: "pending",
             })
@@ -374,6 +453,146 @@ export function PlaceTrainingPanel({
       );
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "Search failed." });
+    } finally {
+      setIsMatching(false);
+      setProgress(null);
+    }
+  }
+
+  async function handleReevaluateMatches() {
+    const matchFn = visionProvider.matchPlaceCandidate?.bind(visionProvider);
+    const signatureFn = visionProvider.derivePlaceSignature?.bind(visionProvider);
+
+    if (!matchFn || !signatureFn) {
+      setMessage({ tone: "error", text: "The configured Vision provider cannot compare photographs to a place." });
+      return;
+    }
+
+    const currentAnchors = getPlaceAnchors(getTraining(), place.id).filter((anchor) => anchorImages.has(anchor.id));
+    if (!getMatchingReadiness(currentAnchors.length).ready) {
+      return;
+    }
+
+    const candidates = selectReevaluationCandidates(
+      visitRef.current,
+      place.id,
+      getTraining(),
+      MAX_REEVALUATION_CANDIDATES_PER_RUN
+    );
+    if (candidates.length === 0) {
+      setMessage({ tone: "info", text: "There are no eligible existing matches to re-evaluate for this place." });
+      return;
+    }
+
+    cancelRef.current = false;
+    setIsMatching(true);
+    setMessage(null);
+    setReevaluationSummary(null);
+    setProgress({ done: 0, total: candidates.length });
+
+    let changed = 0;
+    let same = 0;
+    let failures = 0;
+    let consecutiveFailures = 0;
+    let lastError = "";
+    const engineVersions = new Set<string>();
+    const resultIds: string[] = [];
+
+    try {
+      const { signature, anchorDataUrls } = await resolvePlaceSignature({
+        provider: visionProvider,
+        placeId: place.id,
+        placeName: place.displayName,
+        anchors: currentAnchors.map((anchor) => ({ id: anchor.id, blob: (anchorImages.get(anchor.id) as StoredAnchorImage).blob })),
+        getTraining,
+        commit: onTrainingChange,
+      });
+
+      for (const [index, record] of candidates.entries()) {
+        if (cancelRef.current) {
+          break;
+        }
+
+        try {
+          const url = createThumbnailUrlForRecord(record);
+          if (!url) {
+            throw new Error("Photograph image data is no longer available.");
+          }
+          const analysisImage = await createAnalysisImage(await imageUrlToBlob(url));
+          const outcome = await matchFn({
+            placeId: place.id,
+            placeName: place.displayName,
+            imageRecordId: record.id,
+            candidateImageDataUrl: await blobToDataUrl(analysisImage.blob),
+            anchorImageDataUrls: anchorDataUrls,
+            signature,
+          });
+
+          if (!outcome.engineVersion) {
+            throw new Error("Vision proxy response did not identify the matching engine version.");
+          }
+          engineVersions.add(outcome.engineVersion);
+
+          const saved = saveReevaluatedMatch(visitRef.current, getTraining(), {
+            id: createMatchResultId(outcome.placeId, outcome.imageRecordId),
+            placeId: outcome.placeId,
+            imageRecordId: outcome.imageRecordId,
+            classification: outcome.classification,
+            matchedFeatures: outcome.matchedFeatures,
+            score: outcome.score,
+            reason: outcome.reason,
+            provider: outcome.provider,
+            analysisVersion: outcome.analysisVersion,
+            engineVersion: outcome.engineVersion,
+            matchedAt: new Date().toISOString(),
+            status: "pending",
+          });
+
+          if (!saved) {
+            throw new Error("The match was reviewed or assigned while it was being re-evaluated; the saved result was left unchanged.");
+          }
+
+          onTrainingChange(() => saved.state);
+          if (saved.classificationChanged) {
+            changed += 1;
+          } else {
+            same += 1;
+          }
+          resultIds.push(createMatchResultId(outcome.placeId, outcome.imageRecordId));
+          consecutiveFailures = 0;
+        } catch (error) {
+          failures += 1;
+          consecutiveFailures += 1;
+          lastError = error instanceof Error ? error.message : "Unknown error";
+
+          if (consecutiveFailures >= 3) {
+            break;
+          }
+        }
+
+        setProgress({ done: index + 1, total: candidates.length });
+      }
+
+      const engineVersion = Array.from(engineVersions).join(", ") || null;
+      setReevaluationSummary({ changed, same, failures, engineVersion, stopped: cancelRef.current, resultIds });
+      setMessage(
+        failures > 0
+          ? {
+              tone: "error",
+              text: `${failures} ${failures === 1 ? "photograph" : "photographs"} could not be re-evaluated: ${lastError}`,
+            }
+          : { tone: "info", text: cancelRef.current ? "Re-evaluation stopped." : "Re-evaluation finished." }
+      );
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Re-evaluation failed." });
+      setReevaluationSummary({
+        changed,
+        same,
+        failures: candidates.length - changed - same,
+        engineVersion: Array.from(engineVersions).join(", ") || null,
+        stopped: cancelRef.current,
+        resultIds,
+      });
     } finally {
       setIsMatching(false);
       setProgress(null);
@@ -445,7 +664,12 @@ export function PlaceTrainingPanel({
           return (
             <figure key={anchor.id} className="place-anchor-item" data-testid={`place-anchor-${anchor.id}`}>
               {hasImage && previewUrl ? (
-                <img src={previewUrl} alt={`Visual anchor ${anchor.filename}`} />
+                <PreviewThumbnailButton
+                  target={{ src: previewUrl, filename: anchor.filename, placeLabel: place.displayName, alt: `Visual anchor ${anchor.filename}` }}
+                  onOpen={openImagePreview}
+                >
+                  <img src={previewUrl} alt={`Visual anchor ${anchor.filename}`} />
+                </PreviewThumbnailButton>
               ) : (
                 <div className="place-anchor-missing">{hasImage ? "Loading…" : "Image missing — re-upload"}</div>
               )}
@@ -488,6 +712,80 @@ export function PlaceTrainingPanel({
         onChange={(event) => void handleReplaceSelected(event)}
       />
 
+      {isPickingFromArchive ? (
+        <div className="place-match-list" data-testid="archive-anchor-picker">
+          <h4>Select anchors from archive</h4>
+          <p className="result-count">
+            These photographs are assigned to {place.displayName}, but an assignment is not proof that a photograph is a good
+            example. Choose only clear, representative photographs; nothing is selected for you. Selected:{" "}
+            {pickedRecordIds.length} (this place would have {anchors.length + pickedRecordIds.length} of {MIN_PLACE_ANCHORS}–
+            {MAX_PLACE_ANCHORS} anchors).
+          </p>
+          <div className="place-anchor-grid">
+            {archiveCandidates.length === 0 ? (
+              <p className="result-count">No archive photographs are assigned to this place yet.</p>
+            ) : null}
+            {archiveCandidates.map(({ record, verified, alreadyAnchor, hasImageData }) => {
+              const thumbnail = createThumbnailUrlForRecord(record);
+              const picked = pickedRecordIds.includes(record.id);
+
+              return (
+                <figure key={record.id} className="place-anchor-item" data-testid={`archive-anchor-candidate-${record.id}`}>
+                  {thumbnail && hasImageData ? (
+                    <PreviewThumbnailButton
+                      target={{ src: thumbnail, filename: record.filename, placeLabel: place.displayName }}
+                      onOpen={openImagePreview}
+                    >
+                      <img src={thumbnail} alt="" />
+                    </PreviewThumbnailButton>
+                  ) : (
+                    <div className="place-anchor-missing">No image data</div>
+                  )}
+                  <figcaption>
+                    <span title={record.filename}>{record.filename}</span>
+                    <small>{verified ? "Approved by you for this place" : "Assigned only — not verified"}</small>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={picked}
+                        disabled={alreadyAnchor || !hasImageData || isBusy}
+                        onChange={(event) =>
+                          setPickedRecordIds((current) =>
+                            event.target.checked ? [...current, record.id] : current.filter((id) => id !== record.id)
+                          )
+                        }
+                      />{" "}
+                      {alreadyAnchor ? "Already an anchor" : `Use ${record.filename} as anchor`}
+                    </label>
+                  </figcaption>
+                </figure>
+              );
+            })}
+          </div>
+          <div className="place-anchor-actions">
+            <button
+              type="button"
+              className="secondary-action"
+              data-testid="confirm-archive-anchors"
+              disabled={isBusy || pickedRecordIds.length === 0}
+              onClick={() => void handleConfirmArchiveAnchors()}
+            >
+              Confirm {pickedRecordIds.length} as visual {pickedRecordIds.length === 1 ? "anchor" : "anchors"}
+            </button>
+            <button
+              type="button"
+              className="secondary-action"
+              onClick={() => {
+                setPickedRecordIds([]);
+                setIsPickingFromArchive(false);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="place-training-actions">
         <label className={`secondary-action place-anchor-upload${isBusy || isMatching || anchors.length >= MAX_PLACE_ANCHORS ? " is-disabled" : ""}`}>
           Upload visual anchors
@@ -505,11 +803,32 @@ export function PlaceTrainingPanel({
         <button
           type="button"
           className="secondary-action"
+          data-testid="select-archive-anchors"
+          aria-expanded={isPickingFromArchive}
+          disabled={isBusy || isMatching || anchors.length >= MAX_PLACE_ANCHORS}
+          onClick={() => setIsPickingFromArchive((current) => !current)}
+        >
+          Select anchors from archive
+        </button>
+
+        <button
+          type="button"
+          className="secondary-action"
           data-testid="find-more-photos"
           disabled={!readiness.ready || isMatching || isBusy || remainingCandidates === 0}
           onClick={() => void handleFindMatches()}
         >
           Find more photos from this place
+        </button>
+
+        <button
+          type="button"
+          className="secondary-action"
+          data-testid="reevaluate-place-matches"
+          disabled={!readiness.ready || isMatching || isBusy || reevaluationCandidateCount === 0}
+          onClick={() => void handleReevaluateMatches()}
+        >
+          Re-evaluate matches ({Math.min(reevaluationCandidateCount, MAX_REEVALUATION_CANDIDATES_PER_RUN)})
         </button>
 
         {isMatching ? (
@@ -529,6 +848,54 @@ export function PlaceTrainingPanel({
           {remainingCandidates > MAX_MATCH_CANDIDATES_PER_RUN ? ` — each search compares up to ${MAX_MATCH_CANDIDATES_PER_RUN}` : ""}.
         </p>
       )}
+
+      <p className="result-count" data-testid="reevaluation-candidate-count">
+        {reevaluationCandidateCount} existing unreviewed {reevaluationCandidateCount === 1 ? "match" : "matches"} eligible
+        for re-evaluation; each run is capped at {MAX_REEVALUATION_CANDIDATES_PER_RUN} photographs.
+      </p>
+
+      {reevaluationSummary ? (
+        <>
+          <p className="result-count" data-testid="reevaluation-summary" role="status">
+            Re-evaluation comparison: {reevaluationSummary.changed} classification changed, {reevaluationSummary.same} stayed
+            the same, {reevaluationSummary.failures} failed.
+            {reevaluationSummary.engineVersion ? ` Engine: ${reevaluationSummary.engineVersion}.` : " Engine version unavailable."}
+            {reevaluationSummary.stopped ? " Stopped by user." : ""}
+          </p>
+          {reevaluationComparisons.length > 0 ? (
+            <div className="place-reevaluation-results" data-testid="reevaluation-comparisons" aria-label="Re-evaluation result comparisons">
+              {reevaluationComparisons.map(({ result, record, previous, classificationChanged }) => {
+                const thumbnail = createThumbnailUrlForRecord(record);
+
+                return (
+                  <article
+                    key={result.id}
+                    className={`place-reevaluation-item${classificationChanged ? " changed" : ""}`}
+                    data-testid={`reevaluation-comparison-${result.imageRecordId}`}
+                  >
+                    {thumbnail ? (
+                      <PreviewThumbnailButton
+                    target={{ src: thumbnail, filename: record.filename, placeLabel: getPlaceById(record.placeId ?? "")?.displayName ?? "Unassigned" }}
+                    onOpen={openImagePreview}
+                  >
+                    <img src={thumbnail} alt="" />
+                  </PreviewThumbnailButton>
+                    ) : null}
+                    <div className="place-reevaluation-details">
+                      <strong title={record.filename}>{record.filename}</strong>
+                      <span>
+                        {previous.classification} → {result.classification}
+                        {classificationChanged ? <b className="place-reevaluation-changed">Changed</b> : null}
+                      </span>
+                      <small>{percent(previous.score)} → {percent(result.score)}</small>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : null}
+        </>
+      ) : null}
 
       {progress ? (
         <p className="result-count" role="status">
@@ -559,7 +926,14 @@ export function PlaceTrainingPanel({
 
             return (
               <article key={match.id} className="place-match-item" data-testid={`place-match-${match.imageRecordId}`}>
-                {thumbnail ? <img src={thumbnail} alt={record?.filename ?? "Candidate photograph"} /> : null}
+                {thumbnail ? (
+                  <PreviewThumbnailButton
+                    target={{ src: thumbnail, filename: record?.filename ?? "Candidate photograph", placeLabel: `Suggested: ${place.displayName}` }}
+                    onOpen={openImagePreview}
+                  >
+                    <img src={thumbnail} alt="" />
+                  </PreviewThumbnailButton>
+                ) : null}
                 <div>
                   <strong className={`place-match-confidence ${getMatchConfidence(match.score)}`}>
                     {MATCH_CONFIDENCE_LABELS[getMatchConfidence(match.score)]}
@@ -568,6 +942,12 @@ export function PlaceTrainingPanel({
                   <p>{match.reason}</p>
                   {match.matchedFeatures?.length ? (
                     <p className="place-match-features">Matched: {match.matchedFeatures.join(", ")}</p>
+                  ) : null}
+                  {match.previousEvaluations?.length ? (
+                    <small className="place-match-previous">
+                      Previous: {match.previousEvaluations[match.previousEvaluations.length - 1].classification} (
+                      {percent(match.previousEvaluations[match.previousEvaluations.length - 1].score)})
+                    </small>
                   ) : null}
                   <div className="place-anchor-actions">
                     <button type="button" className="secondary-action" onClick={() => handleApprove(match.id)}>
@@ -610,9 +990,22 @@ export function PlaceTrainingPanel({
 
             return (
               <article key={match.id} className="place-match-item" data-testid={`place-nearby-${match.imageRecordId}`}>
-                {thumbnail ? <img src={thumbnail} alt={record?.filename ?? "Nearby photograph"} /> : null}
+                {thumbnail ? (
+                  <PreviewThumbnailButton
+                    target={{ src: thumbnail, filename: record?.filename ?? "Nearby photograph", placeLabel: `Nearby context (not assigned): ${place.displayName}` }}
+                    onOpen={openImagePreview}
+                  >
+                    <img src={thumbnail} alt="" />
+                  </PreviewThumbnailButton>
+                ) : null}
                 <div>
                   <p>{match.reason}</p>
+                  {match.previousEvaluations?.length ? (
+                    <small className="place-match-previous">
+                      Previous: {match.previousEvaluations[match.previousEvaluations.length - 1].classification} (
+                      {percent(match.previousEvaluations[match.previousEvaluations.length - 1].score)})
+                    </small>
+                  ) : null}
                 </div>
               </article>
             );
@@ -629,7 +1022,14 @@ export function PlaceTrainingPanel({
 
             return (
               <div key={match.id} className="place-match-item">
-                {thumbnail ? <img src={thumbnail} alt={record?.filename ?? "Approved photograph"} /> : null}
+                {thumbnail ? (
+                  <PreviewThumbnailButton
+                    target={{ src: thumbnail, filename: record?.filename ?? "Approved photograph", placeLabel: place.displayName }}
+                    onOpen={openImagePreview}
+                  >
+                    <img src={thumbnail} alt="" />
+                  </PreviewThumbnailButton>
+                ) : null}
                 <div>
                   <p>{record?.filename ?? match.imageRecordId}</p>
                   <div className="place-anchor-actions">
@@ -648,6 +1048,7 @@ export function PlaceTrainingPanel({
           })}
         </div>
       ) : null}
+      {imagePreviewLightbox}
     </section>
   );
 }

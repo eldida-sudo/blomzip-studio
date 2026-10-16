@@ -203,7 +203,10 @@ describe("ProxyVisionProvider.matchPlaceCandidate", () => {
 
   it("posts the place name, anchors and candidate and parses the response", async () => {
     const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ outputText: JSON.stringify({ classification: "SAME_PLACE", score: 0.64, reason: "Matching gate.", matched_features: ["gate post", "latch"] }) }), { status: 200 })
+      new Response(JSON.stringify({
+        outputText: JSON.stringify({ classification: "SAME_PLACE", score: 0.64, reason: "Matching gate.", matched_features: ["gate post", "latch"] }),
+        engineVersion: "place-match-precision-v2",
+      }), { status: 200 })
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -216,7 +219,14 @@ describe("ProxyVisionProvider.matchPlaceCandidate", () => {
       signature: TEST_SIGNATURE,
     });
 
-    expect(outcome).toMatchObject({ placeId: "front-gate", imageRecordId: "image-9", score: 0.64, classification: "SAME_PLACE", provider: "blomzip-vision-proxy" });
+    expect(outcome).toMatchObject({
+      placeId: "front-gate",
+      imageRecordId: "image-9",
+      score: 0.64,
+      classification: "SAME_PLACE",
+      provider: "blomzip-vision-proxy",
+      engineVersion: "place-match-precision-v2",
+    });
 
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("/api/vision/match-place");

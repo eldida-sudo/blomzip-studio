@@ -8,6 +8,7 @@ import {
   describePlaceSignatureViolation,
   enforcePlaceSignature,
   parsePlaceSignature,
+  PLACE_MATCH_ENGINE_VERSION,
   type PlaceSignature,
 } from "./placeMatchContract";
 
@@ -24,7 +25,7 @@ const client = new OpenAI({
 });
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true });
+  res.json({ ok: true, placeMatchEngineVersion: PLACE_MATCH_ENGINE_VERSION });
 });
 
 app.post("/api/vision/analyze", async (req, res) => {
@@ -522,7 +523,7 @@ app.post("/api/vision/match-place", async (req, res) => {
       console.warn("Place-match dropped features outside the signature:", dropped);
     }
 
-    res.json({ outputText: JSON.stringify(result), usage: response.usage });
+    res.json({ outputText: JSON.stringify(result), engineVersion: PLACE_MATCH_ENGINE_VERSION, usage: response.usage });
   } catch (error) {
     console.error(error);
     res.status(500).json({
@@ -532,6 +533,8 @@ app.post("/api/vision/match-place", async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Blomzip vision proxy running on http://localhost:${port}`);
+  console.log(
+    `Blomzip vision proxy running on http://localhost:${port} (place-match engine ${PLACE_MATCH_ENGINE_VERSION})`
+  );
 });
   

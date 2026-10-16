@@ -126,8 +126,19 @@ describe("place training persistence", () => {
       reason: "Same bench.",
       provider: "blomzip-vision-proxy",
       analysisVersion: 1,
+      engineVersion: "place-match-precision-v1",
       matchedAt: "2026-10-05T00:00:00.000Z",
       status: "rejected",
+      previousEvaluations: [{
+        classification: "SAME_PLACE",
+        matchedFeatures: ["bench"],
+        score: 0.8,
+        reason: "Old evaluation.",
+        provider: "blomzip-vision-proxy",
+        analysisVersion: 1,
+        engineVersion: "place-match-precision-v0",
+        matchedAt: "2026-10-04T00:00:00.000Z",
+      }],
     });
 
     await saveArchiveState(createArchiveStateSnapshot({ importVisit: visit, draftWorkspace: emptyWorkspace, placeTraining: training }));
@@ -135,6 +146,10 @@ describe("place training persistence", () => {
 
     expect(loaded?.placeTraining.anchorsByPlaceId["seating-area"].map((item) => item.id)).toEqual(["a1", "a2", "a3"]);
     expect(loaded?.placeTraining.matchResults[0]).toMatchObject({ status: "rejected", score: 0.7 });
+    expect(loaded?.placeTraining.matchResults[0]).toMatchObject({
+      engineVersion: "place-match-precision-v1",
+      previousEvaluations: [{ classification: "SAME_PLACE", engineVersion: "place-match-precision-v0" }],
+    });
     expect(JSON.stringify(loaded)).not.toContain("data:image");
   });
 

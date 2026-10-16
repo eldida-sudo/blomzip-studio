@@ -5,6 +5,8 @@ import { EntryReview } from "./components/EntryReview";
 import { LivingMapPanel } from "./components/LivingMapPanel";
 import { PlaceMapReference } from "./components/PlaceMapReference";
 import { PlaceTrainingPanel } from "./components/PlaceTrainingPanel";
+import { PlaceSortingQueue } from "./components/PlaceSortingQueue";
+import { assignSortingPhoto, returnPhotoToQueue, setPhotoAside, type SortingProposal } from "./utils/placeSorting";
 import { MockObservationEngine, type ObservationEngine } from "./components/observationEngine";
 import { ZipImportPanel } from "./components/ZipImportPanel";
 import type {
@@ -75,6 +77,7 @@ import {
 } from "./utils/placeTraining";
 import type { VisionPlaceCandidateGroup } from "./utils/discoverPlacesVisionEngine";
 import type { ZipImportSummary } from "./utils/readZipImages";
+import { PreviewThumbnailButton, useImagePreview } from "./components/ImagePreviewLightbox";
 import "./App.css";
 
 declare global {
@@ -448,6 +451,7 @@ function App() {
   const [safetySnapshots, setSafetySnapshots] = useState<SafetySnapshotSummary[]>([]);
   const [isSelectedTimelineOpen, setIsSelectedTimelineOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<ImageItem | null>(null);
+  const { open: openImagePreview, lightbox: imagePreviewLightbox } = useImagePreview();
   const [importSummary, setImportSummary] = useState<ZipImportSummary | null>(null);
   const [importVisit, setImportVisit] = useState<Visit | null>(null);
   const [latestImportedBatchIdForVision, setLatestImportedBatchIdForVision] = useState<string | null>(null);
@@ -534,6 +538,16 @@ function App() {
     }
 
     return applyReviewOutcome(reassignMatch(visit, latestPlaceTrainingRef.current, resultId, targetPlaceId));
+  }
+
+  function handleSortingAssign(proposal: SortingProposal, targetPlaceId: string): string | null {
+    const visit = latestImportVisitRef.current;
+
+    if (!visit) {
+      return "There is no archive to assign this photograph in.";
+    }
+
+    return applyReviewOutcome(assignSortingPhoto(visit, latestPlaceTrainingRef.current, proposal, targetPlaceId));
   }
 
   function handleMarkPlaceMatchUnsure(resultId: string) {
@@ -1878,6 +1892,11 @@ function App() {
         key={image.id}
         className={`gallery-card ${activeGalleryImageId === image.id ? "is-current" : ""}`}
       >
+        <PreviewThumbnailButton
+          className="gallery-card-preview-trigger"
+          target={{ src: thumbnailSrc, filename: displayTitle, placeLabel, alt: image.alt }}
+          onOpen={openImagePreview}
+        />
         <button
           type="button"
           className="gallery-card-button preview-card-button"
@@ -2372,14 +2391,19 @@ function App() {
                           className="selected-timeline-card"
                           data-testid={`selected-timeline-card-${entry?.id ?? image.id}`}
                         >
-                          <button
-                            type="button"
+                          <PreviewThumbnailButton
                             className="selected-timeline-preview"
-                            onClick={() => openReviewWithIndex(index)}
-                            aria-label={`Open ${filename}`}
+                            target={{
+                              src: thumbnailSrc,
+                              filename,
+                              placeLabel,
+                              alt: image.alt,
+                              onOpenInReview: () => openReviewWithIndex(index),
+                            }}
+                            onOpen={openImagePreview}
                           >
-                            {thumbnailSrc ? <img src={thumbnailSrc} alt={image.alt} /> : <span>No preview</span>}
-                          </button>
+                            {thumbnailSrc ? <img src={thumbnailSrc} alt="" /> : <span>No preview</span>}
+                          </PreviewThumbnailButton>
                           <div className="selected-timeline-card-copy">
                             <time>{formatDateLabel(imageRecord?.captureDate)}</time>
                             <strong title={filename}>{filename}</strong>
@@ -2422,6 +2446,19 @@ function App() {
               onPlaceSelect={setArchivePlaceFilter}
               placeCounts={importVisit ? placeImageCounts : undefined}
             />
+
+            {importVisit ? (
+              <PlaceSortingQueue
+                visit={importVisit}
+                training={placeTraining}
+                getTraining={() => latestPlaceTrainingRef.current}
+                onTrainingChange={commitPlaceTraining}
+                onAssign={handleSortingAssign}
+                onSetAside={(proposal) => commitPlaceTraining((current) => setPhotoAside(current, proposal))}
+                onReturnToQueue={(imageRecordId) => commitPlaceTraining((current) => returnPhotoToQueue(current, imageRecordId))}
+                visionProvider={visionProvider}
+              />
+            ) : null}
 
             {importVisit && archivePlaceFilter && getPlaceById(archivePlaceFilter) ? (
               <PlaceTrainingPanel
@@ -2478,20 +2515,27 @@ function App() {
                           <article key={group.id} className="vision-engine-group-item" data-testid={`vision-group-card-${group.id}`}>
                             <div className="vision-engine-group-image-column">
                               <div className="vision-engine-group-representative-wrapper">
-                                <button
-                                  type="button"
+                                {representativeRecord ? (
+                                <PreviewThumbnailButton
                                   className="vision-engine-group-image-button vision-engine-group-representative"
-                                  data-testid={`vision-group-representative-${group.id}`}
-                                  onClick={() => representativeRecord ? openReviewForImageRecord(representativeRecord.id, group.id) : undefined}
-                                  disabled={!representativeRecord}
-                                  aria-label={`Open representative ${representativeLabel}`}
+                                  testId={`vision-group-representative-${group.id}`}
+                                  target={{
+                                    src: representativeThumbnailSrc,
+                                    filename: representativeLabel,
+                                    placeLabel: getPlaceById(representativeRecord.placeId ?? "")?.displayName ?? "Unassigned",
+                                    onOpenInReview: () => openReviewForImageRecord(representativeRecord.id, group.id),
+                                  }}
+                                  onOpen={openImagePreview}
                                 >
                                   {representativeThumbnailSrc ? (
-                                    <img src={representativeThumbnailSrc} alt={representativeLabel} data-object-fit="contain" />
+                                    <img src={representativeThumbnailSrc} alt="" data-object-fit="contain" />
                                   ) : (
                                     <span>No preview</span>
                                   )}
-                                </button>
+                                </PreviewThumbnailButton>
+                                ) : (
+                                  <span className="vision-engine-group-image-button vision-engine-group-representative">No preview</span>
+                                )}
 
                                 {representativeRecord ? (
                                   <button
@@ -2514,23 +2558,27 @@ function App() {
                                       key={record.id}
                                       className="vision-engine-group-preview-wrapper"
                                     >
-                                      <button
-                                        type="button"
+                                      <PreviewThumbnailButton
                                         className="vision-engine-group-image-button vision-engine-group-preview-button"
-                                        data-testid={`vision-group-preview-${group.id}-${record.id}`}
-                                        onClick={() => openReviewForImageRecord(record.id, group.id)}
-                                        aria-label={`Open ${record.filename}`}
+                                        testId={`vision-group-preview-${group.id}-${record.id}`}
+                                        target={{
+                                          src: previewSrc,
+                                          filename: record.filename,
+                                          placeLabel: getPlaceById(record.placeId ?? "")?.displayName ?? "Unassigned",
+                                          onOpenInReview: () => openReviewForImageRecord(record.id, group.id),
+                                        }}
+                                        onOpen={openImagePreview}
                                       >
                                         {previewSrc ? (
                                           <img
                                             src={previewSrc}
-                                            alt={record.filename}
+                                            alt=""
                                             data-object-fit="contain"
                                           />
                                         ) : (
                                           <span>No preview</span>
                                         )}
-                                      </button>
+                                      </PreviewThumbnailButton>
 
                                       <button
                                         type="button"
@@ -2662,21 +2710,33 @@ function App() {
                           const explanation = storyRecommendation?.reasons?.[0];
 
                           return (
-                            <button
+                            <div
                               key={entry.id}
-                              type="button"
                               className={`story-recommendation-preview${heroRecommendation ? " is-hero-recommendation" : ""}`}
-                              onClick={() => openReviewWithIndex(index)}
                             >
-                              <span className="story-recommendation-image">
-                                {thumbnailSrc ? <img src={thumbnailSrc} alt={filename} /> : <span>No preview</span>}
+                              <PreviewThumbnailButton
+                                className="story-recommendation-image"
+                                target={{
+                                  src: thumbnailSrc,
+                                  filename,
+                                  placeLabel: getPlaceById(imageRecord?.placeId ?? "")?.displayName ?? "Unassigned",
+                                  onOpenInReview: () => openReviewWithIndex(index),
+                                }}
+                                onOpen={openImagePreview}
+                              >
+                                {thumbnailSrc ? <img src={thumbnailSrc} alt="" /> : <span>No preview</span>}
                                 {heroRecommendation ? <span className="hero-recommendation-badge">Hero</span> : null}
-                              </span>
-                              <span className="story-recommendation-copy">
+                              </PreviewThumbnailButton>
+                              <button
+                                type="button"
+                                className="story-recommendation-copy"
+                                onClick={() => openReviewWithIndex(index)}
+                                aria-label={`Open ${filename}`}
+                              >
                                 <strong>{filename}</strong>
                                 {explanation ? <small>{explanation}</small> : null}
-                              </span>
-                            </button>
+                              </button>
+                            </div>
                           );
                         })}
                       </div>
@@ -2915,6 +2975,8 @@ function App() {
           </div>
         )}
       </section>
+
+      {imagePreviewLightbox}
 
       {selectedImage && (
         <div className="detail-overlay" onClick={() => setSelectedImage(null)}>
