@@ -529,6 +529,8 @@ export interface ArchiveAnchorCandidate {
   verified: boolean;
   alreadyAnchor: boolean;
   hasImageData: boolean;
+  /** Features the stored comparison matched for this place; a hint of distinctiveness, empty when none is recorded. */
+  matchedFeatures: string[];
 }
 
 /** Photographs currently assigned to the place, offered as anchor candidates. Nothing is selected or assumed correct. */
@@ -543,18 +545,39 @@ export function listArchiveAnchorCandidates(
   const anchoredHashes = new Set(
     records.filter((record) => anchoredIds.has(record.id) && record.contentHash).map((record) => record.contentHash)
   );
+  // Curator confirmation is only what the data records explicitly: an approved match, or a sorting-queue
+  // approval/correction to this place. A bare placeId could come from an import or an older workflow.
   const approvedIds = new Set(
     state.matchResults.filter((result) => result.placeId === placeId && result.status === "approved").map((result) => result.imageRecordId)
   );
+  (state.sortingCorrections ?? []).forEach((correction) => {
+    if (correction.decision !== "unsure" && correction.assignedPlaceId === placeId) {
+      approvedIds.add(correction.imageRecordId);
+    }
+  });
+  const featuresByRecord = new Map<string, string[]>();
+  state.matchResults.forEach((result) => {
+    if (result.placeId === placeId && result.classification === "SAME_PLACE" && result.status !== "rejected") {
+      featuresByRecord.set(result.imageRecordId, result.matchedFeatures ?? []);
+    }
+  });
 
   return records
-    .filter((record) => record.placeId === placeId && !isPlaceDetailRecord(record))
+    .filter(
+      (record) =>
+        record.placeId === placeId &&
+        !isPlaceDetailRecord(record) &&
+        !record.overviewClassification &&
+        !record.externalClassification
+    )
     .map((record) => ({
       record,
       verified: approvedIds.has(record.id),
       alreadyAnchor: anchoredIds.has(record.id) || Boolean(record.contentHash && anchoredHashes.has(record.contentHash)),
       hasImageData: hasRuntimeImageData(record),
-    }));
+      matchedFeatures: featuresByRecord.get(record.id) ?? [],
+    }))
+    .sort((a, b) => Number(b.verified) - Number(a.verified) || b.matchedFeatures.length - a.matchedFeatures.length);
 }
 
 /**

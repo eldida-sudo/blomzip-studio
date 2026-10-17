@@ -3629,3 +3629,118 @@ button.active {
   gap: 0.5rem 1rem;
   overflow-wrap: anywhere;
 }
+
+/* Sorting queue: responsive card grid */
+.place-sorting-queue .sorting-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.place-sorting-queue .sorting-card,
+.place-sorting-queue .sorting-focus {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid #d8cfbd;
+  border-radius: 12px;
+  background: #fffdf8;
+  overflow: hidden;
+}
+
+.place-sorting-queue .sorting-focus {
+  max-width: 900px;
+}
+
+.place-sorting-queue .sorting-card .image-preview-trigger,
+.place-sorting-queue .sorting-focus .image-preview-trigger {
+  display: block;
+  width: 100%;
+  line-height: 0;
+}
+
+.place-sorting-queue .sorting-card img,
+.place-sorting-queue .sorting-no-preview {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+.place-sorting-queue .sorting-focus img {
+  display: block;
+  width: 100%;
+  max-height: 60vh;
+  object-fit: contain;
+  background: #f1ebdd;
+  border-radius: 10px;
+}
+
+.place-sorting-queue .sorting-no-preview {
+  display: grid;
+  place-items: center;
+  background: #ede4d2;
+  font-size: 0.85rem;
+}
+
+.place-sorting-queue .sorting-filename,
+.place-sorting-queue .sorting-card p,
+.place-sorting-queue .sorting-card small,
+.place-sorting-queue .sorting-focus p,
+.place-sorting-queue .sorting-focus small {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.place-sorting-queue .sorting-card .sorting-filename {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.place-sorting-queue .sorting-card select,
+.place-sorting-queue .sorting-focus select {
+  max-width: 100%;
+}
+
+.place-sorting-queue .sorting-bulk-preview {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid #d8cfbd;
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+
+.place-sorting-queue .sorting-progress {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+}
+
+.place-sorting-queue .sorting-progress-item {
+  display: flex;
+  flex-direction: column-reverse;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid #d8cfbd;
+  border-radius: 10px;
+  background: #fbf7ee;
+}
+
+.place-sorting-queue .sorting-progress dd {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.place-sorting-queue .sorting-progress dt {
+  font-size: 0.75rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}

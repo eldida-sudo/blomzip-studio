@@ -5,6 +5,7 @@ import { EntryReview } from "./components/EntryReview";
 import { LivingMapPanel } from "./components/LivingMapPanel";
 import { PlaceMapReference } from "./components/PlaceMapReference";
 import { PlaceTrainingPanel } from "./components/PlaceTrainingPanel";
+import { bulkAssignSortingPhotos } from "./utils/placeSortingGroups";
 import { PlaceSortingQueue } from "./components/PlaceSortingQueue";
 import { assignSortingPhoto, returnPhotoToQueue, setPhotoAside, type SortingProposal } from "./utils/placeSorting";
 import { MockObservationEngine, type ObservationEngine } from "./components/observationEngine";
@@ -513,6 +514,7 @@ function App() {
   const hasAppliedStudioImagesRef = useRef(false);
   const sidebarImportSectionRef = useRef<HTMLElement | null>(null);
   const visionSummaryRef = useRef<HTMLElement | null>(null);
+  const [isDiscoveryGroupsOpen, setIsDiscoveryGroupsOpen] = useState(false);
   const selectedTimelineRef = useRef<HTMLElement | null>(null);
   const managedThumbnailObjectUrlsRef = useRef<Set<string>>(new Set());
   const latestImportVisitRef = useRef<Visit | null>(null);
@@ -582,6 +584,23 @@ function App() {
     }
 
     return applyReviewOutcome(assignSortingPhoto(visit, latestPlaceTrainingRef.current, proposal, targetPlaceId));
+  }
+
+  function handleSortingBulkAssign(proposals: SortingProposal[], targetPlaceId: string) {
+    const visit = latestImportVisitRef.current;
+
+    if (!visit) {
+      return { assigned: 0, skipped: proposals.map((proposal) => ({ imageRecordId: proposal.imageRecordId, reason: "There is no archive." })) };
+    }
+
+    const outcome = bulkAssignSortingPhotos(visit, latestPlaceTrainingRef.current, proposals, targetPlaceId);
+
+    if (outcome.assignedIds.length > 0) {
+      commitImportVisit(outcome.visit);
+      commitPlaceTraining(() => outcome.state);
+    }
+
+    return { assigned: outcome.assignedIds.length, skipped: outcome.skipped };
   }
 
   function handleMarkPlaceMatchUnsure(resultId: string) {
@@ -1737,6 +1756,7 @@ function App() {
       return;
     }
 
+    setIsDiscoveryGroupsOpen(true);
     const groupElement = document.querySelector(`[data-testid="vision-group-card-${activeVisionGroupId}"]`) as HTMLElement | null;
     const fallbackTarget = visionSummaryRef.current;
     const target = groupElement ?? fallbackTarget;
@@ -2623,6 +2643,7 @@ function App() {
                 getTraining={() => latestPlaceTrainingRef.current}
                 onTrainingChange={commitPlaceTraining}
                 onAssign={handleSortingAssign}
+                onBulkAssign={handleSortingBulkAssign}
                 onSetAside={(proposal) => commitPlaceTraining((current) => setPhotoAside(current, proposal))}
                 onReturnToQueue={(imageRecordId) => commitPlaceTraining((current) => returnPhotoToQueue(current, imageRecordId))}
                 visionProvider={visionProvider}
@@ -2667,6 +2688,13 @@ function App() {
                   </p>
 
                   {visionDiscoverySummary.candidatePlaceGroups.length > 0 ? (
+                    <details
+                      className="vision-engine-groups-panel"
+                      data-testid="vision-groups-panel"
+                      open={isDiscoveryGroupsOpen}
+                      onToggle={(event) => setIsDiscoveryGroupsOpen(event.currentTarget.open)}
+                    >
+                    <summary>Candidate place groups ({visionDiscoverySummary.candidatePlaceGroups.length})</summary>
                     <div className="vision-engine-groups">
                       {visionDiscoverySummary.candidatePlaceGroups.map((group) => {
                         const {
@@ -2850,6 +2878,7 @@ function App() {
                         );
                       })}
                     </div>
+                    </details>
                   ) : null}
 
                   {placeAssignmentFeedback ? (

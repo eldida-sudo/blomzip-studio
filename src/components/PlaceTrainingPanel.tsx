@@ -152,7 +152,13 @@ export function PlaceTrainingPanel({
   const reevaluationComparisons = reevaluationSummary
     ? listReevaluationComparisons(visit, training, reevaluationSummary.resultIds)
     : [];
-  const archiveCandidates = isPickingFromArchive ? listArchiveAnchorCandidates(visit, training, place.id) : [];
+  const [showUnconfirmedCandidates, setShowUnconfirmedCandidates] = useState(false);
+  const archiveCandidates = listArchiveAnchorCandidates(visit, training, place.id);
+  const confirmedCandidates = archiveCandidates.filter((candidate) => candidate.verified && !candidate.alreadyAnchor);
+  const confirmedCandidateCount = confirmedCandidates.length;
+  const visibleArchiveCandidates = showUnconfirmedCandidates
+    ? archiveCandidates
+    : archiveCandidates.filter((candidate) => candidate.verified || candidate.alreadyAnchor);
   const recordsById = new Map<string, ImageRecord>((visit?.imageRecords ?? []).map((record) => [record.id, record]));
   const promotableApproved = training.matchResults.filter(
     (result) =>
@@ -846,11 +852,27 @@ export function PlaceTrainingPanel({
             {pickedRecordIds.length} (this place would have {anchors.length + pickedRecordIds.length} of {MIN_PLACE_ANCHORS}–
             {MAX_PLACE_ANCHORS} anchors).
           </p>
+          <p className="result-count" data-testid="archive-anchor-counts">
+            Current anchors: {anchors.length} of {MAX_PLACE_ANCHORS}. {confirmedCandidateCount} curator-confirmed{" "}
+            {confirmedCandidateCount === 1 ? "photograph is" : "photographs are"} available. Place Detail, Courtyard Overview
+            and External photographs are never offered. Prefer photographs that clearly show distinctive, fixed features.
+          </p>
+          {archiveCandidates.length > confirmedCandidateCount ? (
+            <label>
+              <input
+                type="checkbox"
+                data-testid="show-unconfirmed-candidates"
+                checked={showUnconfirmedCandidates}
+                onChange={(event) => setShowUnconfirmedCandidates(event.target.checked)}
+              />{" "}
+              Also show {archiveCandidates.length - confirmedCandidateCount} assigned-only photographs (no recorded curator confirmation)
+            </label>
+          ) : null}
           <div className="place-anchor-grid">
             {archiveCandidates.length === 0 ? (
               <p className="result-count">No archive photographs are assigned to this place yet.</p>
             ) : null}
-            {archiveCandidates.map(({ record, verified, alreadyAnchor, hasImageData }) => {
+            {visibleArchiveCandidates.map(({ record, verified, alreadyAnchor, hasImageData, matchedFeatures }) => {
               const thumbnail = createThumbnailUrlForRecord(record);
               const picked = pickedRecordIds.includes(record.id);
 
@@ -869,11 +891,21 @@ export function PlaceTrainingPanel({
                   <figcaption>
                     <span title={record.filename}>{record.filename}</span>
                     <small>{verified ? "Approved by you for this place" : "Assigned only — not verified"}</small>
+                    <small>
+                      {matchedFeatures.length > 0
+                        ? `Matched features: ${matchedFeatures.join(", ")}`
+                        : "No matched features recorded"}
+                    </small>
                     <label>
                       <input
                         type="checkbox"
                         checked={picked}
-                        disabled={alreadyAnchor || !hasImageData || isBusy}
+                        disabled={
+                          alreadyAnchor ||
+                          !hasImageData ||
+                          isBusy ||
+                          (!picked && anchors.length + pickedRecordIds.length >= MAX_PLACE_ANCHORS)
+                        }
                         onChange={(event) =>
                           setPickedRecordIds((current) =>
                             event.target.checked ? [...current, record.id] : current.filter((id) => id !== record.id)
@@ -934,6 +966,7 @@ export function PlaceTrainingPanel({
           onClick={() => setIsPickingFromArchive((current) => !current)}
         >
           Select anchors from archive
+          {confirmedCandidateCount > 0 ? ` (${confirmedCandidateCount} confirmed)` : ""}
         </button>
 
         <button
