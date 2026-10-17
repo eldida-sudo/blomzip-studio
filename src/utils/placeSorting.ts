@@ -17,6 +17,7 @@ import {
 } from "./placeTraining";
 import { EXTERNAL_BLOCKED_MESSAGE, isExternalRecord, isPlaceMatchEligible } from "./externalClassification";
 import { isOverviewRecord, OVERVIEW_BLOCKED_MESSAGE } from "./courtyardOverview";
+import { isPlaceDetailRecord, PLACE_DETAIL_BLOCKED_MESSAGE } from "./placeDetail";
 import { MIN_SAME_PLACE_FEATURES } from "./visionProvider";
 
 export const SORTING_BATCH_SIZE = 5;
@@ -250,6 +251,10 @@ export function assignSortingPhoto(
 
   if (isOverviewRecord(record)) {
     return { ok: false, error: OVERVIEW_BLOCKED_MESSAGE };
+  }
+
+  if (isPlaceDetailRecord(record)) {
+    return { ok: false, error: PLACE_DETAIL_BLOCKED_MESSAGE };
   }
 
   if (record.placeId) {

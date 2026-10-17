@@ -12,6 +12,7 @@ import { blobToDataUrl, createAnalysisImage, imageUrlToBlob } from "../utils/ana
 import { createThumbnailUrlForRecord } from "../utils/createThumbnailUrls";
 import { resolvePlaceSignature } from "../utils/placeSignatureCache";
 import { isRecordEligibleNow } from "../utils/externalClassification";
+import { isPlaceDetailRecord } from "../utils/placeDetail";
 import { createAnchorImageBackup, importAnchorImageBackup } from "../utils/placeAnchorBackup";
 import { getAnchorImages, putAnchorImage, type StoredAnchorImage } from "../utils/placeAnchorStore";
 import {
@@ -33,6 +34,7 @@ import {
   MAX_REEVALUATION_CANDIDATES_PER_RUN,
   MAX_PLACE_ANCHORS,
   MIN_PLACE_ANCHORS,
+  PLACE_DETAIL_ANCHOR_MESSAGE,
   removePlaceAnchor,
   replacePlaceAnchor,
   selectMatchCandidates,
@@ -157,6 +159,7 @@ export function PlaceTrainingPanel({
       result.placeId === place.id &&
       result.status === "approved" &&
       recordsById.get(result.imageRecordId)?.placeId === place.id &&
+      !isPlaceDetailRecord(recordsById.get(result.imageRecordId)) &&
       !anchors.some((anchor) => anchor.sourceImageRecordId === result.imageRecordId)
   );
 
@@ -290,6 +293,11 @@ export function PlaceTrainingPanel({
     const url = record ? createThumbnailUrlForRecord(record) : undefined;
 
     if (!record || !url) {
+      return;
+    }
+
+    if (isPlaceDetailRecord(record)) {
+      setMessage({ tone: "error", text: PLACE_DETAIL_ANCHOR_MESSAGE });
       return;
     }
 

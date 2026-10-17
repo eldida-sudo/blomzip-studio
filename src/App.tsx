@@ -45,6 +45,17 @@ import {
   OVERVIEW_PLACE_LABEL,
   setOverviewVisiblePlaces,
 } from "./utils/courtyardOverview";
+import { PlaceDetailBulkPanel } from "./components/PlaceDetailBulkPanel";
+import {
+  applyBulkPlaceDetail,
+  clearRecordPlaceDetail,
+  isPlaceDetailRecord,
+  markRecordPlaceDetail,
+  PLACE_DETAIL_LABEL,
+  undoBulkPlaceDetail,
+  type BulkPlaceDetailResult,
+  type BulkPlaceDetailUndo,
+} from "./utils/placeDetail";
 import {
   countImagesByPlace,
   DEFAULT_CURATION_FILTERS,
@@ -465,6 +476,8 @@ function App() {
   const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
   const [suggestionFilter, setSuggestionFilter] = useState<SuggestionFilter>("all");
   const [archivePlaceFilter, setArchivePlaceFilter] = useState<string | null>(null);
+  const [placeDetailSelecting, setPlaceDetailSelecting] = useState(false);
+  const [placeDetailSelectedIds, setPlaceDetailSelectedIds] = useState<string[]>([]);
   const [curationFilters, setCurationFilters] = useState<CurationFilters>(DEFAULT_CURATION_FILTERS);
   const [pendingRecovery, setPendingRecovery] = useState<PendingRecovery | null>(null);
   const [recoveryMessage, setRecoveryMessage] = useState<{ tone: "error" | "info"; text: string } | null>(null);
@@ -723,6 +736,52 @@ function App() {
     });
   }
 
+  function handleEntryReviewPlaceDetailChanged(imageRecordId: string, placeId: string | null) {
+    commitImportVisit((currentVisit) => {
+      if (!currentVisit) {
+        return currentVisit;
+      }
+
+      const outcome = placeId
+        ? markRecordPlaceDetail(currentVisit, imageRecordId, placeId)
+        : clearRecordPlaceDetail(currentVisit, imageRecordId);
+
+      return outcome.ok ? outcome.visit : currentVisit;
+    });
+  }
+
+  function handleBulkApplyPlaceDetail(imageRecordIds: string[], placeId: string): BulkPlaceDetailResult {
+    const visit = latestImportVisitRef.current;
+
+    if (!visit) {
+      return { ok: false, error: "There is no archive to classify photographs in." };
+    }
+
+    const outcome = applyBulkPlaceDetail(visit, imageRecordIds, placeId);
+
+    if (outcome.ok && outcome.appliedCount > 0) {
+      commitImportVisit(outcome.visit);
+    }
+
+    return outcome;
+  }
+
+  function handleBulkUndoPlaceDetail(undo: BulkPlaceDetailUndo) {
+    const visit = latestImportVisitRef.current;
+
+    if (!visit) {
+      return { restoredCount: 0, skippedCount: undo.entries.length };
+    }
+
+    const outcome = undoBulkPlaceDetail(visit, undo);
+
+    if (outcome.restoredCount > 0) {
+      commitImportVisit(outcome.visit);
+    }
+
+    return { restoredCount: outcome.restoredCount, skippedCount: outcome.skippedCount };
+  }
+
   function handleEntryReviewOverviewChanged(imageRecordId: string, overview: boolean) {
     commitImportVisit((currentVisit) => {
       if (!currentVisit) {
@@ -763,6 +822,10 @@ function App() {
           }
 
           if (placeId !== null && (isExternalRecord(record) || isOverviewRecord(record))) {
+            return record;
+          }
+
+          if (placeId === null && isPlaceDetailRecord(record)) {
             return record;
           }
 
@@ -1961,6 +2024,20 @@ function App() {
         key={image.id}
         className={`gallery-card ${activeGalleryImageId === image.id ? "is-current" : ""}`}
       >
+        {placeDetailSelecting && imageRecord ? (
+          <label className="gallery-card-select" data-testid={`gallery-select-${imageRecord.id}`}>
+            <input
+              type="checkbox"
+              checked={placeDetailSelectedIds.includes(imageRecord.id)}
+              onChange={(event) =>
+                setPlaceDetailSelectedIds((current) =>
+                  event.target.checked ? [...current, imageRecord.id] : current.filter((id) => id !== imageRecord.id)
+                )
+              }
+            />{" "}
+            Select {displayTitle}
+          </label>
+        ) : null}
         <PreviewThumbnailButton
           className="gallery-card-preview-trigger"
           target={{ src: thumbnailSrc, filename: displayTitle, placeLabel, alt: image.alt }}
@@ -2008,7 +2085,7 @@ function App() {
                 </span>
               ) : null}
 
-              {(image.favorite || image.hero || entry?.storySelected || entry?.hidden || isExternalRecord(imageRecord) || isOverviewRecord(imageRecord)) ? (
+              {(image.favorite || image.hero || entry?.storySelected || entry?.hidden || isExternalRecord(imageRecord) || isOverviewRecord(imageRecord) || isPlaceDetailRecord(imageRecord)) ? (
                 <div className="gallery-card-curation" data-testid={`gallery-curation-${entry?.id ?? image.id}`} aria-label="Curator selections">
                   {image.favorite ? <span className="gallery-card-curation-chip">Favorite</span> : null}
                   {image.hero ? <span className="gallery-card-curation-chip">Hero</span> : null}
@@ -2022,6 +2099,11 @@ function App() {
                   {isOverviewRecord(imageRecord) ? (
                     <span className="gallery-card-curation-chip" data-testid={`gallery-overview-${entry?.id ?? image.id}`}>
                       {OVERVIEW_PLACE_LABEL}
+                    </span>
+                  ) : null}
+                  {isPlaceDetailRecord(imageRecord) ? (
+                    <span className="gallery-card-curation-chip" data-testid={`gallery-place-detail-${entry?.id ?? image.id}`}>
+                      {PLACE_DETAIL_LABEL}
                     </span>
                   ) : null}
                 </div>
@@ -2390,6 +2472,7 @@ function App() {
             onImageRecordPlaceChanged={handleEntryReviewImageRecordPlaceChanged}
             onExternalClassificationChanged={handleEntryReviewExternalClassificationChanged}
             onOverviewClassificationChanged={handleEntryReviewOverviewChanged}
+            onPlaceDetailChanged={handleEntryReviewPlaceDetailChanged}
             onOverviewVisiblePlacesChanged={handleEntryReviewOverviewPlacesChanged}
           />
         ) : (
@@ -3063,6 +3146,23 @@ function App() {
                   </button>
                 ) : null}
               </div>
+            ) : null}
+
+            {importVisit ? (
+              <PlaceDetailBulkPanel
+                visit={importVisit}
+                active={placeDetailSelecting}
+                selectedIds={placeDetailSelectedIds}
+                visibleIds={timelineItems.flatMap((timelineItem) => {
+                  if (timelineItem.type === "header") return [];
+                  const recordId = importVisit.entries[timelineItem.item.index]?.imageRecordId;
+                  return recordId ? [recordId] : [];
+                })}
+                onActiveChange={setPlaceDetailSelecting}
+                onSelectionChange={setPlaceDetailSelectedIds}
+                onApply={handleBulkApplyPlaceDetail}
+                onUndo={handleBulkUndoPlaceDetail}
+              />
             ) : null}
 
             <section className="gallery-grid">

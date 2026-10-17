@@ -2502,4 +2502,57 @@ describe("App", () => {
     expect(container.textContent).toContain("Selected for Story ✓");
     expect((container.querySelector('[data-testid="entry-review-main-image"]') as HTMLImageElement | null)?.src).toContain("blob:mock-url");
   });
+  it("selects and deselects gallery photographs through real checkbox controls without opening the preview", async () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    act(() => {
+      (container.querySelector('[data-testid="place-detail-bulk-start"]') as HTMLButtonElement).click();
+    });
+
+    const labels = Array.from(container.querySelectorAll<HTMLLabelElement>(".gallery-card-select"));
+    expect(labels.length).toBeGreaterThan(1);
+
+    const [first, second] = labels;
+    const firstBox = first.querySelector("input") as HTMLInputElement;
+    const secondBox = second.querySelector("input") as HTMLInputElement;
+    const count = () => container.querySelector('[data-testid="place-detail-bulk-count"]')?.textContent;
+
+    // The control is a sibling of the preview trigger, so a click on it can never reach the lightbox handler.
+    expect(first.closest(".image-preview-trigger")).toBeNull();
+    expect(first.closest(".gallery-card-button")).toBeNull();
+    expect(first.contains(firstBox)).toBe(true);
+    expect(count()).toBe("0 selected");
+
+    act(() => {
+      firstBox.click();
+    });
+    expect(firstBox.checked).toBe(true);
+    expect(count()).toBe("1 selected");
+
+    // Clicking the label text toggles its checkbox too.
+    act(() => {
+      second.click();
+    });
+    expect(secondBox.checked).toBe(true);
+    expect(count()).toBe("2 selected");
+
+    act(() => {
+      firstBox.click();
+    });
+    expect(firstBox.checked).toBe(false);
+    expect(count()).toBe("1 selected");
+
+    expect(container.querySelector('[data-testid="image-preview-dialog"]')).toBeNull();
+    expect(container.textContent).not.toContain("Entry 1 of");
+
+    // The photograph itself still opens the preview.
+    act(() => {
+      (container.querySelector(".gallery-card-preview-trigger") as HTMLButtonElement).click();
+    });
+    expect(container.querySelector('[data-testid="image-preview-dialog"]')).toBeTruthy();
+  });
 });

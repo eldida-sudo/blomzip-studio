@@ -72,6 +72,10 @@ export interface OverviewClassification {
   visiblePlaceIds?: string[];
 }
 
+export interface PlaceDetailClassification {
+  classifiedAt: string;
+}
+
 export interface ImageRecord {
   id: string;
   importBatchId?: string;
@@ -100,6 +104,11 @@ export interface ImageRecord {
   // Curator-set only: shows the courtyard as a whole (e.g. a balcony view). Independent of placeId and
   // externalClassification; removing it restores the photograph to the normal archive pool.
   overviewClassification?: OverviewClassification;
+
+  // Curator-set only: a close-up that belongs to the Canonical Place in `placeId` but has no reliable landmarks.
+  // The place is always the record's single `placeId`; this only marks the photograph as non-geographical evidence
+  // (never matched, sorted or used as a visual anchor). Removing it keeps the place assignment.
+  placeDetailClassification?: PlaceDetailClassification;
 
   // Sidecar-provided metadata
   location?: Location;

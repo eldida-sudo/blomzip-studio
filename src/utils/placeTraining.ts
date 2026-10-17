@@ -11,11 +11,14 @@ import type {
 
 import { EXTERNAL_BLOCKED_MESSAGE, isExternalRecord, isPlaceMatchEligible } from "./externalClassification";
 import { isOverviewRecord, OVERVIEW_BLOCKED_MESSAGE } from "./courtyardOverview";
+import { isPlaceDetailRecord, PLACE_DETAIL_BLOCKED_MESSAGE } from "./placeDetail";
 
 export const MIN_PLACE_ANCHORS = 3;
 export const MAX_PLACE_ANCHORS = 8;
 export const MAX_MATCH_CANDIDATES_PER_RUN = 20;
 export const MAX_REEVALUATION_CANDIDATES_PER_RUN = 5;
+export const PLACE_DETAIL_ANCHOR_MESSAGE =
+  "Place Detail / Close-up photographs cannot be visual anchors. Anchors must show distinctive geography of the place.";
 export const ACCEPTED_ANCHOR_MIME_TYPES: readonly string[] = ["image/jpeg", "image/png"];
 
 export type TrainingResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -346,6 +349,10 @@ export function approveMatch(visit: Visit, state: PlaceTrainingState, resultId: 
     return { ok: false, error: OVERVIEW_BLOCKED_MESSAGE };
   }
 
+  if (isPlaceDetailRecord(record)) {
+    return { ok: false, error: PLACE_DETAIL_BLOCKED_MESSAGE };
+  }
+
   if (record.placeId) {
     return { ok: false, error: "This photograph already has a place, so it was left unchanged." };
   }
@@ -415,6 +422,10 @@ export function reassignMatch(
     return { ok: false, error: OVERVIEW_BLOCKED_MESSAGE };
   }
 
+  if (isPlaceDetailRecord(record)) {
+    return { ok: false, error: PLACE_DETAIL_BLOCKED_MESSAGE };
+  }
+
   if (record.placeId) {
     return { ok: false, error: "This photograph already has a place, so it was left unchanged." };
   }
@@ -470,6 +481,10 @@ export function undoReview(visit: Visit, state: PlaceTrainingState, resultId: st
 
   if (!record || record.placeId !== review.assignedPlaceId) {
     return { ok: false, error: "This photograph's place has changed since, so it was left unchanged." };
+  }
+
+  if (isPlaceDetailRecord(record)) {
+    return { ok: false, error: PLACE_DETAIL_BLOCKED_MESSAGE };
   }
 
   return {
@@ -533,7 +548,7 @@ export function listArchiveAnchorCandidates(
   );
 
   return records
-    .filter((record) => record.placeId === placeId)
+    .filter((record) => record.placeId === placeId && !isPlaceDetailRecord(record))
     .map((record) => ({
       record,
       verified: approvedIds.has(record.id),
@@ -558,6 +573,10 @@ export function validateArchiveAnchorSelection(
 
   for (const id of new Set(selectedRecordIds)) {
     const candidate = candidates.get(id);
+
+    if (visit?.imageRecords?.some((record) => record.id === id && isPlaceDetailRecord(record))) {
+      return { ok: false, error: PLACE_DETAIL_ANCHOR_MESSAGE };
+    }
 
     if (!candidate) {
       return { ok: false, error: "A selected photograph is no longer assigned to this place." };

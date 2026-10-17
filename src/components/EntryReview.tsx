@@ -3,6 +3,7 @@ import type { Entry, EntryRecommendationEvidence, EntryRecommendationKind, Entry
 import { listCanonicalPlaces } from "../data/canonicalPlaces";
 import { EXTERNAL_PLACE_LABEL, isExternalRecord } from "../utils/externalClassification";
 import { isOverviewRecord, OVERVIEW_PLACE_LABEL } from "../utils/courtyardOverview";
+import { isPlaceDetailRecord, PLACE_DETAIL_LABEL } from "../utils/placeDetail";
 import { createThumbnailUrlForRecord } from "../utils/createThumbnailUrls";
 import { getEntryEditorialRecommendations } from "../utils/entryRecommendations";
 import { applyStoryRecommendations } from "../utils/storyRecommendations";
@@ -17,6 +18,8 @@ interface EntryReviewProps {
   onEntryUpdated?: (entry: Entry) => void;
   onVisitFinalized?: (visit: Visit) => void;
   onImageRecordPlaceChanged?: (imageRecordId: string, placeId: string | null) => void;
+  /** placeId marks the photograph as Place Detail / Close-up of that place; null removes the classification only. */
+  onPlaceDetailChanged?: (imageRecordId: string, placeId: string | null) => void;
   onExternalClassificationChanged?: (imageRecordId: string, external: boolean) => void;
   onOverviewClassificationChanged?: (imageRecordId: string, overview: boolean) => void;
   onOverviewVisiblePlacesChanged?: (imageRecordId: string, placeIds: string[]) => void;
@@ -150,7 +153,7 @@ function formatCapturedDate(captureDate: string | undefined): string {
   return parsed.toLocaleString();
 }
 
-export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpdated, onVisitFinalized, onImageRecordPlaceChanged, onExternalClassificationChanged, onOverviewClassificationChanged, onOverviewVisiblePlacesChanged, visionProvider: visionProviderProp }: EntryReviewProps) {
+export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpdated, onVisitFinalized, onImageRecordPlaceChanged, onPlaceDetailChanged, onExternalClassificationChanged, onOverviewClassificationChanged, onOverviewVisiblePlacesChanged, visionProvider: visionProviderProp }: EntryReviewProps) {
   const [currentEntryId, setCurrentEntryId] = useState<string | null>(() => {
     if (visit.entries.length === 0) {
       return null;
@@ -296,8 +299,29 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
     onExternalClassificationChanged?.(imageRecord.id, false);
   }
 
+  const [placeDetailDraft, setPlaceDetailDraft] = useState<{ recordId: string; placeId: string; confirming: boolean } | null>(null);
+  const isPlaceDetail = isPlaceDetailRecord(imageRecord);
+  const placeDetailDraftForRecord = imageRecord && placeDetailDraft?.recordId === imageRecord.id ? placeDetailDraft : null;
+  const placeDetailPlaceId = imageRecord?.placeId ?? placeDetailDraftForRecord?.placeId ?? "";
+  const placeDetailPlaceName = placeDetailPlaceId ? canonicalPlaces.find((place) => place.id === placeDetailPlaceId)?.displayName : undefined;
+  const isConfirmingPlaceDetail = Boolean(placeDetailDraftForRecord?.confirming && placeDetailPlaceId);
+
+  function handleConfirmPlaceDetail() {
+    if (!imageRecord || !placeDetailPlaceId) return;
+
+    setPlaceDetailDraft(null);
+    onPlaceDetailChanged?.(imageRecord.id, placeDetailPlaceId);
+  }
+
+  function handleRemovePlaceDetail() {
+    if (!imageRecord) return;
+
+    onPlaceDetailChanged?.(imageRecord.id, null);
+  }
+
   function handleCanonicalPlaceChange(value: string) {
     if (!imageRecord || isExternal) return;
+    if (isPlaceDetail && value === "") return;
 
     onImageRecordPlaceChanged?.(imageRecord.id, value === "" ? null : value);
   }
@@ -1075,7 +1099,7 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
                 disabled={isExternal || isOverview}
                 onChange={(event) => handleCanonicalPlaceChange(event.target.value)}
               >
-                <option value="">Unassigned</option>
+                <option value="" disabled={isPlaceDetail}>Unassigned</option>
                 {canonicalPlaces.map((place) => (
                   <option key={place.id} value={place.id}>
                     {place.displayName}
@@ -1083,6 +1107,71 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
                 ))}
               </select>
             </label>
+            <div className="entry-review-field entry-review-place-detail" data-testid="panel-place-detail">
+              <span className="entry-review-label-on-light">{PLACE_DETAIL_LABEL}</span>
+              {isPlaceDetail ? (
+                <>
+                  <p data-testid="place-detail-status">
+                    Marked {PLACE_DETAIL_LABEL} of {placeDetailPlaceName ?? "an unknown place"}. Studio will not match this
+                    photograph to a place or use it as a visual anchor.
+                  </p>
+                  <button type="button" data-testid="place-detail-remove-button" onClick={handleRemovePlaceDetail}>
+                    Remove Place Detail classification
+                  </button>
+                  <p className="result-count">The place assignment is kept. Change the Canonical place above to move it.</p>
+                </>
+              ) : isConfirmingPlaceDetail ? (
+                <>
+                  <p data-testid="place-detail-confirm-text">
+                    Confirm: this is a close-up of {placeDetailPlaceName}. It stays in the archive, timeline and Story
+                    workflow, but Studio will never match it or use it as a visual anchor. You can reverse this at any time.
+                  </p>
+                  <button type="button" data-testid="place-detail-confirm-button" onClick={handleConfirmPlaceDetail}>
+                    Confirm Place Detail / Close-up
+                  </button>
+                  <button type="button" data-testid="place-detail-cancel-button" onClick={() => setPlaceDetailDraft({ recordId: imageRecord?.id ?? "", placeId: placeDetailPlaceId, confirming: false })}>
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <label htmlFor="entry-review-place-detail-select">Place this close-up belongs to</label>
+                  <select
+                    id="entry-review-place-detail-select"
+                    data-testid="place-detail-place-select"
+                    value={placeDetailPlaceId}
+                    disabled={Boolean(imageRecord?.placeId) || isExternal || isOverview || !imageRecord}
+                    onChange={(event) =>
+                      imageRecord && setPlaceDetailDraft({ recordId: imageRecord.id, placeId: event.target.value, confirming: false })
+                    }
+                  >
+                    <option value="">Choose a place…</option>
+                    {canonicalPlaces.map((place) => (
+                      <option key={place.id} value={place.id}>
+                        {place.displayName}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    data-testid="place-detail-mark-button"
+                    disabled={!placeDetailPlaceId || isExternal || isOverview || !imageRecord}
+                    onClick={() =>
+                      imageRecord && setPlaceDetailDraft({ recordId: imageRecord.id, placeId: placeDetailPlaceId, confirming: true })
+                    }
+                  >
+                    Mark as Place Detail / Close-up
+                  </button>
+                  <p className="result-count">
+                    {isExternal || isOverview
+                      ? "Return this photograph to the archive pool first."
+                      : imageRecord?.placeId
+                        ? "Uses this photograph's current place. Change the Canonical place above to use a different one."
+                        : "For close-ups of flowers, foliage or materials. You choose the place; Studio never infers it."}
+                  </p>
+                </>
+              )}
+            </div>
             <div className="entry-review-field entry-review-external" data-testid="panel-external-classification">
               <span className="entry-review-label-on-light">{EXTERNAL_PLACE_LABEL}</span>
               {isExternal ? (

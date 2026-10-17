@@ -10,9 +10,9 @@ export function isExternalRecord(record: Pick<ImageRecord, "externalClassificati
 
 /** Only unassigned, non-external photographs may be discovered, matched, sorted or assigned. */
 export function isPlaceMatchEligible(
-  record: Pick<ImageRecord, "placeId" | "externalClassification" | "overviewClassification">
+  record: Pick<ImageRecord, "placeId" | "externalClassification" | "overviewClassification" | "placeDetailClassification">
 ): boolean {
-  return !record.placeId && !record.externalClassification && !record.overviewClassification;
+  return !record.placeId && !record.externalClassification && !record.overviewClassification && !record.placeDetailClassification;
 }
 
 /** Eligibility against the latest visit, for re-checking before a model request or when its result arrives. */

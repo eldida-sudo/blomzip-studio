@@ -11,6 +11,7 @@ import { EntryReview } from "./EntryReview";
 import { MockObservationEngine } from "./observationEngine";
 import { FixtureVisionProvider, type VisionProvider } from "../utils/visionProvider";
 import { listCanonicalPlaces } from "../data/canonicalPlaces";
+import { clearRecordPlaceDetail, markRecordPlaceDetail } from "../utils/placeDetail";
 import type { Visit } from "../models/blomzip";
 
 const visit: Visit = {
@@ -1247,6 +1248,90 @@ describe("EntryReview", () => {
 
       expect((select('[data-testid="overview-mark-button"]') as HTMLButtonElement).disabled).toBe(true);
       expect(container.querySelector('[data-testid="external-status"]')).not.toBeNull();
+    });
+  });
+  describe("Place Detail / Close-up", () => {
+    function Harness({ initial, onChange, onEntryUpdated }: { initial: Visit; onChange?: (id: string, placeId: string | null) => void; onEntryUpdated?: () => void }) {
+      const [current, setCurrent] = useState(initial);
+
+      return (
+        <EntryReview
+          visit={current}
+          onEntryUpdated={onEntryUpdated}
+          onImageRecordPlaceChanged={() => undefined}
+          onPlaceDetailChanged={(id, placeId) => {
+            onChange?.(id, placeId);
+            setCurrent((existing) => {
+              const outcome = placeId ? markRecordPlaceDetail(existing, id, placeId) : clearRecordPlaceDetail(existing, id);
+              return outcome.ok ? outcome.visit : existing;
+            });
+          }}
+        />
+      );
+    }
+
+    const click = (testId: string) =>
+      act(() => {
+        container.querySelector(`[data-testid="${testId}"]`)?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    const find = (testId: string) => container.querySelector(`[data-testid="${testId}"]`) as HTMLElement & { value: string; disabled: boolean };
+
+    function choose(testId: string, value: string) {
+      act(() => {
+        const element = find(testId);
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(element, value);
+        element.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    }
+
+    it("requires an explicit place and confirmation, shows the place, and removal keeps the place", () => {
+      const onChange = vi.fn();
+      act(() => root.render(<Harness initial={visit} onChange={onChange} />));
+
+      expect(find("place-detail-mark-button").disabled).toBe(true);
+      choose("place-detail-place-select", "rock-garden");
+      click("place-detail-mark-button");
+      expect(onChange).not.toHaveBeenCalled();
+      click("place-detail-cancel-button");
+      expect(onChange).not.toHaveBeenCalled();
+
+      click("place-detail-mark-button");
+      click("place-detail-confirm-button");
+      expect(onChange).toHaveBeenCalledWith("image-1", "rock-garden");
+      expect(find("place-detail-status").textContent).toContain("Place Detail / Close-up of The Rock Garden");
+      expect(find("canonical-place-select").value).toBe("rock-garden");
+      expect((find("canonical-place-select").querySelector('option[value=""]') as HTMLOptionElement).disabled).toBe(true);
+
+      click("place-detail-remove-button");
+      expect(onChange).toHaveBeenLastCalledWith("image-1", null);
+      expect(find("canonical-place-select").value).toBe("rock-garden");
+      expect(find("place-detail-mark-button")).not.toBeNull();
+    });
+
+    it("uses the existing place of an assigned photograph and does not mark it reviewed", () => {
+      const assigned: Visit = {
+        ...visit,
+        imageRecords: visit.imageRecords?.map((record) => (record.id === "image-1" ? { ...record, placeId: "rock-garden" } : record)),
+      };
+      const onEntryUpdated = vi.fn();
+      act(() => root.render(<Harness initial={assigned} onEntryUpdated={onEntryUpdated} />));
+
+      expect(find("place-detail-place-select").disabled).toBe(true);
+      expect(find("place-detail-place-select").value).toBe("rock-garden");
+      expect(find("place-detail-mark-button").disabled).toBe(false);
+      click("place-detail-mark-button");
+      click("place-detail-confirm-button");
+      expect(find("place-detail-status")).not.toBeNull();
+      expect(onEntryUpdated).not.toHaveBeenCalled();
+    });
+
+    it("is not offered for External / Inspiration or Courtyard Overview photographs", () => {
+      const external: Visit = {
+        ...visit,
+        imageRecords: visit.imageRecords?.map((record) => (record.id === "image-1" ? { ...record, externalClassification: { classifiedAt: "x" } } : record)),
+      };
+      act(() => root.render(<Harness initial={external} />));
+      expect(find("place-detail-mark-button").disabled).toBe(true);
     });
   });
 });
