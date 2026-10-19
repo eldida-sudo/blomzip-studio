@@ -2273,6 +2273,135 @@ function App() {
           </>
         ) : (
           <>
+            <section className="sidebar-filters" aria-label="Archive filters" data-testid="sidebar-filters">
+              <p className="eyebrow">Archive filters</p>
+              <div className="gallery-toolbar">
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Search filenames, location, collection, tags or notes..."
+                />
+
+                <select value={collectionFilter} onChange={(event) => setCollectionFilter(event.target.value)}>
+                  {collections.map((collection) => (
+                    <option key={collection} value={collection}>
+                      {collection}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={suggestionFilter}
+                  onChange={(event) => setSuggestionFilter(event.target.value as SuggestionFilter)}
+                  aria-label="AI suggestion category filter"
+                  disabled={!importVisit}
+                >
+                  {SUGGESTION_FILTER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="filter-row filter-row-compact" aria-label="Image view filters">
+                  <button type="button" className={viewFilter === "all" ? "active" : ""} onClick={() => setViewFilter("all")}>
+                    All
+                  </button>
+
+                  <button
+                    type="button"
+                    className={viewFilter === "favorites" ? "active" : ""}
+                    onClick={() => setViewFilter("favorites")}
+                  >
+                    Favorites
+                  </button>
+
+                  <button type="button" className={viewFilter === "hero" ? "active" : ""} onClick={() => setViewFilter("hero")}>
+                    Hero
+                  </button>
+                </div>
+
+                <div className="filter-row filter-row-compact" aria-label="Curation filters" data-testid="curation-filters">
+                  <button
+                    type="button"
+                    className={archivePlaceFilter === UNASSIGNED_PLACE_FILTER ? "active" : ""}
+                    aria-pressed={archivePlaceFilter === UNASSIGNED_PLACE_FILTER}
+                    disabled={!importVisit}
+                    onClick={() => setArchivePlaceFilter((current) => (current === UNASSIGNED_PLACE_FILTER ? null : UNASSIGNED_PLACE_FILTER))}
+                  >
+                    Unassigned place
+                  </button>
+                  <button
+                    type="button"
+                    className={archivePlaceFilter === EXTERNAL_PLACE_FILTER ? "active" : ""}
+                    aria-pressed={archivePlaceFilter === EXTERNAL_PLACE_FILTER}
+                    disabled={!importVisit}
+                    data-testid="filter-external"
+                    onClick={() => setArchivePlaceFilter((current) => (current === EXTERNAL_PLACE_FILTER ? null : EXTERNAL_PLACE_FILTER))}
+                  >
+                    {EXTERNAL_PLACE_LABEL} ({placeImageCounts.external})
+                  </button>
+                  <button
+                    type="button"
+                    className={archivePlaceFilter === OVERVIEW_PLACE_FILTER ? "active" : ""}
+                    aria-pressed={archivePlaceFilter === OVERVIEW_PLACE_FILTER}
+                    disabled={!importVisit}
+                    data-testid="filter-overview"
+                    onClick={() => setArchivePlaceFilter((current) => (current === OVERVIEW_PLACE_FILTER ? null : OVERVIEW_PLACE_FILTER))}
+                  >
+                    {OVERVIEW_PLACE_LABEL} ({placeImageCounts.overview})
+                  </button>
+                  <button
+                    type="button"
+                    className={curationFilters.unreviewedOnly ? "active" : ""}
+                    aria-pressed={curationFilters.unreviewedOnly}
+                    disabled={!importVisit}
+                    onClick={() => setCurationFilters((current) => ({ ...current, unreviewedOnly: !current.unreviewedOnly }))}
+                  >
+                    Unreviewed
+                  </button>
+                  <button
+                    type="button"
+                    className={curationFilters.storySelectedOnly ? "active" : ""}
+                    aria-pressed={curationFilters.storySelectedOnly}
+                    disabled={!importVisit}
+                    onClick={() => setCurationFilters((current) => ({ ...current, storySelectedOnly: !current.storySelectedOnly }))}
+                  >
+                    Story selected
+                  </button>
+                  <button
+                    type="button"
+                    className={curationFilters.showHidden ? "active" : ""}
+                    aria-pressed={curationFilters.showHidden}
+                    disabled={!importVisit}
+                    onClick={() => setCurationFilters((current) => ({ ...current, showHidden: !current.showHidden }))}
+                  >
+                    Show hidden ({hiddenEntryCount})
+                  </button>
+                </div>
+              </div>
+
+              {importVisit ? (
+                <PlaceDetailBulkPanel
+                  visit={importVisit}
+                  active={placeDetailSelecting}
+                  selectedIds={placeDetailSelectedIds}
+                  visibleIds={timelineItems.flatMap((timelineItem) => {
+                    if (timelineItem.type === "header") return [];
+                    const recordId = importVisit.entries[timelineItem.item.index]?.imageRecordId;
+                    return recordId ? [recordId] : [];
+                  })}
+                  onActiveChange={setPlaceDetailSelecting}
+                  onSelectionChange={setPlaceDetailSelectedIds}
+                  onApply={handleBulkApplyPlaceDetail}
+                  onUndo={handleBulkUndoPlaceDetail}
+                />
+              ) : null}
+            </section>
+
+            <details className="sidebar-tools" open data-testid="sidebar-tools">
+            <summary>Archive tools</summary>
+            <div className="sidebar-tools-body">
             <section className={`sidebar-import-shell ${importVisit ? "secondary" : "primary"}`} ref={sidebarImportSectionRef} data-testid="sidebar-import-section">
               <ZipImportPanel
                 className="zip-panel"
@@ -2477,6 +2606,8 @@ function App() {
                 <p className="result-count">No safety snapshots yet. One is saved automatically before any draft load or restore.</p>
               )}
             </section>
+            </div>
+            </details>
           </>
         )}
       </aside>
@@ -3060,112 +3191,6 @@ function App() {
               {activeBatchFilterId ? <p className="result-count">Batch filter is active.</p> : null}
             </section>
 
-            <div className="gallery-toolbar">
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search filenames, location, collection, tags or notes..."
-              />
-
-              <select value={collectionFilter} onChange={(event) => setCollectionFilter(event.target.value)}>
-                {collections.map((collection) => (
-                  <option key={collection} value={collection}>
-                    {collection}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={suggestionFilter}
-                onChange={(event) => setSuggestionFilter(event.target.value as SuggestionFilter)}
-                aria-label="AI suggestion category filter"
-                disabled={!importVisit}
-              >
-                {SUGGESTION_FILTER_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-
-              <div className="filter-row filter-row-compact" aria-label="Image view filters">
-                <button type="button" className={viewFilter === "all" ? "active" : ""} onClick={() => setViewFilter("all")}>
-                  All
-                </button>
-
-                <button
-                  type="button"
-                  className={viewFilter === "favorites" ? "active" : ""}
-                  onClick={() => setViewFilter("favorites")}
-                >
-                  Favorites
-                </button>
-
-                <button type="button" className={viewFilter === "hero" ? "active" : ""} onClick={() => setViewFilter("hero")}>
-                  Hero
-                </button>
-              </div>
-
-              <div className="filter-row filter-row-compact" aria-label="Curation filters" data-testid="curation-filters">
-                <button
-                  type="button"
-                  className={archivePlaceFilter === UNASSIGNED_PLACE_FILTER ? "active" : ""}
-                  aria-pressed={archivePlaceFilter === UNASSIGNED_PLACE_FILTER}
-                  disabled={!importVisit}
-                  onClick={() => setArchivePlaceFilter((current) => (current === UNASSIGNED_PLACE_FILTER ? null : UNASSIGNED_PLACE_FILTER))}
-                >
-                  Unassigned place
-                </button>
-                <button
-                  type="button"
-                  className={archivePlaceFilter === EXTERNAL_PLACE_FILTER ? "active" : ""}
-                  aria-pressed={archivePlaceFilter === EXTERNAL_PLACE_FILTER}
-                  disabled={!importVisit}
-                  data-testid="filter-external"
-                  onClick={() => setArchivePlaceFilter((current) => (current === EXTERNAL_PLACE_FILTER ? null : EXTERNAL_PLACE_FILTER))}
-                >
-                  {EXTERNAL_PLACE_LABEL} ({placeImageCounts.external})
-                </button>
-                <button
-                  type="button"
-                  className={archivePlaceFilter === OVERVIEW_PLACE_FILTER ? "active" : ""}
-                  aria-pressed={archivePlaceFilter === OVERVIEW_PLACE_FILTER}
-                  disabled={!importVisit}
-                  data-testid="filter-overview"
-                  onClick={() => setArchivePlaceFilter((current) => (current === OVERVIEW_PLACE_FILTER ? null : OVERVIEW_PLACE_FILTER))}
-                >
-                  {OVERVIEW_PLACE_LABEL} ({placeImageCounts.overview})
-                </button>
-                <button
-                  type="button"
-                  className={curationFilters.unreviewedOnly ? "active" : ""}
-                  aria-pressed={curationFilters.unreviewedOnly}
-                  disabled={!importVisit}
-                  onClick={() => setCurationFilters((current) => ({ ...current, unreviewedOnly: !current.unreviewedOnly }))}
-                >
-                  Unreviewed
-                </button>
-                <button
-                  type="button"
-                  className={curationFilters.storySelectedOnly ? "active" : ""}
-                  aria-pressed={curationFilters.storySelectedOnly}
-                  disabled={!importVisit}
-                  onClick={() => setCurationFilters((current) => ({ ...current, storySelectedOnly: !current.storySelectedOnly }))}
-                >
-                  Story selected
-                </button>
-                <button
-                  type="button"
-                  className={curationFilters.showHidden ? "active" : ""}
-                  aria-pressed={curationFilters.showHidden}
-                  disabled={!importVisit}
-                  onClick={() => setCurationFilters((current) => ({ ...current, showHidden: !current.showHidden }))}
-                >
-                  Show hidden ({hiddenEntryCount})
-                </button>
-              </div>
-            </div>
-
             {importVisit && timelineItems.length === 0 ? (
               <div className="selected-timeline-empty" data-testid="gallery-empty">
                 <strong>No photographs match these filters.</strong>
@@ -3175,23 +3200,6 @@ function App() {
                   </button>
                 ) : null}
               </div>
-            ) : null}
-
-            {importVisit ? (
-              <PlaceDetailBulkPanel
-                visit={importVisit}
-                active={placeDetailSelecting}
-                selectedIds={placeDetailSelectedIds}
-                visibleIds={timelineItems.flatMap((timelineItem) => {
-                  if (timelineItem.type === "header") return [];
-                  const recordId = importVisit.entries[timelineItem.item.index]?.imageRecordId;
-                  return recordId ? [recordId] : [];
-                })}
-                onActiveChange={setPlaceDetailSelecting}
-                onSelectionChange={setPlaceDetailSelectedIds}
-                onApply={handleBulkApplyPlaceDetail}
-                onUndo={handleBulkUndoPlaceDetail}
-              />
             ) : null}
 
             <section className="gallery-grid">

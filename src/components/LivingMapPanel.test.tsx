@@ -23,6 +23,12 @@ describe("LivingMapPanel", () => {
     container.remove();
   });
 
+  it("shows the current place in the compact navigator", () => {
+    act(() => root.render(<LivingMapPanel selectedPlaceId="rock-garden" />));
+    expect(container.querySelector("[data-testid='living-map-current']")?.textContent).toContain("Working on");
+    expect(container.querySelector("[data-testid='living-map-current']")?.textContent).not.toContain("All places");
+  });
+
   it("renders the full map without cropping and keeps calibrated hotspots normalized", () => {
     const map = container.querySelector(".living-map-banner-svg") as SVGSVGElement;
     const image = map.querySelector("image");

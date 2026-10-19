@@ -375,6 +375,24 @@ describe("App", () => {
     vi.unstubAllGlobals();
   });
 
+  it("keeps archive filters in the sidebar above the archive tools, outside the scrolling content", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    act(() => root.render(<App />));
+
+    const sidebar = container.querySelector("aside.sidebar") as HTMLElement;
+    const filters = sidebar.querySelector("[data-testid='sidebar-filters']") as HTMLElement;
+    const tools = sidebar.querySelector("[data-testid='sidebar-tools']") as HTMLElement;
+    expect(filters.querySelector("input")).not.toBeNull();
+    expect(filters.querySelector("[data-testid='curation-filters']")).not.toBeNull();
+    expect(filters.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelector("section.content .gallery-toolbar")).toBeNull();
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
   it("renders imported data-url thumbnails and imported filenames in gallery cards", () => {
     act(() => {
       root.render(<App />);

@@ -42,6 +42,20 @@ export function LivingMapPanel({ selectedPlaceId: controlledPlaceId, onPlaceSele
 
   return (
     <section className="living-map-banner-section" data-testid="living-map-panel" aria-label="Living map of the courtyard">
+      <p className="living-map-current" data-testid="living-map-current">
+        <span>Working on</span>{" "}
+        <strong>
+          {selectedPlaceId === null || selectedPlaceId === undefined
+            ? "All places"
+            : selectedPlaceId === UNASSIGNED_PLACE_FILTER
+              ? "Unassigned"
+              : selectedPlaceId === EXTERNAL_PLACE_FILTER
+                ? "External / Inspiration"
+                : selectedPlaceId === OVERVIEW_PLACE_FILTER
+                  ? "Courtyard Overview"
+                  : (places.find((place) => place.id === selectedPlaceId)?.displayName ?? "All places")}
+        </strong>
+      </p>
       <div className="living-map-banner">
         <div
           className="living-map-banner-map"
