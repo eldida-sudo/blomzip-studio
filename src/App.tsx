@@ -46,6 +46,7 @@ import {
   OVERVIEW_PLACE_LABEL,
   setOverviewVisiblePlaces,
 } from "./utils/courtyardOverview";
+import { BulkPlaceAssignPanel } from "./components/BulkPlaceAssignPanel";
 import { PlaceDetailBulkPanel } from "./components/PlaceDetailBulkPanel";
 import {
   applyBulkPlaceDetail,
@@ -57,6 +58,12 @@ import {
   type BulkPlaceDetailResult,
   type BulkPlaceDetailUndo,
 } from "./utils/placeDetail";
+import {
+  applyBulkPlaceAssignment,
+  undoBulkPlaceAssignment,
+  type BulkPlaceAssignmentResult,
+  type BulkPlaceAssignmentUndo,
+} from "./utils/bulkPlaceAssignment";
 import {
   countImagesByPlace,
   DEFAULT_CURATION_FILTERS,
@@ -479,6 +486,8 @@ function App() {
   const [archivePlaceFilter, setArchivePlaceFilter] = useState<string | null>(null);
   const [placeDetailSelecting, setPlaceDetailSelecting] = useState(false);
   const [placeDetailSelectedIds, setPlaceDetailSelectedIds] = useState<string[]>([]);
+  const [bulkAssigning, setBulkAssigning] = useState(false);
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<string[]>([]);
   const [curationFilters, setCurationFilters] = useState<CurationFilters>(DEFAULT_CURATION_FILTERS);
   const [pendingRecovery, setPendingRecovery] = useState<PendingRecovery | null>(null);
   const [recoveryMessage, setRecoveryMessage] = useState<{ tone: "error" | "info"; text: string } | null>(null);
@@ -783,6 +792,54 @@ function App() {
     }
 
     return outcome;
+  }
+
+  function handleBulkApplyPlaceAssignment(imageRecordIds: string[], placeId: string): BulkPlaceAssignmentResult {
+    const visit = latestImportVisitRef.current;
+
+    if (!visit) {
+      return { ok: false, error: "There is no archive to assign photographs in." };
+    }
+
+    const outcome = applyBulkPlaceAssignment(visit, imageRecordIds, placeId);
+
+    if (outcome.ok && outcome.plan.applicableIds.length > 0) {
+      commitImportVisit(outcome.visit);
+    }
+
+    return outcome;
+  }
+
+  function handleBulkUndoPlaceAssignment(undo: BulkPlaceAssignmentUndo) {
+    const visit = latestImportVisitRef.current;
+
+    if (!visit) {
+      return { restoredCount: 0, skippedCount: undo.entries.length };
+    }
+
+    const outcome = undoBulkPlaceAssignment(visit, undo);
+
+    if (outcome.restoredCount > 0) {
+      commitImportVisit(outcome.visit);
+    }
+
+    return { restoredCount: outcome.restoredCount, skippedCount: outcome.skippedCount };
+  }
+
+  function handlePlaceDetailSelectingChange(active: boolean) {
+    setPlaceDetailSelecting(active);
+    if (active) {
+      setBulkAssigning(false);
+      setBulkSelectedIds([]);
+    }
+  }
+
+  function handleBulkAssigningChange(active: boolean) {
+    setBulkAssigning(active);
+    if (active) {
+      setPlaceDetailSelecting(false);
+      setPlaceDetailSelectedIds([]);
+    }
   }
 
   function handleBulkUndoPlaceDetail(undo: BulkPlaceDetailUndo) {
@@ -2042,15 +2099,15 @@ function App() {
     return (
       <article
         key={image.id}
-        className={`gallery-card ${activeGalleryImageId === image.id ? "is-current" : ""}`}
+        className={`gallery-card ${activeGalleryImageId === image.id ? "is-current" : ""} ${imageRecord && bulkAssigning && bulkSelectedIds.includes(imageRecord.id) ? "is-selected" : ""}`}
       >
-        {placeDetailSelecting && imageRecord ? (
+        {(placeDetailSelecting || bulkAssigning) && imageRecord ? (
           <label className="gallery-card-select" data-testid={`gallery-select-${imageRecord.id}`}>
             <input
               type="checkbox"
-              checked={placeDetailSelectedIds.includes(imageRecord.id)}
+              checked={(bulkAssigning ? bulkSelectedIds : placeDetailSelectedIds).includes(imageRecord.id)}
               onChange={(event) =>
-                setPlaceDetailSelectedIds((current) =>
+                (bulkAssigning ? setBulkSelectedIds : setPlaceDetailSelectedIds)((current) =>
                   event.target.checked ? [...current, imageRecord.id] : current.filter((id) => id !== imageRecord.id)
                 )
               }
@@ -2206,6 +2263,14 @@ function App() {
   const hasLegacyUnhashedRecords = useMemo(() => {
     return (importVisit?.imageRecords ?? []).some((record) => !record.contentHash);
   }, [importVisit]);
+
+  const galleryVisibleRecordIds = importVisit
+    ? timelineItems.flatMap((timelineItem) => {
+        if (timelineItem.type === "header") return [];
+        const recordId = importVisit.entries[timelineItem.item.index]?.imageRecordId;
+        return recordId ? [recordId] : [];
+      })
+    : [];
 
   return (
     <main className={`studio ${isEntryReviewMode ? "review-mode" : ""}`}>
@@ -2386,18 +2451,29 @@ function App() {
                   visit={importVisit}
                   active={placeDetailSelecting}
                   selectedIds={placeDetailSelectedIds}
-                  visibleIds={timelineItems.flatMap((timelineItem) => {
-                    if (timelineItem.type === "header") return [];
-                    const recordId = importVisit.entries[timelineItem.item.index]?.imageRecordId;
-                    return recordId ? [recordId] : [];
-                  })}
-                  onActiveChange={setPlaceDetailSelecting}
+                  visibleIds={galleryVisibleRecordIds}
+                  onActiveChange={handlePlaceDetailSelectingChange}
                   onSelectionChange={setPlaceDetailSelectedIds}
                   onApply={handleBulkApplyPlaceDetail}
                   onUndo={handleBulkUndoPlaceDetail}
                 />
               ) : null}
             </section>
+
+            {importVisit ? (
+              <section className="sidebar-selection" aria-label="Bulk place assignment" data-testid="sidebar-selection">
+                <BulkPlaceAssignPanel
+                  visit={importVisit}
+                  active={bulkAssigning}
+                  selectedIds={bulkSelectedIds}
+                  visibleIds={galleryVisibleRecordIds}
+                  onActiveChange={handleBulkAssigningChange}
+                  onSelectionChange={setBulkSelectedIds}
+                  onApply={handleBulkApplyPlaceAssignment}
+                  onUndo={handleBulkUndoPlaceAssignment}
+                />
+              </section>
+            ) : null}
 
             <details className="sidebar-tools" open data-testid="sidebar-tools">
             <summary>Archive tools</summary>

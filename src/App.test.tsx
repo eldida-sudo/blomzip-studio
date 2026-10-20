@@ -2520,6 +2520,117 @@ describe("App", () => {
     expect(container.textContent).toContain("Selected for Story ✓");
     expect((container.querySelector('[data-testid="entry-review-main-image"]') as HTMLImageElement | null)?.src).toContain("blob:mock-url");
   });
+  describe("bulk place assignment", () => {
+    const q = (id: string) => container.querySelector(`[data-testid="${id}"]`) as HTMLElement;
+    const click = (id: string) => act(() => q(id).click());
+    const selectPlace = (placeId: string) =>
+      act(() => {
+        const select = q("bulk-place-select") as HTMLSelectElement;
+        select.value = placeId;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    const checkbox = (recordId: string) => q(`gallery-select-${recordId}`).querySelector("input") as HTMLInputElement;
+
+    async function renderArchive(prepare?: (visit: Visit) => void) {
+      vi.stubGlobal("indexedDB", createInMemoryIndexedDb());
+      if (prepare && mockImportState?.visit) prepare(mockImportState.visit);
+      act(() => {
+        root.render(<App />);
+      });
+      await waitForArchiveHydration();
+      click("bulk-place-start");
+    }
+
+    it("selects and deselects photographs and marks them without hiding the thumbnail", async () => {
+      await renderArchive();
+
+      act(() => checkbox("image-1").click());
+      act(() => checkbox("image-2").click());
+      expect(q("bulk-place-count").textContent).toBe("2 selected");
+      expect(container.querySelectorAll(".gallery-card.is-selected")).toHaveLength(2);
+      expect(container.querySelectorAll(".gallery-card.is-selected .gallery-card-thumb img")).toHaveLength(2);
+
+      act(() => checkbox("image-1").click());
+      expect(q("bulk-place-count").textContent).toBe("1 selected");
+      expect(container.querySelectorAll(".gallery-card.is-selected")).toHaveLength(1);
+    });
+
+    it("assigns only after confirmation, updates counts, persists, and leaves review fields untouched", async () => {
+      await renderArchive();
+
+      act(() => checkbox("image-1").click());
+      act(() => checkbox("image-2").click());
+      selectPlace("rock-garden");
+      expect(q("bulk-place-assign").textContent).toBe("Assign place to 2 photos");
+
+      click("bulk-place-assign");
+      expect(q("bulk-place-confirm-text").textContent).not.toContain("overwritten");
+      expect(container.querySelector('[data-testid="living-map-place-rock-garden"]')?.textContent).toContain("(0)");
+
+      click("bulk-place-confirm-apply");
+      expect(q("bulk-place-message").textContent).toContain("Assigned 2 photos");
+      expect(container.querySelector('[data-testid="living-map-place-rock-garden"]')?.textContent).toContain("(2)");
+      expect(container.querySelector('[data-testid="living-map-place-unassigned"]')?.textContent).toBe("Unassigned (0)");
+      expect(q("bulk-place-count").textContent).toBe("0 selected");
+
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+      const persisted = (await loadArchiveState())?.importVisit;
+      expect(persisted?.imageRecords?.map((r) => r.placeId)).toEqual(["rock-garden", "rock-garden"]);
+      for (const entry of persisted?.entries ?? []) {
+        expect(Boolean(entry.reviewed)).toBe(false);
+        expect(Boolean(entry.favorite)).toBe(false);
+        expect(Boolean(entry.hero)).toBe(false);
+        expect(Boolean(entry.storySelected)).toBe(false);
+        expect(entry.status).toBe("new");
+      }
+    });
+
+    it("requires overwrite confirmation, can cancel without changes, and can undo", async () => {
+      await renderArchive((visit) => {
+        visit.imageRecords![0].placeId = "house-wall";
+      });
+
+      act(() => checkbox("image-1").click());
+      act(() => checkbox("image-2").click());
+      selectPlace("rock-garden");
+      click("bulk-place-assign");
+      expect(q("bulk-place-confirm-text").textContent).toContain("1 already has a different place, which will be overwritten");
+
+      click("bulk-place-confirm-cancel");
+      expect(container.querySelector('[data-testid="living-map-place-house-wall"]')?.textContent).toContain("(1)");
+      expect(container.querySelector('[data-testid="living-map-place-rock-garden"]')?.textContent).toContain("(0)");
+
+      click("bulk-place-assign");
+      click("bulk-place-confirm-apply");
+      expect(container.querySelector('[data-testid="living-map-place-house-wall"]')?.textContent).toContain("(0)");
+      expect(container.querySelector('[data-testid="living-map-place-rock-garden"]')?.textContent).toContain("(2)");
+
+      click("bulk-place-undo");
+      expect(q("bulk-place-message").textContent).toContain("Restored 2 photos");
+      expect(container.querySelector('[data-testid="living-map-place-house-wall"]')?.textContent).toContain("(1)");
+      expect(container.querySelector('[data-testid="living-map-place-rock-garden"]')?.textContent).toContain("(0)");
+    });
+
+    it("keeps the selection when filters change and only assigns selected photographs", async () => {
+      await renderArchive();
+
+      act(() => checkbox("image-1").click());
+      act(() => {
+        (container.querySelector('[data-testid="filter-external"]') as HTMLButtonElement).click();
+      });
+      expect(q("bulk-place-count").textContent).toBe("1 selected (1 not shown by current filters)");
+
+      selectPlace("rock-garden");
+      click("bulk-place-assign");
+      click("bulk-place-confirm-apply");
+
+      const counts = container.querySelector('[data-testid="living-map-place-rock-garden"]')?.textContent;
+      expect(counts).toContain("(1)");
+    });
+  });
+
   it("selects and deselects gallery photographs through real checkbox controls without opening the preview", async () => {
     act(() => {
       root.render(<App />);

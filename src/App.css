@@ -34,7 +34,7 @@ textarea {
 .studio {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
 }
 
 .sidebar {
@@ -85,6 +85,7 @@ textarea {
 
 .import-summary-mini-filename {
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .sidebar-card span {
@@ -2779,9 +2780,8 @@ button.active {
 .zip-queue-item-name {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .zip-queue-item-status {
@@ -3759,14 +3759,14 @@ button.active {
   position: sticky;
   top: 0;
   height: 100vh;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   box-sizing: border-box;
 }
 
 .sidebar-filters {
-  flex: 0 1 auto;
-  max-height: 62%;
-  overflow-y: auto;
+  flex: 0 0 auto;
   display: grid;
   gap: 10px;
   padding: 12px;
@@ -3814,9 +3814,13 @@ button.active {
   max-width: 100%;
 }
 
+.sidebar-recovery-card {
+  flex-direction: column;
+  align-items: stretch;
+}
+
 .sidebar-tools {
-  flex: 1 1 0;
-  min-height: 0;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
 }
@@ -3836,9 +3840,7 @@ button.active {
 }
 
 .sidebar-tools-body {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow-y: auto;
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -3882,14 +3884,6 @@ button.active {
     overflow: visible;
   }
 
-  .sidebar-filters {
-    max-height: none;
-  }
-
-  .sidebar-tools-body {
-    overflow: visible;
-  }
-
   .living-map-banner {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -3901,4 +3895,47 @@ button.active {
   .living-map-banner-places {
     max-height: 72px;
   }
+}
+
+/* Bulk place assignment */
+.gallery-card.is-selected {
+  outline: 3px solid #6c7d65;
+  outline-offset: -2px;
+  background: #f1f5ec;
+}
+
+.sidebar-selection {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border: 1px solid rgba(247, 244, 236, 0.16);
+  border-radius: 16px;
+  background: rgba(247, 244, 236, 0.06);
+}
+
+.bulk-place-assign {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.bulk-place-assign p {
+  margin: 0;
+}
+
+.bulk-place-assign button {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.bulk-place-assign select {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.bulk-place-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
