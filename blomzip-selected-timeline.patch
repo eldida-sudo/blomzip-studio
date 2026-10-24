@@ -1,0 +1,446 @@
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -408,6 +408,7 @@
+   const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
+   const [suggestionFilter, setSuggestionFilter] = useState<SuggestionFilter>("all");
+   const [archivePlaceFilter, setArchivePlaceFilter] = useState<string | null>(null);
++  const [isSelectedTimelineOpen, setIsSelectedTimelineOpen] = useState(false);
+   const [selectedImage, setSelectedImage] = useState<ImageItem | null>(null);
+   const [importSummary, setImportSummary] = useState<ZipImportSummary | null>(null);
+   const [importVisit, setImportVisit] = useState<Visit | null>(null);
+@@ -436,6 +437,7 @@
+   const hasAppliedStudioImagesRef = useRef(false);
+   const sidebarImportSectionRef = useRef<HTMLElement | null>(null);
+   const visionSummaryRef = useRef<HTMLElement | null>(null);
++  const selectedTimelineRef = useRef<HTMLElement | null>(null);
+   const managedThumbnailObjectUrlsRef = useRef<Set<string>>(new Set());
+   const latestImportVisitRef = useRef<Visit | null>(null);
+   const savedDrafts = draftWorkspace.drafts;
+@@ -722,6 +724,45 @@
+     [gallerySourceImages, importVisit, imageRecordsById, importBatchesById]
+   );
+ 
++  const selectedTimelineItems = useMemo(() => {
++    return galleryItems
++      .filter(({ entry }) => Boolean(entry?.storySelected))
++      .sort((left, right) => {
++        const leftDate = parseCaptureDate(left.imageRecord?.captureDate)?.getTime() ?? Number.POSITIVE_INFINITY;
++        const rightDate = parseCaptureDate(right.imageRecord?.captureDate)?.getTime() ?? Number.POSITIVE_INFINITY;
++
++        return leftDate - rightDate || left.index - right.index;
++      });
++  }, [galleryItems]);
++
++  const selectedTimelineTitle = useMemo(() => {
++    const selectedPlaceIds = new Set(
++      selectedTimelineItems
++        .map(({ imageRecord }) => imageRecord?.placeId)
++        .filter((placeId): placeId is string => Boolean(placeId))
++    );
++
++    if (
++      selectedTimelineItems.length === 0 ||
++      selectedPlaceIds.size !== 1 ||
++      selectedTimelineItems.some(({ imageRecord }) => !imageRecord?.placeId)
++    ) {
++      return "Selected timeline";
++    }
++
++    const [placeId] = selectedPlaceIds;
++    const placeName = getPlaceById(placeId)?.displayName;
++    return placeName ? `${placeName} over time` : "Selected timeline";
++  }, [selectedTimelineItems]);
++
++  useEffect(() => {
++    if (!isSelectedTimelineOpen) {
++      return;
++    }
++
++    selectedTimelineRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
++  }, [isSelectedTimelineOpen]);
++
+   const filteredImages = galleryItems.filter(({ image, entry, imageRecord }) => {
+     const searchText =
+       `${image.title} ${image.collection} ${image.tags.join(" ")} ${image.notes} ${image.storyRole} ${image.season} ${image.location} ${image.mood} ${image.material} ${image.light} ${image.composition} ${image.importSource}`.toLowerCase();
+@@ -1908,10 +1949,17 @@
+                   <span>Date range</span>
+                   <strong>{archiveDateRange}</strong>
+                 </div>
+-                <div>
++                <button
++                  type="button"
++                  className="archive-home-stat-button"
++                  data-testid="open-selected-timeline"
++                  aria-expanded={isSelectedTimelineOpen}
++                  onClick={() => setIsSelectedTimelineOpen(true)}
++                >
+                   <span>Story selected</span>
+                   <strong>{archiveStats.storySelected}</strong>
+-                </div>
++                  <small>View timeline</small>
++                </button>
+                 <div>
+                   <span>Review progress</span>
+                   <strong>{totalImportedEntries > 0 ? `${reviewedEntryCount}/${totalImportedEntries}` : "No archive entries"}</strong>
+@@ -1919,6 +1967,76 @@
+               </div>
+             </section>
+ 
++            {isSelectedTimelineOpen ? (
++              <section
++                className="selected-timeline"
++                data-testid="selected-timeline"
++                ref={selectedTimelineRef}
++                aria-labelledby="selected-timeline-title"
++              >
++                <div className="selected-timeline-header">
++                  <div>
++                    <p className="eyebrow">Story selection</p>
++                    <h3 id="selected-timeline-title">{selectedTimelineTitle}</h3>
++                    <p className="result-count">Oldest to newest · {selectedTimelineItems.length} selected</p>
++                  </div>
++                  <button
++                    type="button"
++                    className="secondary-action"
++                    onClick={() => setIsSelectedTimelineOpen(false)}
++                  >
++                    Close timeline
++                  </button>
++                </div>
++
++                {selectedTimelineItems.length > 0 ? (
++                  <div className="selected-timeline-grid">
++                    {selectedTimelineItems.map(({ image, index, entry, imageRecord }) => {
++                      const filename = getImageFilename(image, imageRecord);
++                      const thumbnailSrc = resolveGalleryThumbnailSrc(image, imageRecord);
++                      const placeLabel = imageRecord?.placeId
++                        ? getPlaceById(imageRecord.placeId)?.displayName ?? "Unknown"
++                        : "Unknown";
++
++                      return (
++                        <article
++                          key={entry?.id ?? image.id}
++                          className="selected-timeline-card"
++                          data-testid={`selected-timeline-card-${entry?.id ?? image.id}`}
++                        >
++                          <button
++                            type="button"
++                            className="selected-timeline-preview"
++                            onClick={() => openReviewWithIndex(index)}
++                            aria-label={`Open ${filename}`}
++                          >
++                            {thumbnailSrc ? <img src={thumbnailSrc} alt={image.alt} /> : <span>No preview</span>}
++                          </button>
++                          <div className="selected-timeline-card-copy">
++                            <time>{formatDateLabel(imageRecord?.captureDate)}</time>
++                            <strong title={filename}>{filename}</strong>
++                            <span>{placeLabel}</span>
++                          </div>
++                          <button
++                            type="button"
++                            className="selected-timeline-remove"
++                            onClick={() => handleStorySelectionFromOverview(index)}
++                          >
++                            Remove from Story
++                          </button>
++                        </article>
++                      );
++                    })}
++                  </div>
++                ) : (
++                  <div className="selected-timeline-empty">
++                    <strong>No photographs selected yet.</strong>
++                    <p>Select photographs from the archive to build a place timeline.</p>
++                  </div>
++                )}
++              </section>
++            ) : null}
++
+             <nav className="studio-workflow" aria-label="Studio workflow" data-testid="studio-workflow">
+               <span>Import images</span>
+               <span aria-hidden="true">→</span>
+@@ -2401,4 +2519,4 @@
+   );
+ }
+ 
+-export default App;
+\ No newline at end of file
++export default App;
+--- a/src/App.css
++++ b/src/App.css
+@@ -584,6 +584,144 @@
+   border: 1px solid rgba(36, 49, 38, 0.12);
+ }
+ 
++.archive-home-stat-button {
++  display: grid;
++  align-content: start;
++  gap: 2px;
++  padding: 8px 9px;
++  border-radius: 12px;
++  border: 1px solid rgba(36, 49, 38, 0.18);
++  background: rgba(36, 49, 38, 0.05);
++  color: #243126;
++  text-align: left;
++  cursor: pointer;
++}
++
++.archive-home-stat-button:hover,
++.archive-home-stat-button:focus-visible {
++  border-color: #6c7d65;
++  background: rgba(108, 125, 101, 0.12);
++}
++
++.archive-home-stat-button small {
++  color: #6c7d65;
++  font-size: 10px;
++  font-weight: 600;
++}
++
++.selected-timeline {
++  display: grid;
++  gap: 14px;
++  padding: 18px;
++  scroll-margin-top: 18px;
++  border: 1px solid #d7cbb8;
++  border-radius: 22px;
++  background: #fffaf0;
++  box-shadow: 0 14px 30px rgba(36, 49, 38, 0.07);
++}
++
++.selected-timeline-header {
++  display: flex;
++  align-items: flex-start;
++  justify-content: space-between;
++  gap: 16px;
++}
++
++.selected-timeline-header h3 {
++  margin: 0 0 4px;
++  font-family: Georgia, serif;
++  font-size: 24px;
++  color: #243126;
++}
++
++.selected-timeline-header .result-count {
++  margin: 0;
++}
++
++.selected-timeline-grid {
++  display: grid;
++  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
++  gap: 12px;
++}
++
++.selected-timeline-card {
++  display: grid;
++  grid-template-rows: auto 1fr auto;
++  gap: 9px;
++  min-width: 0;
++  padding: 10px;
++  border: 1px solid #ded5c3;
++  border-radius: 18px;
++  background: #f7f1e5;
++}
++
++.selected-timeline-preview {
++  display: grid;
++  width: 100%;
++  aspect-ratio: 4 / 3;
++  padding: 0;
++  overflow: hidden;
++  place-items: center;
++  border: 0;
++  border-radius: 13px;
++  background: linear-gradient(135deg, #d8d1b8, #f3ecde);
++  cursor: pointer;
++}
++
++.selected-timeline-preview img {
++  display: block;
++  width: 100%;
++  height: 100%;
++  object-fit: cover;
++}
++
++.selected-timeline-card-copy {
++  display: grid;
++  align-content: start;
++  gap: 3px;
++  min-width: 0;
++}
++
++.selected-timeline-card-copy time {
++  color: #4f5f48;
++  font-size: 12px;
++  font-weight: 700;
++  text-transform: uppercase;
++  letter-spacing: 0.04em;
++}
++
++.selected-timeline-card-copy strong {
++  overflow: hidden;
++  color: #243126;
++  font-size: 13px;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++}
++
++.selected-timeline-card-copy span {
++  color: #6c7d65;
++  font-size: 12px;
++}
++
++.selected-timeline-remove {
++  justify-self: start;
++  padding: 6px 9px;
++  border-color: #cfc5b2;
++  color: #4f5f48;
++  font-size: 11px;
++}
++
++.selected-timeline-empty {
++  padding: 18px;
++  border: 1px dashed #cfc5b2;
++  border-radius: 14px;
++  color: #4f5f48;
++}
++
++.selected-timeline-empty p {
++  margin: 4px 0 0;
++}
++
+ .archive-home-stats span {
+   display: block;
+   margin-bottom: 3px;
+@@ -1126,8 +1264,8 @@
+ }
+ 
+ .gallery-toolbar {
+-  display: grid;
+-  grid-template-columns: minmax(0, 1fr) minmax(160px, 220px) minmax(200px, 280px) auto;
++  display: flex;
++  flex-wrap: wrap;
+   gap: 12px;
+   align-items: center;
+ }
+@@ -1142,6 +1280,19 @@
+   min-width: 0;
+ }
+ 
++.gallery-toolbar input {
++  flex: 1 1 260px;
++}
++
++.gallery-toolbar select {
++  flex: 1 1 180px;
++  max-width: 280px;
++}
++
++.gallery-toolbar .filter-row-compact {
++  flex: 0 0 auto;
++}
++
+ .filter-row-compact {
+   margin: 0;
+ }
+@@ -1278,10 +1429,8 @@
+ 
+ .gallery-grid {
+   display: grid;
+-
+   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+   gap: 14px;
+-  grid-auto-rows: 1fr;
+ }
+ 
+ .timeline-date-header {
+@@ -2897,6 +3046,14 @@
+     gap: 10px;
+   }
+ 
++  .selected-timeline-header {
++    display: grid;
++  }
++
++  .selected-timeline-grid {
++    grid-template-columns: 1fr;
++  }
++
+   .gallery-card {
+     padding: 9px;
+     gap: 7px;
+--- a/src/App.test.tsx
++++ b/src/App.test.tsx
+@@ -1188,6 +1188,64 @@
+     expect(container.textContent).toContain("Story");
+   });
+ 
++  it("reveals a compact selected timeline in chronological order and removes selections in place", async () => {
++    const timelineState = JSON.parse(JSON.stringify(importedArchiveState)) as { summary: ZipImportSummary; visit: Visit };
++    const imageRecords = timelineState.visit.imageRecords ?? [];
++
++    timelineState.visit.entries = timelineState.visit.entries.map((entry) => ({
++      ...entry,
++      storySelected: true,
++    }));
++    imageRecords[0] = {
++      ...imageRecords[0],
++      filename: "late-rock-garden.jpg",
++      captureDate: "2021-06-04T12:00:00.000Z",
++      placeId: "rock-garden",
++    };
++    imageRecords[1] = {
++      ...imageRecords[1],
++      filename: "early-rock-garden.jpg",
++      captureDate: "2017-07-19T12:00:00.000Z",
++      placeId: "rock-garden",
++    };
++    mockImportState = timelineState;
++
++    act(() => {
++      root.render(<App />);
++    });
++
++    await waitForArchiveHydration();
++
++    expect(container.querySelector('[data-testid="selected-timeline"]')).toBeNull();
++
++    act(() => {
++      container.querySelector('[data-testid="open-selected-timeline"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
++    });
++
++    const timeline = container.querySelector('[data-testid="selected-timeline"]');
++    const cards = Array.from(timeline?.querySelectorAll(".selected-timeline-card") ?? []);
++
++    expect(timeline?.textContent).toContain("The Rock Garden over time");
++    expect(cards).toHaveLength(2);
++    expect(cards[0]?.textContent).toContain("early-rock-garden.jpg");
++    expect(cards[1]?.textContent).toContain("late-rock-garden.jpg");
++
++    act(() => {
++      cards[0]?.querySelector(".selected-timeline-remove")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
++    });
++
++    expect(container.querySelector('[data-testid="open-selected-timeline"]')?.textContent).toContain("1");
++    expect(timeline?.textContent).not.toContain("early-rock-garden.jpg");
++    expect(timeline?.textContent).toContain("late-rock-garden.jpg");
++
++    act(() => {
++      timeline?.querySelector(".selected-timeline-remove")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
++    });
++
++    expect(container.querySelector('[data-testid="open-selected-timeline"]')?.textContent).toContain("0");
++    expect(timeline?.textContent).toContain("No photographs selected yet.");
++  });
++
+   it("shows Place Discovery summary after ZIP import", () => {
+     act(() => {
+       root.render(<App />);
+@@ -2203,4 +2261,4 @@
+     expect(container.textContent).toContain("Selected for Story ✓");
+     expect((container.querySelector('[data-testid="entry-review-main-image"]') as HTMLImageElement | null)?.src).toContain("blob:mock-url");
+   });
+-});
+\ No newline at end of file
++});
