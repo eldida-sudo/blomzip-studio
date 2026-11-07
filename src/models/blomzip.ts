@@ -68,8 +68,17 @@ export interface ExternalClassification {
 
 export interface OverviewClassification {
   classifiedAt: string;
+  source?: "ai" | "curator";
   // Optional secondary references only; never a primary assignment or a visual anchor.
   visiblePlaceIds?: string[];
+}
+
+export type PlaceFrameType = "focused-place" | "courtyard-overview" | "close-up" | "multiple-places" | "unclear";
+
+export interface PlaceFrameAssessment {
+  frameType: PlaceFrameType;
+  confidence: number;
+  reason: string;
 }
 
 export interface PlaceDetailClassification {
@@ -92,6 +101,7 @@ export interface ImageRecord {
   mimeType?: string;
   timelineIndex?: number;
   thumbnailUrl?: string;
+  placeFrameAssessment?: PlaceFrameAssessment;
 
   // Exact content fingerprint and occurrence provenance
   contentHash?: string;
@@ -278,6 +288,7 @@ export interface HeroAssessment {
 export interface VisualAnalysisResult {
   signals: VisualEvidenceSignal[];
   heroAssessment?: HeroAssessment;
+  placeFrameAssessment?: PlaceFrameAssessment;
   provider: string;
   generatedAt: string;
   analysisVersion: number;
