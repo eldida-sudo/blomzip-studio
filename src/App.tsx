@@ -104,7 +104,7 @@ import {
 import { StoryDiscovery } from "./components/StoryDiscovery";
 import type { StoryDiscoveryPhoto } from "./utils/storyDiscovery";
 import { applyStoryRecommendations } from "./utils/storyRecommendations";
-import { createVisionProvider } from "./utils/visionProvider";
+import { createVisionProvider, type VisionProvider } from "./utils/visionProvider";
 import {
   approveMatch,
   createEmptyPlaceTrainingState,
@@ -479,6 +479,99 @@ function appThumbnailDebug(event: string, details: Record<string, unknown>) {
   console.debug("[blomzip-app-thumbnails]", event, details);
 }
 
+async function runImportedBatchPreflight(options: {
+  visit: Visit;
+  batchId: string;
+  provider: VisionProvider;
+  commitVisit: (updater: Visit | null | ((current: Visit | null) => Visit | null)) => void;
+  setProgress: (progress: { completed: number; total: number; failed: number; running: boolean } | null) => void;
+  setAutoRunBatchId: (batchId: string) => void;
+}): Promise<void> {
+  const { visit, batchId, provider, commitVisit, setProgress, setAutoRunBatchId } = options;
+  const targets = (visit.imageRecords ?? []).filter(
+    (record) => record.importBatchId === batchId && isPlaceMatchEligible(record)
+  );
+  let completed = 0;
+  let failed = 0;
+
+  setProgress({ completed, total: targets.length, failed, running: targets.length > 0 });
+
+  for (const imageRecord of targets) {
+    try {
+      const visualAnalysis = await provider.analyzeImage({
+        imageRecordId: imageRecord.id,
+        filename: imageRecord.filename,
+        imageUrl: createThumbnailUrlForRecord(imageRecord),
+      });
+      const placeFrameAssessment = visualAnalysis.placeFrameAssessment;
+
+      if (!placeFrameAssessment) {
+        throw new Error("Vision analysis did not return a place-frame assessment.");
+      }
+
+      commitVisit((currentVisit) => {
+        if (!currentVisit) {
+          return currentVisit;
+        }
+
+        const currentRecord = currentVisit.imageRecords?.find((record) => record.id === imageRecord.id);
+        if (!currentRecord || currentRecord.importBatchId !== batchId) {
+          return currentVisit;
+        }
+
+        const autoMarkOverview =
+          placeFrameAssessment.frameType === "courtyard-overview" &&
+          placeFrameAssessment.confidence >= 0.85 &&
+          isPlaceMatchEligible(currentRecord);
+
+        const nextVisit: Visit = {
+          ...currentVisit,
+          imageRecords: (currentVisit.imageRecords ?? []).map((record) =>
+            record.id === imageRecord.id
+              ? {
+                  ...record,
+                  placeFrameAssessment,
+                  ...(autoMarkOverview
+                    ? {
+                        overviewClassification: {
+                          classifiedAt: new Date().toISOString(),
+                          source: "ai" as const,
+                        },
+                      }
+                    : {}),
+                }
+              : record
+          ),
+          entries: currentVisit.entries.map((entry) =>
+            entry.imageRecordId === imageRecord.id
+              ? {
+                  ...entry,
+                  visualAnalysis,
+                  updatedAt: new Date().toISOString(),
+                }
+              : entry
+          ),
+        };
+
+        return applyStoryRecommendations(nextVisit);
+      });
+    } catch (error) {
+      failed += 1;
+      console.error(`ZIP place-frame preflight failed for ${imageRecord.filename}`, error);
+    }
+
+    completed += 1;
+    setProgress({
+      completed,
+      total: targets.length,
+      failed,
+      running: completed < targets.length,
+    });
+  }
+
+  setAutoRunBatchId(batchId);
+}
+
 function App() {
   const [images, setImages] = useState<ImageItem[]>(initialImages);
   const [search, setSearch] = useState("");
@@ -502,6 +595,7 @@ function App() {
   const [importSummary, setImportSummary] = useState<ZipImportSummary | null>(null);
   const [importVisit, setImportVisit] = useState<Visit | null>(null);
   const [latestImportedBatchIdForVision, setLatestImportedBatchIdForVision] = useState<string | null>(null);
+  const [sortingAutoRunBatchId, setSortingAutoRunBatchId] = useState<string | null>(null);
   const [activeBatchFilterId, setActiveBatchFilterId] = useState<string | null>(null);
   const [isBatchProvenanceExpanded, setIsBatchProvenanceExpanded] = useState<boolean | null>(null);
   const [lastBatchImportFeedback, setLastBatchImportFeedback] = useState<BatchImportFeedback | null>(null);
@@ -2278,15 +2372,30 @@ function App() {
 
       commitImportVisit(mergedVisit);
       setLatestImportedBatchIdForVision(incomingBatchId);
+      setSortingAutoRunBatchId(null);
       setBatchVisionProgress(null);
 
       const outcome = createBatchImportOutcome(mergedVisit, incomingBatchId);
       if (outcome) {
         setLastBatchImportFeedback(outcome);
+      }
+
+      if (incomingBatchId) {
+        await runImportedBatchPreflight({
+          visit: mergedVisit,
+          batchId: incomingBatchId,
+          provider: visionProvider,
+          commitVisit: commitImportVisit,
+          setProgress: setBatchVisionProgress,
+          setAutoRunBatchId: setSortingAutoRunBatchId,
+        });
+      }
+
+      if (outcome) {
         return outcome;
       }
     },
-    [overviewObservationEngine]
+    [overviewObservationEngine, visionProvider]
   );
 
   const hasLegacyUnhashedRecords = useMemo(() => {
@@ -2905,7 +3014,7 @@ function App() {
                 onSetAside={(proposal) => commitPlaceTraining((current) => setPhotoAside(current, proposal))}
                 onReturnToQueue={(imageRecordId) => commitPlaceTraining((current) => returnPhotoToQueue(current, imageRecordId))}
                 visionProvider={visionProvider}
-                autoRunImportedBatchId={latestImportedBatchIdForVision}
+                autoRunImportedBatchId={sortingAutoRunBatchId}
               />
             ) : null}
 
