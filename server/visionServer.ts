@@ -63,7 +63,7 @@ app.post("/api/vision/analyze", async (req, res) => {
               type: "input_text",
               text:
                 "Analyze this courtyard photograph specifically for the Blomzip archive. " +
-                "Return JSON only with a signals array. " +
+                "Return JSON only with signals, hero_assessment, and place_frame_assessment. " +
                 "Only report conclusions that are visually supported by this image; do not invent history or context. " +
                 "Use these Blomzip signal types when relevant: " +
                 "place_candidate, plant_or_subject, story_potential, hero_potential, before_after_potential, visual_character. " +
@@ -87,6 +87,12 @@ app.post("/api/vision/analyze", async (req, res) => {
                 "Do not equate conventional beauty with Hero quality. Do not invent emotions, events or history that are not visually supported. " +
                 "A Blomzip Hero should not only show the courtyard well; it should give the viewer a reason to care about it and be visually strong enough to lead. " +
                 "When recommending hero_potential, state whether the visible evidence makes it more suitable as a place hero, story hero, both, or neither, and explain why. Use neither for useful archive, documentation or story images that are not visually strong enough to lead. Reserve both for images that are genuinely strong in both roles. " +
+                "For place_frame_assessment, identify the main spatial framing, not merely every place visible. " +
+                "Use focused-place when one location is clearly the primary visual focus, even if neighbouring areas also appear. " +
+                "Use courtyard-overview only for a broad view of the courtyard showing several zones where no single place dominates. " +
+                "Do not call an image an overview just because more than one place is visible. " +
+                "Use close-up when the frame is a detail with too little fixed geography to locate it reliably; use multiple-places when distinct locations share the frame without one focus but the frame is not a courtyard-wide overview; use unclear when uncertain. " +
+                "Give confidence from 0 to 1 and a short visual reason. Only use confidence 0.85 or higher when the framing is unmistakable. " +
                 "For before_after_potential, only recommend it when the image clearly documents spatial structure or change-comparable features. " +
                 "Each signal must contain signal, confidence from 0 to 1, and detail.",
             },
@@ -138,6 +144,25 @@ app.post("/api/vision/analyze", async (req, res) => {
                   required: ["signal", "confidence", "detail"],
                   additionalProperties: false
                 }
+              },
+              place_frame_assessment: {
+                type: "object",
+                properties: {
+                  frame_type: {
+                    type: "string",
+                    enum: ["focused-place", "courtyard-overview", "close-up", "multiple-places", "unclear"]
+                  },
+                  confidence: {
+                    type: "number",
+                    minimum: 0,
+                    maximum: 1
+                  },
+                  reason: {
+                    type: "string"
+                  }
+                },
+                required: ["frame_type", "confidence", "reason"],
+                additionalProperties: false
               },
               hero_assessment: {
                 type: "object",
@@ -218,7 +243,7 @@ app.post("/api/vision/analyze", async (req, res) => {
                 additionalProperties: false
               }
             },
-            required: ["signals", "hero_assessment"],
+            required: ["signals", "hero_assessment", "place_frame_assessment"],
             additionalProperties: false
           }
         }
