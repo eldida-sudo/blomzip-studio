@@ -479,6 +479,8 @@ function appThumbnailDebug(event: string, details: Record<string, unknown>) {
   console.debug("[blomzip-app-thumbnails]", event, details);
 }
 
+const PLACE_MATCH_PROMPT_VERSION = 2;
+
 async function runImportedBatchPreflight(options: {
   visit: Visit;
   batchId: string;
@@ -493,7 +495,7 @@ async function runImportedBatchPreflight(options: {
     (record) =>
       record.importBatchId === batchId &&
       isPlaceMatchEligible(record) &&
-      !record.placeFrameAssessment
+      record.placeFrameAssessment?.matchPromptVersion !== PLACE_MATCH_PROMPT_VERSION
   );
   let completed = 0;
   let failed = 0;
@@ -508,11 +510,16 @@ async function runImportedBatchPreflight(options: {
         filename: imageRecord.filename,
         imageUrl: createThumbnailUrlForRecord(imageRecord),
       });
-      const placeFrameAssessment = visualAnalysis.placeFrameAssessment;
+      const rawPlaceFrameAssessment = visualAnalysis.placeFrameAssessment;
 
-      if (!placeFrameAssessment) {
+      if (!rawPlaceFrameAssessment) {
         throw new Error("Vision analysis did not return a place-frame assessment.");
       }
+
+      const placeFrameAssessment = {
+        ...rawPlaceFrameAssessment,
+        matchPromptVersion: PLACE_MATCH_PROMPT_VERSION,
+      };
 
       assessedRecordIds.add(imageRecord.id);
       commitVisit((currentVisit) => {
@@ -2437,7 +2444,7 @@ function App() {
       (record) =>
         record.importBatchId === latestBatch.id &&
         isPlaceMatchEligible(record) &&
-        !record.placeFrameAssessment
+        record.placeFrameAssessment?.matchPromptVersion !== PLACE_MATCH_PROMPT_VERSION
     );
 
     if (hasUntriagedPhotos) {
@@ -2463,7 +2470,7 @@ function App() {
       (record) =>
         record.importBatchId === latestBatch.id &&
         isPlaceMatchEligible(record) &&
-        Boolean(record.placeFrameAssessment)
+        record.placeFrameAssessment?.matchPromptVersion === PLACE_MATCH_PROMPT_VERSION
     );
 
     if (hasPreflightedMatchCandidates) {
