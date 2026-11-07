@@ -2905,6 +2905,7 @@ function App() {
                 onSetAside={(proposal) => commitPlaceTraining((current) => setPhotoAside(current, proposal))}
                 onReturnToQueue={(imageRecordId) => commitPlaceTraining((current) => returnPhotoToQueue(current, imageRecordId))}
                 visionProvider={visionProvider}
+                autoRunImportedBatchId={latestImportedBatchIdForVision}
               />
             ) : null}
 
