@@ -2,6 +2,7 @@ import type {
   HeroAssessment,
   PlaceMatchClassification,
   HeroAssessmentRole,
+  PlaceFrameAssessment,
   VisualAnalysisResult,
   VisualEvidenceSignal,
   VisualEvidenceSignalId,
@@ -455,6 +456,11 @@ export class ProxyVisionProvider implements VisionProvider {
         };
         reason: string;
       };
+      place_frame_assessment?: {
+        frame_type: string;
+        confidence: number;
+        reason: string;
+      };
     };
 
     try {
@@ -502,9 +508,27 @@ export class ProxyVisionProvider implements VisionProvider {
       };
     }
 
+    const frameTypes = new Set(["focused-place", "courtyard-overview", "close-up", "multiple-places", "unclear"]);
+    const rawFrame = parsed.place_frame_assessment;
+    const placeFrameAssessment: PlaceFrameAssessment | undefined =
+      rawFrame &&
+      frameTypes.has(rawFrame.frame_type) &&
+      Number.isFinite(rawFrame.confidence) &&
+      rawFrame.confidence >= 0 &&
+      rawFrame.confidence <= 1 &&
+      typeof rawFrame.reason === "string" &&
+      rawFrame.reason.trim().length > 0
+        ? {
+            frameType: rawFrame.frame_type as PlaceFrameAssessment["frameType"],
+            confidence: rawFrame.confidence,
+            reason: rawFrame.reason.trim().slice(0, 280),
+          }
+        : undefined;
+
     return {
       signals: validatedSignals,
       heroAssessment,
+      placeFrameAssessment,
       provider: this.id,
       generatedAt: new Date().toISOString(),
       analysisVersion: VISION_ANALYSIS_VERSION,
