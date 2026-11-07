@@ -8,7 +8,7 @@ import type {
   VisualEvidenceSignalId,
 } from "../models/blomzip";
 
-export const VISION_ANALYSIS_VERSION = 1;
+export const VISION_ANALYSIS_VERSION = 2;
 
 const VISUAL_EVIDENCE_SIGNAL_IDS: ReadonlySet<VisualEvidenceSignalId> = new Set([
   "human-activity",
