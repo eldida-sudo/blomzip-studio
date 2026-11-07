@@ -257,7 +257,12 @@ export function PlaceSortingQueue({
     }
 
     const targetImageRecordIds = (visit.imageRecords ?? [])
-      .filter((record) => record.importBatchId === autoRunImportedBatchId)
+      .filter(
+        (record) =>
+          record.importBatchId === autoRunImportedBatchId &&
+          Boolean(record.placeFrameAssessment) &&
+          !record.overviewClassification
+      )
       .map((record) => record.id);
 
     autoRunBatchRef.current = autoRunImportedBatchId;
