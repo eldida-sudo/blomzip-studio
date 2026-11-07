@@ -44,6 +44,11 @@ export function buildPlaceMatchInstructions(placeName: string, anchorCount: numb
     "- A feature that is outside the frame, hidden, blurred, too small or simply not visible is MISSING. Missing evidence is not a conflict: do not list it in conflicts. It only reduces how many features you can verify.\n" +
     "- A conflict is a CORE feature that the candidate clearly shows to be different, for example a different structure or arrangement clearly visible where that core feature should be. " +
     "Only list a core feature (copied VERBATIM) in conflicts when you can see the contradicting evidence in the candidate. When in doubt, leave conflicts empty and prefer NEARBY_CONTEXT.\n\n" +
+    "Before matching, identify the photograph’s primary visual focus. A place visible only in the background or as incidental context is not the primary place. " +
+    "A close-up that does not show the fixed, place-defining anchors cannot establish SAME_PLACE, even if plants or materials resemble the references. " +
+    "If two or more distinct courtyard places are visible and none is clearly the primary focus, do not treat the whole frame as one place; use NEARBY_CONTEXT when it is clearly the same courtyard, otherwise DIFFERENT_PLACE. " +
+    "A broad courtyard overview is not SAME_PLACE for any one constituent area unless one specific area is clearly the primary focus and its fixed anchors are visible. " +
+    "State in the reason whether the candidate is a focused view, a close-up without anchors, or a multi-place/overview frame. " +
     "Classify the CANDIDATE as exactly one of:\n" +
     "SAME_PLACE: either at least TWO distinct CORE features, OR at least ONE CORE feature and TWO distinct SUPPORTING features, are clearly visible in the candidate, AND nothing in the candidate contradicts a core feature.\n" +
     "NEARBY_CONTEXT: the candidate was taken in or near the same courtyard and context features match, but the place-defining structure " +
