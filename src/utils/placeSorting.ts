@@ -179,11 +179,16 @@ export function planSortingRun(
   visit: Visit | null,
   state: PlaceTrainingState,
   placeIds: readonly string[],
-  limit: number = SORTING_BATCH_SIZE
+  limit: number = SORTING_BATCH_SIZE,
+  targetImageRecordIds?: readonly string[]
 ): SortingRunPlan {
   const items: SortingRunPlanItem[] = [];
+  const targetIds = targetImageRecordIds ? new Set(targetImageRecordIds) : null;
 
   for (const record of listUnassigned(visit)) {
+    if (targetIds && !targetIds.has(record.id)) {
+      continue;
+    }
     if (items.length >= limit) {
       break;
     }
