@@ -30,7 +30,8 @@ export async function computeSortingReadiness(
   visit: Visit | null,
   training: PlaceTrainingState,
   anchorImages: SortingAnchorImages,
-  hash: BlobHasher = hashBlobContent
+  hash: BlobHasher = hashBlobContent,
+  targetImageRecordIds?: readonly string[]
 ): Promise<SortingReadiness> {
   const available = new Set(
     Object.values(training.anchorsByPlaceId).flatMap((anchors) =>
@@ -38,7 +39,7 @@ export async function computeSortingReadiness(
     )
   );
   const sortablePlaceIds = listSortablePlaceIds(training, available);
-  const plan = planSortingRun(visit, training, sortablePlaceIds);
+  const plan = planSortingRun(visit, training, sortablePlaceIds, undefined, targetImageRecordIds);
   const neededPlaceIds = [...new Set(plan.items.flatMap((item) => item.placeIds))];
   const uncachedSignaturePlaceIds: string[] = [];
 
@@ -62,6 +63,8 @@ export interface SortingRunDeps {
   commit: (updater: (current: PlaceTrainingState) => PlaceTrainingState) => void;
   anchorImages: SortingAnchorImages;
   prepareCandidateImage: (record: ImageRecord) => Promise<string>;
+  /** Restricts automatic post-import matching to records from that import batch. */
+  targetImageRecordIds?: readonly string[];
   isCancelled: () => boolean;
   /** Latest visit; lets a curator's External / Inspiration decision stop in-flight work. Defaults to the starting visit. */
   getVisit?: () => Visit | null;
@@ -92,7 +95,7 @@ export async function runSortingBatch(visit: Visit, deps: SortingRunDeps): Promi
     throw new Error("The configured Vision provider cannot compare photographs to a place.");
   }
 
-  const readiness = await computeSortingReadiness(visit, getTraining(), anchorImages, deps.hash);
+  const readiness = await computeSortingReadiness(visit, getTraining(), anchorImages, deps.hash, deps.targetImageRecordIds);
   const total = readiness.plan.comparisonCount;
   const signatures = new Map<string, Awaited<ReturnType<typeof resolvePlaceSignature>>>();
   let done = 0;
