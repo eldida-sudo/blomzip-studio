@@ -79,6 +79,8 @@ export interface PlaceFrameAssessment {
   frameType: PlaceFrameType;
   confidence: number;
   reason: string;
+  /** Version of the matching policy applied after this framing assessment. */
+  matchPromptVersion?: number;
 }
 
 export interface PlaceDetailClassification {
