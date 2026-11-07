@@ -111,8 +111,8 @@ export interface ImageRecord {
   // Independent of placeId; removing it restores the photograph to the normal archive pool.
   externalClassification?: ExternalClassification;
 
-  // Curator-set only: shows the courtyard as a whole (e.g. a balcony view). Independent of placeId and
-  // externalClassification; removing it restores the photograph to the normal archive pool.
+  // AI may mark only high-confidence broad courtyard overviews; curators can also set or clear it.
+  // Independent of placeId and externalClassification; never a primary assignment or visual anchor.
   overviewClassification?: OverviewClassification;
 
   // Curator-set only: a close-up that belongs to the Canonical Place in `placeId` but has no reliable landmarks.
