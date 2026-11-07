@@ -489,7 +489,10 @@ async function runImportedBatchPreflight(options: {
 }): Promise<void> {
   const { visit, batchId, provider, commitVisit, setProgress, setAutoRunBatchId } = options;
   const targets = (visit.imageRecords ?? []).filter(
-    (record) => record.importBatchId === batchId && isPlaceMatchEligible(record)
+    (record) =>
+      record.importBatchId === batchId &&
+      isPlaceMatchEligible(record) &&
+      !record.placeFrameAssessment
   );
   let completed = 0;
   let failed = 0;
@@ -2417,20 +2420,30 @@ function App() {
         !record.placeFrameAssessment
     );
 
-    if (!hasUntriagedPhotos) {
+    if (hasUntriagedPhotos) {
+      placeFramePreflightBatchIdsRef.current.add(latestBatch.id);
+      setSortingAutoRunBatchId(null);
+      void runImportedBatchPreflight({
+        visit: importVisit,
+        batchId: latestBatch.id,
+        provider: visionProvider,
+        commitVisit: commitImportVisit,
+        setProgress: setBatchVisionProgress,
+        setAutoRunBatchId: setSortingAutoRunBatchId,
+      });
       return;
     }
 
-    placeFramePreflightBatchIdsRef.current.add(latestBatch.id);
-    setSortingAutoRunBatchId(null);
-    void runImportedBatchPreflight({
-      visit: importVisit,
-      batchId: latestBatch.id,
-      provider: visionProvider,
-      commitVisit: commitImportVisit,
-      setProgress: setBatchVisionProgress,
-      setAutoRunBatchId: setSortingAutoRunBatchId,
-    });
+    const hasPreflightedMatchCandidates = (importVisit.imageRecords ?? []).some(
+      (record) =>
+        record.importBatchId === latestBatch.id &&
+        isPlaceMatchEligible(record) &&
+        Boolean(record.placeFrameAssessment)
+    );
+
+    if (hasPreflightedMatchCandidates) {
+      setSortingAutoRunBatchId(latestBatch.id);
+    }
   }, [isArchiveHydrated, importVisit, visionProvider]);
 
   const hasLegacyUnhashedRecords = useMemo(() => {
