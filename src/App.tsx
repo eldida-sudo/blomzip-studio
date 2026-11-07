@@ -624,6 +624,7 @@ function App() {
   const selectedTimelineRef = useRef<HTMLElement | null>(null);
   const managedThumbnailObjectUrlsRef = useRef<Set<string>>(new Set());
   const latestImportVisitRef = useRef<Visit | null>(null);
+  const placeFramePreflightBatchIdsRef = useRef<Set<string>>(new Set());
   const [placeTraining, setPlaceTraining] = useState<PlaceTrainingState>(() => createEmptyPlaceTrainingState());
   const latestPlaceTrainingRef = useRef<PlaceTrainingState>(placeTraining);
   const savedDrafts = draftWorkspace.drafts;
@@ -2381,6 +2382,7 @@ function App() {
       }
 
       if (incomingBatchId) {
+        placeFramePreflightBatchIdsRef.current.add(incomingBatchId);
         await runImportedBatchPreflight({
           visit: mergedVisit,
           batchId: incomingBatchId,
@@ -2397,6 +2399,39 @@ function App() {
     },
     [overviewObservationEngine, visionProvider]
   );
+
+  useEffect(() => {
+    if (!isArchiveHydrated || !importVisit) {
+      return;
+    }
+
+    const latestBatch = importVisit.importBatches?.[importVisit.importBatches.length - 1];
+    if (!latestBatch || placeFramePreflightBatchIdsRef.current.has(latestBatch.id)) {
+      return;
+    }
+
+    const hasUntriagedPhotos = (importVisit.imageRecords ?? []).some(
+      (record) =>
+        record.importBatchId === latestBatch.id &&
+        isPlaceMatchEligible(record) &&
+        !record.placeFrameAssessment
+    );
+
+    if (!hasUntriagedPhotos) {
+      return;
+    }
+
+    placeFramePreflightBatchIdsRef.current.add(latestBatch.id);
+    setSortingAutoRunBatchId(null);
+    void runImportedBatchPreflight({
+      visit: importVisit,
+      batchId: latestBatch.id,
+      provider: visionProvider,
+      commitVisit: commitImportVisit,
+      setProgress: setBatchVisionProgress,
+      setAutoRunBatchId: setSortingAutoRunBatchId,
+    });
+  }, [isArchiveHydrated, importVisit, visionProvider]);
 
   const hasLegacyUnhashedRecords = useMemo(() => {
     return (importVisit?.imageRecords ?? []).some((record) => !record.contentHash);
