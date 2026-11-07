@@ -6,11 +6,13 @@ import { createThumbnailUrlForRecord } from "../utils/createThumbnailUrls";
 import { MIN_PLACE_ANCHORS } from "../utils/placeTraining";
 import { getAnchorImages, type StoredAnchorImage } from "../utils/placeAnchorStore";
 import {
+  buildSortingDiagnostics,
   buildSortingQueue,
   buildTrainingReadiness,
   listSetAsidePhotos,
   SORTING_BATCH_SIZE,
   type SortingCandidate,
+  type SortingDiagnostics,
   type SortingProposal,
 } from "../utils/placeSorting";
 import { computeSortingReadiness, runSortingBatch, type SortingReadiness } from "../utils/placeSortingRun";
@@ -68,6 +70,24 @@ function placeName(placeId: string): string {
 
 function percent(score: number): string {
   return `${Math.round(score * 100)}%`;
+}
+
+function SortingDiagnosticsList({ diagnostics, testId }: { diagnostics: SortingDiagnostics; testId: string }) {
+  return (
+    <ul className="result-count" data-testid={testId} aria-label="Why there are no candidates">
+      <li>{diagnostics.totalPhotos} photographs in archive, {diagnostics.assigned} assigned, {diagnostics.unassigned} unassigned</li>
+      <li>
+        Excluded among unassigned (reasons may overlap): {diagnostics.excludedOverview} Overview, {diagnostics.excludedDetail} Place Detail,{" "}
+        {diagnostics.excludedExternal} External / Inspiration, {diagnostics.excludedNotSure} Not sure — {diagnostics.excludedDistinct} photographs in total
+      </li>
+      <li>{diagnostics.candidates} candidate photographs after exclusions</li>
+      <li>{diagnostics.candidatesWithoutImageData} candidates without usable image data</li>
+      <li>
+        {diagnostics.candidatesFullyCompared} fully compared against all {diagnostics.eligiblePlaceCount} eligible places,{" "}
+        {diagnostics.candidatesAwaitingComparison} still awaiting comparison
+      </li>
+    </ul>
+  );
 }
 
 function CandidateEvidence({ candidate, label }: { candidate: SortingCandidate; label: string }) {
@@ -494,6 +514,7 @@ export function PlaceSortingQueue({
   const comparisonCount = readiness?.plan.comparisonCount ?? 0;
   const signatureCount = readiness?.uncachedSignaturePlaceIds.length ?? 0;
   const photoCount = readiness?.plan.items.length ?? 0;
+  const diagnostics = buildSortingDiagnostics(visit, training, eligiblePlaceIds);
   const groups = order === "grouped" ? buildSortingGroups(queue) : [];
 
   return (
@@ -559,9 +580,12 @@ export function PlaceSortingQueue({
       </div>
 
       {queue.length === 0 ? (
-        <p className="result-count" data-testid="sorting-queue-empty">
-          No sorted suggestions to review yet.
-        </p>
+        <>
+          <p className="result-count" data-testid="sorting-queue-empty">
+            No sorted suggestions to review yet.
+          </p>
+          <SortingDiagnosticsList diagnostics={diagnostics} testId="sorting-queue-diagnostics" />
+        </>
       ) : view === "focus" ? (
         renderFocus()
       ) : order === "grouped" ? (
@@ -648,6 +672,7 @@ export function PlaceSortingQueue({
             </button>
           ) : null}
         </div>
+        {photoCount === 0 ? <SortingDiagnosticsList diagnostics={diagnostics} testId="sorting-compare-diagnostics" /> : null}
         {progress ? (
           <p className="result-count" role="status">
             Comparison {Math.min(progress.done + 1, progress.total)} of {progress.total}…

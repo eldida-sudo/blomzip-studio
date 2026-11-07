@@ -101,6 +101,8 @@ import {
   getEntryEditorialRecommendations,
   withAutomaticAnalysisSuggestions,
 } from "./utils/entryRecommendations";
+import { StoryDiscovery } from "./components/StoryDiscovery";
+import type { StoryDiscoveryPhoto } from "./utils/storyDiscovery";
 import { applyStoryRecommendations } from "./utils/storyRecommendations";
 import { createVisionProvider } from "./utils/visionProvider";
 import {
@@ -494,6 +496,7 @@ function App() {
   const [isRecovering, setIsRecovering] = useState(false);
   const [safetySnapshots, setSafetySnapshots] = useState<SafetySnapshotSummary[]>([]);
   const [isSelectedTimelineOpen, setIsSelectedTimelineOpen] = useState(false);
+  const [isStoryDiscoveryOpen, setIsStoryDiscoveryOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<ImageItem | null>(null);
   const { open: openImagePreview, lightbox: imagePreviewLightbox } = useImagePreview();
   const [importSummary, setImportSummary] = useState<ZipImportSummary | null>(null);
@@ -1207,6 +1210,32 @@ function App() {
         return leftDate - rightDate || left.index - right.index;
       });
   }, [galleryItems]);
+
+  const storyDiscoveryPhotos = useMemo<StoryDiscoveryPhoto[]>(
+    () =>
+      isStoryDiscoveryOpen
+        ? galleryItems
+            .filter(({ imageRecord }) => Boolean(imageRecord))
+            .map(({ image, entry, imageRecord }) => ({
+              id: String(imageRecord?.id ?? image.id),
+              src: resolveGalleryThumbnailSrc(image, imageRecord),
+              filename: imageRecord?.filename ?? image.title,
+              alt: image.alt,
+              captureDate: imageRecord?.captureDate,
+              placeId: imageRecord?.placeId,
+              placeLabel: imageRecord?.placeId ? getPlaceById(imageRecord.placeId)?.displayName : undefined,
+              storySelected: Boolean(entry?.storySelected),
+              hero: Boolean(entry?.hero),
+              favorite: Boolean(entry?.favorite),
+              recommendationScore: Math.max(0, ...(entry?.analysisSuggestions?.recommendations ?? []).map((recommendation) => recommendation.score)),
+              signals: (entry?.visualAnalysis?.signals ?? []).filter((signal) => signal.confidence >= 0.5).map((signal) => signal.signal),
+              isExternal: isExternalRecord(imageRecord),
+              isHidden: Boolean(entry?.hidden),
+              privacyBlocked: entry?.privacyStatus === "review-required",
+            }))
+        : [],
+    [galleryItems, isStoryDiscoveryOpen]
+  );
 
   const selectedTimelineTitle = useMemo(() => {
     const selectedPlaceIds = new Set(
@@ -2739,12 +2768,34 @@ function App() {
                   <strong>{archiveStats.storySelected}</strong>
                   <small>View timeline</small>
                 </button>
+                <button
+                  type="button"
+                  className="archive-home-stat-button"
+                  data-testid="open-story-discovery"
+                  onClick={() => setIsStoryDiscoveryOpen(true)}
+                >
+                  <span>Editorial preview</span>
+                  <strong>Story Discovery</strong>
+                  <small>AI proposes, you decide</small>
+                </button>
                 <div>
                   <span>Review progress</span>
                   <strong>{totalImportedEntries > 0 ? `${reviewedEntryCount}/${totalImportedEntries}` : "No archive entries"}</strong>
                 </div>
               </div>
             </section>
+
+            {isStoryDiscoveryOpen ? (
+              <StoryDiscovery
+                photos={storyDiscoveryPhotos}
+                matchResults={placeTraining.matchResults}
+                onClose={() => setIsStoryDiscoveryOpen(false)}
+                onViewStory={() => {
+                  setIsStoryDiscoveryOpen(false);
+                  setIsSelectedTimelineOpen(true);
+                }}
+              />
+            ) : null}
 
             {isSelectedTimelineOpen ? (
               <section

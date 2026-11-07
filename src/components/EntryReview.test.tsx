@@ -12,7 +12,7 @@ import { MockObservationEngine } from "./observationEngine";
 import { FixtureVisionProvider, type VisionProvider } from "../utils/visionProvider";
 import { listCanonicalPlaces } from "../data/canonicalPlaces";
 import { clearRecordPlaceDetail, markRecordPlaceDetail } from "../utils/placeDetail";
-import type { Visit } from "../models/blomzip";
+import type { Entry, Visit } from "../models/blomzip";
 
 const visit: Visit = {
   id: "visit-1",
@@ -713,6 +713,59 @@ describe("EntryReview", () => {
 
     expect(onEntryUpdated).toHaveBeenCalled();
     expect(container.textContent).toContain("Accepted");
+  });
+
+  it("lets Accept and Reject each resolve a pending observation when the parent mirrors entry updates", () => {
+    const twoObservations: Visit = {
+      ...visit,
+      entries: visit.entries.map((entry, index) =>
+        index === 0
+          ? {
+              ...entry,
+              observations: [
+                ...entry.observations,
+                { ...entry.observations[0], id: "obs-ai-2", type: "Ground", value: "Gravel" },
+              ],
+            }
+          : entry
+      ),
+    };
+
+    function ControlledParent() {
+      const [current, setCurrent] = useState(twoObservations);
+      const handleEntryUpdated = (updated: Entry) =>
+        setCurrent((currentVisit) => ({
+          ...currentVisit,
+          entries: currentVisit.entries.map((entry) => (entry.id === updated.id ? updated : entry)),
+        }));
+
+      return <EntryReview visit={current} onEntryUpdated={handleEntryUpdated} />;
+    }
+
+    act(() => {
+      root.render(<ControlledParent />);
+    });
+
+    const enabledButton = (label: string) =>
+      Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === label && !button.disabled
+      );
+    const statuses = () =>
+      Array.from(container.querySelectorAll(".entry-review-observation-meta-secondary")).map((node) => node.textContent);
+
+    expect(statuses()).toEqual(["Pending review", "Pending review"]);
+
+    act(() => {
+      enabledButton("Accept")?.click();
+    });
+    expect(statuses()).toEqual(["Accepted", "Pending review"]);
+
+    act(() => {
+      enabledButton("Reject")?.click();
+    });
+    expect(statuses()).toEqual(["Accepted", "Rejected"]);
+    expect(enabledButton("Accept")).toBeUndefined();
+    expect(enabledButton("Reject")).toBeUndefined();
   });
 
   it("marks the current entry as reviewed", () => {

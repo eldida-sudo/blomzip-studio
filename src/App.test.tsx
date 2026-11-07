@@ -1264,6 +1264,41 @@ describe("App", () => {
     expect(timeline?.textContent).toContain("No photographs selected yet.");
   });
 
+  it("opens Story Discovery read-only, hands off to the existing Story selection view and leaves selections unchanged", async () => {
+    act(() => {
+      root.render(<App />);
+    });
+
+    await waitForArchiveHydration();
+
+    const storyBefore = container.querySelector('[data-testid="open-selected-timeline"]')?.textContent;
+
+    expect(container.querySelector('[data-testid="story-discovery"]')).toBeNull();
+
+    act(() => {
+      container.querySelector('[data-testid="open-story-discovery"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector('[data-testid="story-discovery-guard"]')?.textContent).toContain("does not publish");
+
+    act(() => {
+      container.querySelector('[data-testid="story-discovery-close"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector('[data-testid="story-discovery"]')).toBeNull();
+
+    act(() => {
+      container.querySelector('[data-testid="open-story-discovery"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    act(() => {
+      container.querySelector('[data-testid="story-discovery-view-story"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector('[data-testid="story-discovery"]')).toBeNull();
+    expect(container.querySelector('[data-testid="selected-timeline"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="open-selected-timeline"]')?.textContent).toBe(storyBefore);
+  });
+
   it("shows Place Discovery summary after ZIP import", () => {
     act(() => {
       root.render(<App />);

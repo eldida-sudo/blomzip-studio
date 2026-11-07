@@ -16,6 +16,7 @@ import { createArchiveStateSnapshot, parseArchiveBackup } from "./archivePersist
 import { cacheSignature, computeAnchorSetKey, getCachedSignature, resolvePlaceSignature } from "./placeSignatureCache";
 import {
   assignSortingPhoto,
+  buildSortingDiagnostics,
   buildSortingQueue,
   buildTrainingReadiness,
   planSortingRun,
@@ -412,5 +413,56 @@ describe("buildTrainingReadiness", () => {
     expect(rows["raised-bed"]).toMatchObject({ registeredAnchors: 3, availableAnchors: 1, missingAnchors: 2, eligible: false });
     expect(rows["house-wall"]).toMatchObject({ assignedPhotos: 2, availableAnchors: 0, eligible: false });
     expect(rows["no-anchors"]).toMatchObject({ registeredAnchors: 0, missingAnchors: 0, eligible: false });
+  });
+});
+
+describe("buildSortingDiagnostics", () => {
+  const overview = { classifiedAt: "2026-10-01T00:00:00.000Z" } as unknown as ImageRecord["overviewClassification"];
+  const detail = { classifiedAt: "2026-10-01T00:00:00.000Z" } as unknown as ImageRecord["placeDetailClassification"];
+  const external = { classifiedAt: "2026-10-01T00:00:00.000Z" } as unknown as ImageRecord["externalClassification"];
+
+  it("counts overlapping exclusions once in the distinct total and agrees with the existing plan", () => {
+    const state = trainedState();
+    const unsure = result("seating-area", "unsure", "NEARBY_CONTEXT", 0.5);
+    unsure.review = { decision: "unsure" } as PlaceMatchResult["review"];
+    state.matchResults = [
+      unsure,
+      ...PLACES.map((placeId) => result(placeId, "done", "DIFFERENT_PLACE", 0.1)),
+      result("seating-area", "partial", "NEARBY_CONTEXT", 0.4),
+    ];
+    const visit = visitOf([
+      record("assigned", { placeId: "seating-area" }),
+      record("both", { overviewClassification: overview, externalClassification: external }),
+      record("detail", { placeDetailClassification: detail }),
+      record("unsure"),
+      record("done"),
+      record("partial"),
+      record("noimage", { thumbnailUrl: "data:image/svg+xml;base64,AAAA" }),
+      record("fresh"),
+    ]);
+    const d = buildSortingDiagnostics(visit, state, PLACES);
+
+    expect(d).toMatchObject({
+      totalPhotos: 8,
+      assigned: 1,
+      unassigned: 7,
+      excludedOverview: 1,
+      excludedExternal: 1,
+      excludedDetail: 1,
+      excludedNotSure: 1,
+      excludedDistinct: 3,
+      candidates: 4,
+      candidatesWithoutImageData: 1,
+      candidatesFullyCompared: 1,
+      candidatesAwaitingComparison: 2,
+      eligiblePlaceCount: 3,
+    });
+    expect(planSortingRun(visit, state, PLACES, 99).items.map((item) => item.record.id)).toEqual(["partial", "fresh"]);
+  });
+
+  it("handles a missing visit and no eligible places", () => {
+    expect(buildSortingDiagnostics(null, createEmptyPlaceTrainingState(), [])).toMatchObject({ totalPhotos: 0, candidates: 0 });
+    const d = buildSortingDiagnostics(visitOf([record("a")]), createEmptyPlaceTrainingState(), []);
+    expect(d).toMatchObject({ candidates: 1, candidatesFullyCompared: 0, candidatesAwaitingComparison: 0 });
   });
 });

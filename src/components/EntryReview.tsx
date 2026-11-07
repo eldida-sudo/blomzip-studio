@@ -153,6 +153,32 @@ function formatCapturedDate(captureDate: string | undefined): string {
   return parsed.toLocaleString();
 }
 
+// TEMPORARY diagnostics: read-only, enabled with `window.__BLOMZIP_DEBUG_OBSERVATIONS__ = true`.
+function observationDebug(event: string, details: Record<string, unknown>) {
+  if (typeof window === "undefined" || !(window as unknown as Record<string, unknown>).__BLOMZIP_DEBUG_OBSERVATIONS__) {
+    return;
+  }
+
+  console.info("[blomzip-observations]", event, details);
+}
+
+function describeObservations(observations: Observation[]) {
+  const idCounts = new Map<unknown, number>();
+  observations.forEach((item) => idCounts.set(item.id, (idCounts.get(item.id) ?? 0) + 1));
+
+  return observations.map((item) => ({
+    id: item.id,
+    idType: typeof item.id,
+    sharedIdCount: idCounts.get(item.id),
+    type: item.type,
+    value: item.value,
+    reviewed: item.reviewed,
+    reviewedType: typeof item.reviewed,
+    accepted: item.accepted,
+    source: item.source,
+  }));
+}
+
 export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpdated, onVisitFinalized, onImageRecordPlaceChanged, onPlaceDetailChanged, onExternalClassificationChanged, onOverviewClassificationChanged, onOverviewVisiblePlacesChanged, visionProvider: visionProviderProp }: EntryReviewProps) {
   const [currentEntryId, setCurrentEntryId] = useState<string | null>(() => {
     if (visit.entries.length === 0) {
@@ -187,6 +213,13 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
 
   useEffect(() => {
     const nextEntries = visit.entries;
+    observationDebug("sync-entries-from-props", {
+      entryCount: nextEntries.length,
+      observationsByEntry: nextEntries
+        .filter((item) => item.observations.length > 0)
+        .slice(0, 5)
+        .map((item) => ({ entryId: item.id, observations: describeObservations(item.observations) })),
+    });
     setEntries(nextEntries);
     setDrafts(
       nextEntries.map((entry) => ({
@@ -782,6 +815,12 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
   }
 
   function handleAcceptObservation(observationId: string) {
+    observationDebug("accept-click", {
+      observationId,
+      entryId: entry?.id,
+      observations: entry ? describeObservations(entry.observations) : null,
+    });
+
     if (!entry) return;
 
     const observation = entry.observations.find((item) => item.id === observationId);
@@ -795,6 +834,12 @@ export function EntryReview({ visit, initialEntryIndex = 0, onClose, onEntryUpda
   }
 
   function handleRejectObservation(observationId: string) {
+    observationDebug("reject-click", {
+      observationId,
+      entryId: entry?.id,
+      observations: entry ? describeObservations(entry.observations) : null,
+    });
+
     if (!entry) return;
 
     const observation = entry.observations.find((item) => item.id === observationId);

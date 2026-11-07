@@ -365,3 +365,88 @@ export function buildTrainingReadiness(
     };
   });
 }
+
+export interface SortingDiagnostics {
+  totalPhotos: number;
+  assigned: number;
+  unassigned: number;
+  /** Reason counts among unassigned photographs. They overlap; a photograph can have several reasons. */
+  excludedOverview: number;
+  excludedDetail: number;
+  excludedExternal: number;
+  excludedNotSure: number;
+  /** Unassigned photographs with at least one exclusion reason, each counted once. */
+  excludedDistinct: number;
+  /** Unassigned photographs that pass the existing eligibility rules and are not set aside. */
+  candidates: number;
+  /** Candidates without usable runtime image data (these are never planned for comparison). */
+  candidatesWithoutImageData: number;
+  /** Candidates already compared against every eligible place. */
+  candidatesFullyCompared: number;
+  /** Candidates with image data still missing at least one comparison. */
+  candidatesAwaitingComparison: number;
+  eligiblePlaceCount: number;
+}
+
+/** Read-only breakdown explaining an empty queue or compare plan. Uses the same rules as planSortingRun. */
+export function buildSortingDiagnostics(
+  visit: Visit | null,
+  state: PlaceTrainingState,
+  eligiblePlaceIds: readonly string[]
+): SortingDiagnostics {
+  const records = visit?.imageRecords ?? [];
+  const unassigned = records.filter((record) => !record.placeId);
+  const diagnostics: SortingDiagnostics = {
+    totalPhotos: records.length,
+    assigned: records.length - unassigned.length,
+    unassigned: unassigned.length,
+    excludedOverview: 0,
+    excludedDetail: 0,
+    excludedExternal: 0,
+    excludedNotSure: 0,
+    excludedDistinct: 0,
+    candidates: 0,
+    candidatesWithoutImageData: 0,
+    candidatesFullyCompared: 0,
+    candidatesAwaitingComparison: 0,
+    eligiblePlaceCount: eligiblePlaceIds.length,
+  };
+
+  for (const record of unassigned) {
+    const flags = [
+      Boolean(record.overviewClassification),
+      Boolean(record.placeDetailClassification),
+      Boolean(record.externalClassification),
+      hasUnsureDecision(state, record.id),
+    ];
+
+    diagnostics.excludedOverview += flags[0] ? 1 : 0;
+    diagnostics.excludedDetail += flags[1] ? 1 : 0;
+    diagnostics.excludedExternal += flags[2] ? 1 : 0;
+    diagnostics.excludedNotSure += flags[3] ? 1 : 0;
+
+    if (flags.some(Boolean)) {
+      diagnostics.excludedDistinct += 1;
+      continue;
+    }
+
+    diagnostics.candidates += 1;
+
+    const compared = new Set(
+      state.matchResults.filter((result) => result.imageRecordId === record.id && result.classification).map((result) => result.placeId)
+    );
+    const fullyCompared = eligiblePlaceIds.length > 0 && eligiblePlaceIds.every((placeId) => compared.has(placeId));
+
+    if (fullyCompared) {
+      diagnostics.candidatesFullyCompared += 1;
+    }
+
+    if (!hasRuntimeImageData(record)) {
+      diagnostics.candidatesWithoutImageData += 1;
+    } else if (!fullyCompared && eligiblePlaceIds.length > 0) {
+      diagnostics.candidatesAwaitingComparison += 1;
+    }
+  }
+
+  return diagnostics;
+}
