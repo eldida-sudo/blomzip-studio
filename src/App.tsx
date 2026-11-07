@@ -484,10 +484,11 @@ async function runImportedBatchPreflight(options: {
   batchId: string;
   provider: VisionProvider;
   commitVisit: (updater: Visit | null | ((current: Visit | null) => Visit | null)) => void;
+  commitTraining: (updater: (current: PlaceTrainingState) => PlaceTrainingState) => void;
   setProgress: (progress: { completed: number; total: number; failed: number; running: boolean } | null) => void;
   setAutoRunBatchId: (batchId: string) => void;
 }): Promise<void> {
-  const { visit, batchId, provider, commitVisit, setProgress, setAutoRunBatchId } = options;
+  const { visit, batchId, provider, commitVisit, commitTraining, setProgress, setAutoRunBatchId } = options;
   const targets = (visit.imageRecords ?? []).filter(
     (record) =>
       record.importBatchId === batchId &&
@@ -496,6 +497,7 @@ async function runImportedBatchPreflight(options: {
   );
   let completed = 0;
   let failed = 0;
+  const assessedRecordIds = new Set<string>();
 
   setProgress({ completed, total: targets.length, failed, running: targets.length > 0 });
 
@@ -512,6 +514,7 @@ async function runImportedBatchPreflight(options: {
         throw new Error("Vision analysis did not return a place-frame assessment.");
       }
 
+      assessedRecordIds.add(imageRecord.id);
       commitVisit((currentVisit) => {
         if (!currentVisit) {
           return currentVisit;
@@ -570,6 +573,18 @@ async function runImportedBatchPreflight(options: {
       failed,
       running: completed < targets.length,
     });
+  }
+
+  if (assessedRecordIds.size > 0) {
+    commitTraining((current) => ({
+      ...current,
+      matchResults: current.matchResults.filter(
+        (result) =>
+          !assessedRecordIds.has(result.imageRecordId) ||
+          result.status !== "pending" ||
+          Boolean(result.review)
+      ),
+    }));
   }
 
   setAutoRunBatchId(batchId);
@@ -2391,6 +2406,11 @@ function App() {
           batchId: incomingBatchId,
           provider: visionProvider,
           commitVisit: commitImportVisit,
+          commitTraining: (updater) => {
+            const next = updater(latestPlaceTrainingRef.current);
+            latestPlaceTrainingRef.current = next;
+            setPlaceTraining(next);
+          },
           setProgress: setBatchVisionProgress,
           setAutoRunBatchId: setSortingAutoRunBatchId,
         });
@@ -2428,6 +2448,11 @@ function App() {
         batchId: latestBatch.id,
         provider: visionProvider,
         commitVisit: commitImportVisit,
+        commitTraining: (updater) => {
+          const next = updater(latestPlaceTrainingRef.current);
+          latestPlaceTrainingRef.current = next;
+          setPlaceTraining(next);
+        },
         setProgress: setBatchVisionProgress,
         setAutoRunBatchId: setSortingAutoRunBatchId,
       });
