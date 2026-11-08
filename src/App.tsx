@@ -863,9 +863,19 @@ function App() {
         return currentVisit;
       }
 
+      const analysis = updatedEntry.visualAnalysis;
       return {
         ...currentVisit,
         status: currentVisit.status === "Finalized" ? currentVisit.status : "Review in progress",
+        imageRecords: analysis
+          ? (currentVisit.imageRecords ?? []).map((record) => {
+              if (record.id !== updatedEntry.imageRecordId) return record;
+              const { placeFrameAssessment: _previousAssessment, ...recordWithoutPreviousAssessment } = record;
+              return analysis.placeFrameAssessment
+                ? { ...recordWithoutPreviousAssessment, placeFrameAssessment: analysis.placeFrameAssessment }
+                : recordWithoutPreviousAssessment;
+            })
+          : currentVisit.imageRecords,
         entries: currentVisit.entries.map((entry) =>
           entry.id === updatedEntry.id ? updatedEntry : entry
         ),
