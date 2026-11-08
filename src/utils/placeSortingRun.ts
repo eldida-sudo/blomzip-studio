@@ -157,6 +157,7 @@ export async function runSortingBatch(visit: Visit, deps: SortingRunDeps): Promi
           candidateImageDataUrl: candidateUrl,
           anchorImageDataUrls: resolved.anchorDataUrls,
           signature: resolved.signature,
+          placeFrameAssessment: item.record.placeFrameAssessment,
         });
 
         if (!stillEligible(item.record.id)) {
