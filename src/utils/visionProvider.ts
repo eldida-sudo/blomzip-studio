@@ -2,7 +2,6 @@ import { getPlaceById } from "../data/canonicalPlaces";
 import type {
   HeroAssessment,
   PlaceMatchClassification,
-  PlaceFrameAssessment,
   HeroAssessmentRole,
   PlaceFrameAssessment,
   VisualAnalysisResult,
@@ -402,6 +401,7 @@ export class ProxyVisionProvider implements VisionProvider {
       placeId: request.placeId,
       imageRecordId: request.imageRecordId,
       provider: this.id,
+      placeFrameAssessment: request.placeFrameAssessment,
       }),
       engineVersion: payload.engineVersion,
     };
