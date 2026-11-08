@@ -88,9 +88,10 @@ app.post("/api/vision/analyze", async (req, res) => {
                 "A Blomzip Hero should not only show the courtyard well; it should give the viewer a reason to care about it and be visually strong enough to lead. " +
                 "When recommending hero_potential, state whether the visible evidence makes it more suitable as a place hero, story hero, both, or neither, and explain why. Use neither for useful archive, documentation or story images that are not visually strong enough to lead. Reserve both for images that are genuinely strong in both roles. " +
                 "For place_frame_assessment, identify the main spatial framing, not merely every place visible. " +
-                "Use focused-place when one location is clearly the primary visual focus, even if neighbouring areas also appear. " +
-                "Use courtyard-overview only for a broad view of the courtyard showing several zones where no single place dominates. " +
-                "Do not call an image an overview just because more than one place is visible. " +
+                "Use focused-place only when one distinct location is clearly the primary visual subject, even if neighbouring areas appear. " +
+                "Use courtyard-overview for a high-angle, elevated, or balcony view that shows several courtyard zones together, such as parking or driveway, lawn, seating, paths, flower beds, or rock garden, when no single zone is the clear subject. " +
+                "A visible flower bed in the foreground, or a large lawn filling much of the frame, does not by itself make a broad contextual view focused-place; classify by what the whole frame communicates. " +
+                "Do not call an image an overview just because more than one place is visible; the frame must communicate the layout or relationship among zones. " +
                 "Use close-up when the frame is a detail with too little fixed geography to locate it reliably; use multiple-places when distinct locations share the frame without one focus but the frame is not a courtyard-wide overview; use unclear when uncertain. " +
                 "Give confidence from 0 to 1 and a short visual reason. Only use confidence 0.85 or higher when the framing is unmistakable. " +
                 "For before_after_potential, only recommend it when the image clearly documents spatial structure or change-comparable features. " +
