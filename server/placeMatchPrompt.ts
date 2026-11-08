@@ -30,7 +30,6 @@ function formatList(items: string[]): string {
 export interface MatchFocusAssessment {
   frameType: string;
   confidence: number;
-  reason: string;
   primaryPlaceId?: string | null;
   secondaryVisiblePlaceIds?: string[];
 }
@@ -43,7 +42,7 @@ export function buildPlaceMatchInstructions(
   focus?: MatchFocusAssessment
 ): string {
   const focusContext = focus
-    ? `A separate image-framing assessment reports: frame type ${focus.frameType}, confidence ${Math.round(focus.confidence * 100)}%, primary place ${focus.primaryPlaceId ?? "none"}, secondary visible places ${focus.secondaryVisiblePlaceIds?.join(", ") || "none"}. Its visual reason: ${focus.reason}. The place currently being compared is ${targetPlaceId ?? placeName}. Treat named secondary places as nearby context, never as the image's primary place. If this comparison targets a secondary visible place, do not classify it SAME_PLACE; use NEARBY_CONTEXT. If a reliable focused-place assessment names a different primary place, do not override it based only on shared scenery; use NEARBY_CONTEXT unless the assessment is clearly contradicted by the candidate image.\\n\\n`
+    ? `A separate image-framing assessment reports: frame type ${focus.frameType}, confidence ${Math.round(focus.confidence * 100)}%, primary place ${focus.primaryPlaceId ?? "none"}, secondary visible places ${focus.secondaryVisiblePlaceIds?.join(", ") || "none"}. The place currently being compared is ${targetPlaceId ?? placeName}. Treat named secondary places as nearby context, never as the image's primary place. If this comparison targets a secondary visible place, do not classify it SAME_PLACE; use NEARBY_CONTEXT. If a reliable focused-place assessment names a different primary place, do not override it based only on shared scenery; use NEARBY_CONTEXT unless the assessment is clearly contradicted by the candidate image.\\n\\n`
     : "";
   return (
     `You are helping a curator decide whether a photograph shows one specific place in the Blomzip courtyard garden: "${placeName}". ` +
