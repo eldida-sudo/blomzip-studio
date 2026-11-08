@@ -100,7 +100,7 @@ app.post("/api/vision/analyze", async (req, res) => {
             {
               type: "input_image",
               image_url: imageDataUrl,
-              detail: "low",
+              detail: "high",
             },
           ],
         },
