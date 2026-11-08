@@ -479,7 +479,7 @@ function appThumbnailDebug(event: string, details: Record<string, unknown>) {
   console.debug("[blomzip-app-thumbnails]", event, details);
 }
 
-const PLACE_MATCH_PROMPT_VERSION = 3;
+const PLACE_MATCH_PROMPT_VERSION = 4;
 
 async function runImportedBatchPreflight(options: {
   visit: Visit;
@@ -1902,14 +1902,20 @@ function App() {
           imageUrl: createThumbnailUrlForRecord(imageRecord),
         });
 
+        const analyzedAt = new Date().toISOString();
         workingVisit = {
           ...workingVisit,
+          imageRecords: (workingVisit.imageRecords ?? []).map((record) =>
+            record.id === imageRecord.id && visualAnalysis.placeFrameAssessment
+              ? { ...record, placeFrameAssessment: visualAnalysis.placeFrameAssessment }
+              : record
+          ),
           entries: workingVisit.entries.map((currentEntry) =>
             currentEntry.id === entry.id
               ? {
                   ...currentEntry,
                   visualAnalysis,
-                  updatedAt: new Date().toISOString(),
+                  updatedAt: analyzedAt,
                 }
               : currentEntry
           ),
