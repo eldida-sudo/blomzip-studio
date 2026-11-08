@@ -27,7 +27,24 @@ function formatList(items: string[]): string {
   return items.length ? items.map((item) => `- ${item}`).join("\n") : "(none)";
 }
 
-export function buildPlaceMatchInstructions(placeName: string, anchorCount: number, signature: PlaceSignature): string {
+export interface MatchFocusAssessment {
+  frameType: string;
+  confidence: number;
+  reason: string;
+  primaryPlaceId?: string | null;
+  secondaryVisiblePlaceIds?: string[];
+}
+
+export function buildPlaceMatchInstructions(
+  placeName: string,
+  anchorCount: number,
+  signature: PlaceSignature,
+  targetPlaceId?: string,
+  focus?: MatchFocusAssessment
+): string {
+  const focusContext = focus
+    ? `A separate image-framing assessment reports: frame type ${focus.frameType}, confidence ${Math.round(focus.confidence * 100)}%, primary place ${focus.primaryPlaceId ?? "none"}, secondary visible places ${focus.secondaryVisiblePlaceIds?.join(", ") || "none"}. Its visual reason: ${focus.reason}. The place currently being compared is ${targetPlaceId ?? placeName}. Treat named secondary places as nearby context, never as the image's primary place. If this comparison targets a secondary visible place, do not classify it SAME_PLACE; use NEARBY_CONTEXT. If a reliable focused-place assessment names a different primary place, do not override it based only on shared scenery; use NEARBY_CONTEXT unless the assessment is clearly contradicted by the candidate image.\\n\\n`
+    : "";
   return (
     `You are helping a curator decide whether a photograph shows one specific place in the Blomzip courtyard garden: "${placeName}". ` +
     `The next ${anchorCount} images are REFERENCE images that the curator confirmed show exactly this place, ` +
@@ -44,6 +61,7 @@ export function buildPlaceMatchInstructions(placeName: string, anchorCount: numb
     "- A feature that is outside the frame, hidden, blurred, too small or simply not visible is MISSING. Missing evidence is not a conflict: do not list it in conflicts. It only reduces how many features you can verify.\n" +
     "- A conflict is a CORE feature that the candidate clearly shows to be different, for example a different structure or arrangement clearly visible where that core feature should be. " +
     "Only list a core feature (copied VERBATIM) in conflicts when you can see the contradicting evidence in the candidate. When in doubt, leave conflicts empty and prefer NEARBY_CONTEXT.\n\n" +
+    focusContext +
     "Before matching, identify the photograph’s primary visual focus. A place visible only in the background or as incidental context is not the primary place. " +
     "A close-up that does not show the fixed, place-defining anchors cannot establish SAME_PLACE, even if plants or materials resemble the references. " +
     "If two or more distinct courtyard places are visible and none is clearly the primary focus, do not treat the whole frame as one place; use NEARBY_CONTEXT when it is clearly the same courtyard, otherwise DIFFERENT_PLACE. " +
