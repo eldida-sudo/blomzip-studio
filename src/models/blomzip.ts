@@ -79,6 +79,10 @@ export interface PlaceFrameAssessment {
   frameType: PlaceFrameType;
   confidence: number;
   reason: string;
+  /** Canonical place that is visually primary when frameType is focused-place. */
+  primaryPlaceId?: string | null;
+  /** Other canonical places visible in the frame; never primary assignments. */
+  secondaryVisiblePlaceIds?: string[];
   /** Version of the matching policy applied after this framing assessment. */
   matchPromptVersion?: number;
 }
