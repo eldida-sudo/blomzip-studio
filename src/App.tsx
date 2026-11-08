@@ -3084,15 +3084,13 @@ function App() {
             ) : null}
 
             <nav className="studio-workflow" aria-label="Studio workflow" data-testid="studio-workflow">
-              <span>Import images</span>
+              <span>1. Import ZIPs</span>
               <span aria-hidden="true">→</span>
-              <span>Place Discovery</span>
+              <span>2. AI analyzes and matches new photos</span>
               <span aria-hidden="true">→</span>
-              <span>Image Analysis</span>
+              <span>3. Confirm places in Sorting Queue</span>
               <span aria-hidden="true">→</span>
-              <span>Editorial Recommendations</span>
-              <span aria-hidden="true">→</span>
-              <span>Review &amp; Curate</span>
+              <span>4. Curate Story suggestions</span>
             </nav>
 
             <LivingMapPanel
