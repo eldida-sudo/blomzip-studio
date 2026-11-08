@@ -583,8 +583,11 @@ export function PlaceSortingQueue({
         {isExpanded ? "▾" : "▸"} Sorting queue ({queue.length})
       </button>
       <p className="result-count" data-testid="sorting-summary" role="status">
-        {queue.length} in queue · {eligiblePlaceIds.length} of {readinessRows.length} places eligible for matching ·{" "}
-        {comparisonCount + signatureCount} expected model calls
+        {queue.length} photos need a place decision · {eligiblePlaceIds.length} of {readinessRows.length} places have enough anchors
+      </p>
+      <p className="sorting-queue-guidance">
+        New ZIP photos are analyzed and matched automatically. Review the proposed primary place here; only approve when it matches
+        the photo’s focus. Other visible places are context. Nothing is assigned until you confirm it.
       </p>
 
       <div id="sorting-queue-body" hidden={!isExpanded}>
@@ -702,7 +705,10 @@ export function PlaceSortingQueue({
       </details>
 
       <details className="place-match-list" data-testid="sorting-compare">
-        <summary>Compare more photographs (model calls)</summary>
+        <summary>Optional: compare older or unmatched photos</summary>
+        <p className="result-count">
+          New ZIP photos start matching automatically. Use this only when you want to compare additional archive photos.
+        </p>
         <p className="result-count" data-testid="sorting-expected-calls" role="status">
           Next batch: {photoCount} {photoCount === 1 ? "photograph" : "photographs"} (maximum {SORTING_BATCH_SIZE}),{" "}
           {comparisonCount} expected image {comparisonCount === 1 ? "comparison" : "comparisons"}
