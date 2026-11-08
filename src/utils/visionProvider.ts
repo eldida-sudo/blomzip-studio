@@ -1,6 +1,8 @@
+import { getPlaceById } from "../data/canonicalPlaces";
 import type {
   HeroAssessment,
   PlaceMatchClassification,
+  PlaceFrameAssessment,
   HeroAssessmentRole,
   PlaceFrameAssessment,
   VisualAnalysisResult,
@@ -73,6 +75,7 @@ export interface PlaceMatchRequest {
   imageRecordId: string;
   candidateImageDataUrl: string;
   anchorImageDataUrls: string[];
+  placeFrameAssessment?: PlaceFrameAssessment;
 }
 
 export interface PlaceMatchOutcome {
@@ -110,7 +113,7 @@ const PLACE_MATCH_SCORE_CEILING: Record<PlaceMatchClassification, number> = {
  */
 export function parsePlaceMatchOutput(
   outputText: string,
-  context: { placeId: string; imageRecordId: string; provider: string }
+  context: { placeId: string; imageRecordId: string; provider: string; placeFrameAssessment?: PlaceFrameAssessment }
 ): PlaceMatchOutcome {
   let parsed: unknown;
 
@@ -162,6 +165,24 @@ export function parsePlaceMatchOutput(
 
   let finalClassification = classification as PlaceMatchClassification;
 
+  const focus = context.placeFrameAssessment;
+  const hasReliableNamedFocus = focus?.frameType === "focused-place" &&
+    focus.confidence >= 0.85 &&
+    typeof focus.primaryPlaceId === "string" &&
+    Boolean(getPlaceById(focus.primaryPlaceId));
+  const isSecondaryVisiblePlace = Boolean(
+    hasReliableNamedFocus &&
+    focus?.secondaryVisiblePlaceIds?.includes(context.placeId)
+  );
+
+  if (
+    finalClassification === "SAME_PLACE" &&
+    hasReliableNamedFocus &&
+    focus?.primaryPlaceId !== context.placeId
+  ) {
+    finalClassification = "NEARBY_CONTEXT";
+  }
+
   if (finalClassification === "SAME_PLACE" && matchedFeatures.length < MIN_SAME_PLACE_FEATURES) {
     finalClassification = "NEARBY_CONTEXT";
   }
@@ -172,7 +193,9 @@ export function parsePlaceMatchOutput(
     classification: finalClassification,
     matchedFeatures,
     score: Math.min(PLACE_MATCH_SCORE_CEILING[finalClassification], Math.max(0, score)),
-    reason: reason.trim().slice(0, PLACE_MATCH_REASON_MAX_LENGTH),
+    reason: isSecondaryVisiblePlace
+      ? `Visible as secondary context; the focus assessment names ${focus?.primaryPlaceId} as the primary place. ${reason.trim()}`.slice(0, PLACE_MATCH_REASON_MAX_LENGTH)
+      : reason.trim().slice(0, PLACE_MATCH_REASON_MAX_LENGTH),
     provider: context.provider,
     analysisVersion: VISION_ANALYSIS_VERSION,
   };
@@ -341,6 +364,7 @@ export class ProxyVisionProvider implements VisionProvider {
         candidateImageDataUrl: request.candidateImageDataUrl,
         anchorImageDataUrls: request.anchorImageDataUrls,
         signature: request.signature,
+        placeFrameAssessment: request.placeFrameAssessment,
       }),
     });
 
@@ -460,6 +484,8 @@ export class ProxyVisionProvider implements VisionProvider {
         frame_type: string;
         confidence: number;
         reason: string;
+        primary_place_id?: string | null;
+        secondary_visible_place_ids?: string[];
       };
     };
 
@@ -522,6 +548,18 @@ export class ProxyVisionProvider implements VisionProvider {
             frameType: rawFrame.frame_type as PlaceFrameAssessment["frameType"],
             confidence: rawFrame.confidence,
             reason: rawFrame.reason.trim().slice(0, 280),
+            primaryPlaceId:
+              rawFrame.frame_type === "focused-place" &&
+              rawFrame.confidence >= 0.75 &&
+              typeof rawFrame.primary_place_id === "string" &&
+              Boolean(getPlaceById(rawFrame.primary_place_id))
+                ? rawFrame.primary_place_id
+                : null,
+            secondaryVisiblePlaceIds: Array.isArray(rawFrame.secondary_visible_place_ids)
+              ? [...new Set(rawFrame.secondary_visible_place_ids.filter(
+                  (placeId): placeId is string => typeof placeId === "string" && Boolean(getPlaceById(placeId))
+                ))].filter((placeId) => placeId !== rawFrame.primary_place_id)
+              : [],
           }
         : undefined;
 
