@@ -369,9 +369,10 @@ app.post("/api/vision/place-signature", async (req, res) => {
       "garden-border", "house-wall", "entrance", "parking-trellis", "miriams-bed", "compost-area",
       "garden-arch", "under-maple", "parking-peninsula", "front-gate", "house-gable",
     ]);
-    if (typeof placeId !== "string" || !canonicalPlaceIds.has(placeId)) {
+    if (placeId != null && (typeof placeId !== "string" || !canonicalPlaceIds.has(placeId))) {
       return res.status(400).json({ error: "placeId must be a known canonical place ID" });
     }
+    const targetPlaceId = typeof placeId === "string" ? placeId : undefined;
 
     const validFrameTypes = new Set(["focused-place", "courtyard-overview", "close-up", "multiple-places", "unclear"]);
     const focus = placeFrameAssessment && typeof placeFrameAssessment === "object" &&
@@ -509,7 +510,7 @@ app.post("/api/vision/match-place", async (req, res) => {
     > = [
       {
         type: "input_text",
-        text: buildPlaceMatchInstructions(placeName.trim(), anchorImageDataUrls.length, placeSignature, placeId, focus),
+        text: buildPlaceMatchInstructions(placeName.trim(), anchorImageDataUrls.length, placeSignature, targetPlaceId, focus),
       },
       ...anchorImageDataUrls.flatMap((url: string, index: number) => [
         { type: "input_text" as const, text: `REFERENCE ${index + 1}:` },
