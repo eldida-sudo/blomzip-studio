@@ -534,7 +534,7 @@ async function runImportedBatchPreflight(options: {
 
         const autoMarkOverview =
           placeFrameAssessment.frameType === "courtyard-overview" &&
-          placeFrameAssessment.confidence >= 0.85 &&
+          placeFrameAssessment.confidence >= 0.8 &&
           isPlaceMatchEligible(currentRecord);
 
         const nextVisit: Visit = {
