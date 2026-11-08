@@ -364,35 +364,6 @@ app.post("/api/vision/place-signature", async (req, res) => {
       return res.status(400).json({ error: "placeName is required" });
     }
 
-    const canonicalPlaceIds = new Set([
-      "parking", "raised-bed", "seating-area", "central-lawn", "shade-corner", "rock-garden",
-      "garden-border", "house-wall", "entrance", "parking-trellis", "miriams-bed", "compost-area",
-      "garden-arch", "under-maple", "parking-peninsula", "front-gate", "house-gable",
-    ]);
-    if (placeId != null && (typeof placeId !== "string" || !canonicalPlaceIds.has(placeId))) {
-      return res.status(400).json({ error: "placeId must be a known canonical place ID" });
-    }
-    const targetPlaceId = typeof placeId === "string" ? placeId : undefined;
-
-    const validFrameTypes = new Set(["focused-place", "courtyard-overview", "close-up", "multiple-places", "unclear"]);
-    const focus = placeFrameAssessment && typeof placeFrameAssessment === "object" &&
-      validFrameTypes.has(placeFrameAssessment.frameType) &&
-      typeof placeFrameAssessment.confidence === "number" &&
-      placeFrameAssessment.confidence >= 0 && placeFrameAssessment.confidence <= 1 &&
-      (placeFrameAssessment.primaryPlaceId == null || canonicalPlaceIds.has(placeFrameAssessment.primaryPlaceId)) &&
-      Array.isArray(placeFrameAssessment.secondaryVisiblePlaceIds) &&
-      placeFrameAssessment.secondaryVisiblePlaceIds.every((id: unknown) => typeof id === "string" && canonicalPlaceIds.has(id))
-        ? {
-            frameType: placeFrameAssessment.frameType,
-            confidence: placeFrameAssessment.confidence,
-            reason: typeof placeFrameAssessment.reason === "string" ? placeFrameAssessment.reason.slice(0, 280) : "",
-            primaryPlaceId: placeFrameAssessment.primaryPlaceId ?? null,
-            secondaryVisiblePlaceIds: [...new Set(placeFrameAssessment.secondaryVisiblePlaceIds)].filter(
-              (id: string) => id !== placeFrameAssessment.primaryPlaceId
-            ),
-          }
-        : undefined;
-
     if (
       !Array.isArray(anchorImageDataUrls) ||
       anchorImageDataUrls.length < MIN_PLACE_ANCHORS ||
@@ -481,6 +452,34 @@ app.post("/api/vision/match-place", async (req, res) => {
     if (typeof placeName !== "string" || !placeName.trim()) {
       return res.status(400).json({ error: "placeName is required" });
     }
+
+    const canonicalPlaceIds = new Set([
+      "parking", "raised-bed", "seating-area", "central-lawn", "shade-corner", "rock-garden",
+      "garden-border", "house-wall", "entrance", "parking-trellis", "miriams-bed", "compost-area",
+      "garden-arch", "under-maple", "parking-peninsula", "front-gate", "house-gable",
+    ]);
+    if (placeId != null && (typeof placeId !== "string" || !canonicalPlaceIds.has(placeId))) {
+      return res.status(400).json({ error: "placeId must be a known canonical place ID" });
+    }
+    const targetPlaceId = typeof placeId === "string" ? placeId : undefined;
+
+    const validFrameTypes = new Set(["focused-place", "courtyard-overview", "close-up", "multiple-places", "unclear"]);
+    const focus = placeFrameAssessment && typeof placeFrameAssessment === "object" &&
+      validFrameTypes.has(placeFrameAssessment.frameType) &&
+      typeof placeFrameAssessment.confidence === "number" &&
+      placeFrameAssessment.confidence >= 0 && placeFrameAssessment.confidence <= 1 &&
+      (placeFrameAssessment.primaryPlaceId == null || canonicalPlaceIds.has(placeFrameAssessment.primaryPlaceId)) &&
+      Array.isArray(placeFrameAssessment.secondaryVisiblePlaceIds) &&
+      placeFrameAssessment.secondaryVisiblePlaceIds.every((id: unknown) => typeof id === "string" && canonicalPlaceIds.has(id))
+        ? {
+            frameType: placeFrameAssessment.frameType,
+            confidence: placeFrameAssessment.confidence,
+            primaryPlaceId: placeFrameAssessment.primaryPlaceId ?? null,
+            secondaryVisiblePlaceIds: [...new Set(placeFrameAssessment.secondaryVisiblePlaceIds)].filter(
+              (id: string) => id !== placeFrameAssessment.primaryPlaceId
+            ),
+          }
+        : undefined;
 
     if (!isImageDataUrl(candidateImageDataUrl)) {
       return res.status(400).json({ error: "candidateImageDataUrl must be a JPEG or PNG data URL" });
