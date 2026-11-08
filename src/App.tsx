@@ -479,7 +479,7 @@ function appThumbnailDebug(event: string, details: Record<string, unknown>) {
   console.debug("[blomzip-app-thumbnails]", event, details);
 }
 
-const PLACE_MATCH_PROMPT_VERSION = 2;
+const PLACE_MATCH_PROMPT_VERSION = 3;
 
 async function runImportedBatchPreflight(options: {
   visit: Visit;
