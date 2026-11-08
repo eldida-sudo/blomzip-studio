@@ -469,15 +469,18 @@ app.post("/api/vision/match-place", async (req, res) => {
       typeof placeFrameAssessment.confidence === "number" &&
       placeFrameAssessment.confidence >= 0 && placeFrameAssessment.confidence <= 1 &&
       (placeFrameAssessment.primaryPlaceId == null || canonicalPlaceIds.has(placeFrameAssessment.primaryPlaceId)) &&
-      Array.isArray(placeFrameAssessment.secondaryVisiblePlaceIds) &&
-      placeFrameAssessment.secondaryVisiblePlaceIds.every((id: unknown) => typeof id === "string" && canonicalPlaceIds.has(id))
+      Array.isArray(placeFrameAssessment.secondaryVisiblePlaceIds)
         ? {
             frameType: placeFrameAssessment.frameType,
             confidence: placeFrameAssessment.confidence,
             primaryPlaceId: placeFrameAssessment.primaryPlaceId ?? null,
-            secondaryVisiblePlaceIds: [...new Set(placeFrameAssessment.secondaryVisiblePlaceIds)].filter(
-              (id: string) => id !== placeFrameAssessment.primaryPlaceId
-            ),
+            secondaryVisiblePlaceIds: [
+              ...new Set(
+                placeFrameAssessment.secondaryVisiblePlaceIds.filter(
+                  (id: unknown): id is string => typeof id === "string" && canonicalPlaceIds.has(id)
+                )
+              ),
+            ].filter((id) => id !== placeFrameAssessment.primaryPlaceId),
           }
         : undefined;
 
