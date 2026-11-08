@@ -1905,11 +1905,13 @@ function App() {
         const analyzedAt = new Date().toISOString();
         workingVisit = {
           ...workingVisit,
-          imageRecords: (workingVisit.imageRecords ?? []).map((record) =>
-            record.id === imageRecord.id && visualAnalysis.placeFrameAssessment
-              ? { ...record, placeFrameAssessment: visualAnalysis.placeFrameAssessment }
-              : record
-          ),
+          imageRecords: (workingVisit.imageRecords ?? []).map((record) => {
+            if (record.id !== imageRecord.id) return record;
+            const { placeFrameAssessment: _previousAssessment, ...recordWithoutPreviousAssessment } = record;
+            return visualAnalysis.placeFrameAssessment
+              ? { ...recordWithoutPreviousAssessment, placeFrameAssessment: visualAnalysis.placeFrameAssessment }
+              : recordWithoutPreviousAssessment;
+          }),
           entries: workingVisit.entries.map((currentEntry) =>
             currentEntry.id === entry.id
               ? {
