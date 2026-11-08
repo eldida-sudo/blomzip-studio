@@ -335,6 +335,16 @@ export function PlaceSortingQueue({
           <div className="sorting-no-preview">No preview</div>
         )}
         <strong className="sorting-filename" title={record.filename}>{record.filename}</strong>
+        {record.placeFrameAssessment ? (
+          <p className="sorting-focus-assessment" data-testid={`sorting-focus-${record.id}`}>
+            {record.placeFrameAssessment.frameType === "focused-place" && record.placeFrameAssessment.primaryPlaceId
+              ? <>AI sees primary focus: <strong>{placeName(record.placeFrameAssessment.primaryPlaceId)}</strong></>
+              : <>AI framing: {record.placeFrameAssessment.frameType.replace(/-/g, " ")}</>}
+            {record.placeFrameAssessment.secondaryVisiblePlaceIds?.length
+              ? <> · Also visible: {record.placeFrameAssessment.secondaryVisiblePlaceIds.map(placeName).join(", ")}</>
+              : null}
+          </p>
+        ) : null}
         <p data-testid={`sorting-conclusion-${record.id}`} className={`sorting-status sorting-status-${proposal.status}`}>
           {conclusion(proposal)}
         </p>
