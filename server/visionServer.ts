@@ -87,12 +87,11 @@ app.post("/api/vision/analyze", async (req, res) => {
                 "Do not equate conventional beauty with Hero quality. Do not invent emotions, events or history that are not visually supported. " +
                 "A Blomzip Hero should not only show the courtyard well; it should give the viewer a reason to care about it and be visually strong enough to lead. " +
                 "When recommending hero_potential, state whether the visible evidence makes it more suitable as a place hero, story hero, both, or neither, and explain why. Use neither for useful archive, documentation or story images that are not visually strong enough to lead. Reserve both for images that are genuinely strong in both roles. " +
-                "For place_frame_assessment, identify the main spatial framing, not merely every place visible. " +
-                "Use focused-place only when one distinct location is clearly the primary visual subject, even if neighbouring areas appear. " +
-                "Use courtyard-overview for a high-angle, elevated, or balcony view that shows several courtyard zones together, such as parking or driveway, lawn, seating, paths, flower beds, or rock garden, when no single zone is the clear subject. " +
-                "A visible flower bed in the foreground, or a large lawn filling much of the frame, does not by itself make a broad contextual view focused-place; classify by what the whole frame communicates. " +
-                "Do not call an image an overview just because more than one place is visible; the frame must communicate the layout or relationship among zones. " +
-                "Use close-up when the frame is a detail with too little fixed geography to locate it reliably; use multiple-places when distinct locations share the frame without one focus but the frame is not a courtyard-wide overview; use unclear when uncertain. " +
+                "For place_frame_assessment, identify framing AND place focus. Use focused-place when one distinct location is clearly the primary visual subject, even if neighbouring places appear. " +
+                "A wide view can still focus on one place; width or several visible zones alone do not make an overview. Use courtyard-overview only when the frame communicates the layout or relationship among courtyard zones and no single place dominates. " +
+                "Use close-up when too little fixed geography is visible; use multiple-places when distinct locations share the frame without one focus but it is not a courtyard-wide overview; use unclear when uncertain. " +
+                "The canonical places and IDs are: parking (Parking Edge — needs reassignment), raised-bed (The Raised Beds), seating-area (The Seating Area), central-lawn (The Lawn), shade-corner (The Shade Corner), rock-garden (The Rock Garden), garden-border (The Garden Border), house-wall (The Bicycle Trellis Bed), entrance (Under the Pine), parking-trellis (The Parking Trellis), miriams-bed (Miriam's Bed), compost-area (The Compost Area), garden-arch (The Garden Arch), under-maple (Under the Maple), parking-peninsula (The Parking Peninsula), front-gate (The Front Gate), house-gable (The House Gable). " +
+                "Set primary_place_id only when a single listed canonical place is clearly the visual focus; otherwise null. Put other listed places that are visibly present in secondary_visible_place_ids, never as competing primary claims. Do not list places that are only inferred or outside the frame. " +
                 "Give confidence from 0 to 1 and a short visual reason. Only use confidence 0.85 or higher when the framing is unmistakable. " +
                 "For before_after_potential, only recommend it when the image clearly documents spatial structure or change-comparable features. " +
                 "Each signal must contain signal, confidence from 0 to 1, and detail.",
@@ -160,9 +159,16 @@ app.post("/api/vision/analyze", async (req, res) => {
                   },
                   reason: {
                     type: "string"
+                  },
+                  primary_place_id: {
+                    anyOf: [{ type: "string", enum: ["parking", "raised-bed", "seating-area", "central-lawn", "shade-corner", "rock-garden", "garden-border", "house-wall", "entrance", "parking-trellis", "miriams-bed", "compost-area", "garden-arch", "under-maple", "parking-peninsula", "front-gate", "house-gable"] }, { type: "null" }]
+                  },
+                  secondary_visible_place_ids: {
+                    type: "array",
+                    items: { type: "string", enum: ["parking", "raised-bed", "seating-area", "central-lawn", "shade-corner", "rock-garden", "garden-border", "house-wall", "entrance", "parking-trellis", "miriams-bed", "compost-area", "garden-arch", "under-maple", "parking-peninsula", "front-gate", "house-gable"] }
                   }
                 },
-                required: ["frame_type", "confidence", "reason"],
+                required: ["frame_type", "confidence", "reason", "primary_place_id", "secondary_visible_place_ids"],
                 additionalProperties: false
               },
               hero_assessment: {
