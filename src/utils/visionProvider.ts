@@ -10,7 +10,7 @@ import type {
   VisualEvidenceSignalId,
 } from "../models/blomzip";
 
-export const VISION_ANALYSIS_VERSION = 3;
+export const VISION_ANALYSIS_VERSION = 4;
 
 const VISUAL_EVIDENCE_SIGNAL_IDS: ReadonlySet<VisualEvidenceSignalId> = new Set([
   "human-activity",
@@ -360,6 +360,7 @@ export class ProxyVisionProvider implements VisionProvider {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        placeId: request.placeId,
         placeName: request.placeName,
         candidateImageDataUrl: request.candidateImageDataUrl,
         anchorImageDataUrls: request.anchorImageDataUrls,
