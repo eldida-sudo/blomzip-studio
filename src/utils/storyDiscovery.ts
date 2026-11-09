@@ -75,10 +75,7 @@ export function rankPhoto(photo: StoryDiscoveryPhoto): RankedPhoto {
   const reasons: string[] = [];
   let relevance = 0;
 
-  if (photo.storySelected) {
-    relevance += 0.3;
-    reasons.push("Already selected for Story");
-  }
+  reasons.push(photo.storySelected ? "Already selected for Story" : "New Story candidate");
 
   if (photo.hero) {
     relevance += 0.15;
@@ -90,10 +87,8 @@ export function rankPhoto(photo: StoryDiscoveryPhoto): RankedPhoto {
     reasons.push("Marked as favourite");
   }
 
-  if (photo.recommendationScore > 0) {
-    relevance += 0.25 * Math.min(photo.recommendationScore, 1);
-    reasons.push(`Recommended by existing analysis (${Math.round(photo.recommendationScore * 100)}%)`);
-  }
+  // recommendationScore combines several editorial recommendation types and is not
+  // a calibrated Story confidence, so it must not rank Story Discovery candidates.
 
   const signalReasons = photo.signals.filter((signal) => POSITIVE_SIGNALS[signal]).map((signal) => POSITIVE_SIGNALS[signal]);
 
@@ -146,10 +141,9 @@ function pickDiverse(ranked: RankedPhoto[], groupOf: (photo: StoryDiscoveryPhoto
 }
 
 function orderSequence(picks: RankedPhoto[]): RankedPhoto[] {
-  const opening = [...picks].sort(byRelevance)[0];
-  const rest = picks.filter((item) => item !== opening).sort((left, right) => time(left.photo) - time(right.photo) || left.photo.id.localeCompare(right.photo.id));
-
-  return [opening, ...rest];
+  // A place-over-time proposal should read as a timeline, not open with whichever
+  // image happens to have the highest mixed editorial score.
+  return [...picks].sort((left, right) => time(left.photo) - time(right.photo) || left.photo.id.localeCompare(right.photo.id));
 }
 
 function finish(
@@ -179,7 +173,14 @@ function finish(
   };
 }
 
-function placeProposals(pool: RankedPhoto[]): StoryProposal[] {
+const STORY_EVIDENCE_SIGNALS = new Set([
+  "human-activity",
+  "visible-change-cue",
+  "spatial-overview",
+  "place-legibility",
+]);
+
+function placeProposals(pool: RankedPhoto[], matchResults: readonly PlaceMatchResult[]): StoryProposal[] {
   const byPlace = new Map<string, RankedPhoto[]>();
 
   for (const item of pool) {
@@ -192,92 +193,80 @@ function placeProposals(pool: RankedPhoto[]): StoryProposal[] {
 
   for (const [placeId, items] of byPlace) {
     const years = [...new Set(items.map((item) => yearOf(item.photo) as number))].sort((a, b) => a - b);
+    const newItems = items.filter((item) => !item.photo.storySelected);
+    const newYears = new Set(newItems.map((item) => yearOf(item.photo)).filter((year): year is number => year !== null));
 
-    if (years.length < 3) {
+    // Story selections can provide context, but a proposal must add at least two
+    // unselected photographs across more than one year.
+    if (years.length < 3 || newItems.length < 2 || newYears.size < 2) {
       continue;
     }
 
-    const picks = pickDiverse(items, (photo) => yearOf(photo));
+    const supportedPair = findThenNow(items.map((item) => item.photo), matchResults);
+    const rankedById = new Map(items.map((item) => [item.photo.id, item]));
+    const pairItems = supportedPair
+      ? [rankedById.get(supportedPair.before.id), rankedById.get(supportedPair.after.id)]
+          .filter((item): item is RankedPhoto => Boolean(item))
+      : [];
+    const newPicks = pickDiverse(newItems, (photo) => yearOf(photo));
+    const selectedContext = pickDiverse(items.filter((item) => item.photo.storySelected), (photo) => yearOf(photo)).slice(0, 2);
+    const orderedCandidates = [...pairItems, ...selectedContext, ...newPicks];
+    const seen = new Set<string>();
+    const picks = orderedCandidates.filter((item) => {
+      if (seen.has(item.photo.id)) return false;
+      seen.add(item.photo.id);
+      return true;
+    }).slice(0, MAX_PROPOSAL_PHOTOS);
+
+    const pickedYears = new Set(picks.map((item) => yearOf(item.photo)).filter((year): year is number => year !== null));
+    const newPhotosInPicks = picks.filter((item) => !item.photo.storySelected);
+    const pickedNewYears = new Set(newPhotosInPicks.map((item) => yearOf(item.photo)).filter((year): year is number => year !== null));
+    const hasStoryEvidence = picks.some((item) => item.photo.signals.some((signal) => STORY_EVIDENCE_SIGNALS.has(signal)));
+    const verifiedPairInPicks = findThenNow(picks.map((item) => item.photo), matchResults);
+
+    if (
+      picks.length < MIN_PROPOSAL_PHOTOS ||
+      newPhotosInPicks.length < 2 ||
+      pickedNewYears.size < 2 ||
+      pickedYears.size < 3 ||
+      !hasStoryEvidence
+    ) {
+      continue;
+    }
+
     const label = items[0].photo.placeLabel ?? placeId;
+    const continuityNote = verifiedPairInPicks
+      ? `A reviewed comparison links two years through ${verifiedPairInPicks.sharedFeatures.join(", ")}.`
+      : "No reviewed photo-to-photo match links the years yet, so check the framing and fixed landmarks before treating this as a continuous sequence.";
     const proposal = finish(
       "place-over-time",
       placeId,
       `${label}, over the years`,
-      `Photographs of ${label} taken in ${years.length} different years, from ${years[0]} to ${years[years.length - 1]}. ` +
-        "Suggested theme: the archive shows what was photographed, not what changed in between.",
+      `A candidate sequence for ${label}: ${newPhotosInPicks.length} new photographs across ${pickedNewYears.size} years, with existing Story selections shown only as context. ${continuityNote} A stored visual clue is present, but the photographs still need curator review to establish what changed.`,
       picks,
       items
     );
 
     if (proposal) {
-      proposals.push({ ...proposal, score: proposal.score + years.length * 0.05 });
+      proposals.push({ ...proposal, score: proposal.score + pickedYears.size * 0.05 });
     }
   }
 
   return proposals;
-}
-
-function seasonProposals(pool: RankedPhoto[]): StoryProposal[] {
-  const byYear = new Map<number, RankedPhoto[]>();
-
-  for (const item of pool) {
-    const year = yearOf(item.photo);
-
-    if (year !== null) {
-      byYear.set(year, [...(byYear.get(year) ?? []), item]);
-    }
-  }
-
-  const proposals: StoryProposal[] = [];
-
-  for (const [year, items] of byYear) {
-    const seasons = new Set(items.map((item) => seasonOf(item.photo)));
-
-    if (seasons.size < 3) {
-      continue;
-    }
-
-    const proposal = finish(
-      "seasons",
-      String(year),
-      `${year}, season by season`,
-      `Photographs from ${year} spanning ${seasons.size} seasons (by capture date). Suggested theme: seasons are inferred from dates only.`,
-      pickDiverse(items, seasonOf),
-      items
-    );
-
-    if (proposal) {
-      proposals.push({ ...proposal, score: proposal.score + seasons.size * 0.05 });
-    }
-  }
-
-  return proposals;
-}
-
-function highlightProposals(pool: RankedPhoto[]): StoryProposal[] {
-  const strong = pool.filter((item) => item.relevance >= 0.25);
-  const proposal = finish(
-    "highlights",
-    "all",
-    "The strongest photographs",
-    "The photographs the archive already marks or recommends most strongly for Story. Suggested selection: ordering and framing are for the curator to decide.",
-    pickDiverse(strong, (photo) => yearOf(photo)),
-    strong
-  );
-
-  return proposal ? [proposal] : [];
 }
 
 /**
- * Up to three distinct, data-grounded story proposals. Reuses stored recommendations and curator decisions;
- * makes no model calls. A photograph appears in at most one proposal.
+ * Uses existing Story selections as context, but every proposal must add new photographs.
  */
-export function buildStoryProposals(photos: readonly StoryDiscoveryPhoto[]): StoryProposal[] {
+export function buildStoryProposals(
+  photos: readonly StoryDiscoveryPhoto[],
+  matchResults: readonly PlaceMatchResult[] = []
+): StoryProposal[] {
   let pool = photos.filter(usable).map(rankPhoto);
   const proposals: StoryProposal[] = [];
 
   while (proposals.length < MAX_PROPOSALS) {
-    const candidates = [...placeProposals(pool), ...seasonProposals(pool), ...highlightProposals(pool)].sort(
+    const candidates = placeProposals(pool, matchResults).sort(
       (left, right) => right.score - left.score || left.id.localeCompare(right.id)
     );
     const best = candidates[0];
@@ -292,6 +281,62 @@ export function buildStoryProposals(photos: readonly StoryDiscoveryPhoto[]): Sto
   }
 
   return proposals;
+}
+
+export interface StoryDiscoveryDiagnostics {
+  datedPlaceGroups: number;
+  groupsAcrossThreeYears: number;
+  groupsWithNewPhotosAcrossYears: number;
+  groupsMeetingPhotoAndYearCriteria: number;
+  groupsWithFourPhotos: number;
+  groupsWithStoredVisualClue: number;
+}
+
+/**
+ * Summarizes why place groups may not reach a Story proposal.
+ * Counts are based only on usable archive data already in memory; no analysis is run.
+ */
+export function getStoryDiscoveryDiagnostics(
+  photos: readonly StoryDiscoveryPhoto[]
+): StoryDiscoveryDiagnostics {
+  const byPlace = new Map<string, StoryDiscoveryPhoto[]>();
+
+  for (const photo of photos.filter(usable)) {
+    if (photo.placeId && yearOf(photo) !== null) {
+      byPlace.set(photo.placeId, [...(byPlace.get(photo.placeId) ?? []), photo]);
+    }
+  }
+
+  const groups = [...byPlace.values()];
+  const groupsAcrossThreeYears = groups.filter(
+    (items) => new Set(items.map(yearOf).filter((year): year is number => year !== null)).size >= 3
+  );
+  const groupsWithNewPhotosAcrossYears = groups.filter((items) => {
+    const newPhotos = items.filter((photo) => !photo.storySelected);
+    return newPhotos.length >= 2 &&
+      new Set(newPhotos.map(yearOf).filter((year): year is number => year !== null)).size >= 2;
+  });
+  const groupsMeetingPhotoAndYearCriteria = groups.filter((items) => {
+    const years = new Set(items.map(yearOf).filter((year): year is number => year !== null));
+    const newPhotos = items.filter((photo) => !photo.storySelected);
+    const newYears = new Set(newPhotos.map(yearOf).filter((year): year is number => year !== null));
+    return years.size >= 3 && newPhotos.length >= 2 && newYears.size >= 2;
+  });
+  const groupsWithFourPhotos = groupsMeetingPhotoAndYearCriteria.filter(
+    (items) => items.length >= MIN_PROPOSAL_PHOTOS
+  );
+  const groupsWithStoredVisualClue = groupsWithFourPhotos.filter((items) =>
+    items.some((photo) => photo.signals.some((signal) => STORY_EVIDENCE_SIGNALS.has(signal)))
+  );
+
+  return {
+    datedPlaceGroups: groups.length,
+    groupsAcrossThreeYears: groupsAcrossThreeYears.length,
+    groupsWithNewPhotosAcrossYears: groupsWithNewPhotosAcrossYears.length,
+    groupsMeetingPhotoAndYearCriteria: groupsMeetingPhotoAndYearCriteria.length,
+    groupsWithFourPhotos: groupsWithFourPhotos.length,
+    groupsWithStoredVisualClue: groupsWithStoredVisualClue.length,
+  };
 }
 
 function normalizeFeature(value: string): string {

@@ -50,7 +50,7 @@ export function markRecordOverview(visit: Visit, imageRecordId: string, now: str
     return { ok: true, visit };
   }
 
-  return { ok: true, visit: replaceRecord(visit, imageRecordId, (candidate) => ({ ...candidate, overviewClassification: { classifiedAt: now } })) };
+  return { ok: true, visit: replaceRecord(visit, imageRecordId, (candidate) => ({ ...candidate, overviewClassification: { classifiedAt: now, source: "curator" } })) };
 }
 
 /** Removes the classification and its secondary references only; everything else is left exactly as it was. */

@@ -1,13 +1,15 @@
+import { getPlaceById } from "../data/canonicalPlaces";
 import type {
   HeroAssessment,
   PlaceMatchClassification,
   HeroAssessmentRole,
+  PlaceFrameAssessment,
   VisualAnalysisResult,
   VisualEvidenceSignal,
   VisualEvidenceSignalId,
 } from "../models/blomzip";
 
-export const VISION_ANALYSIS_VERSION = 1;
+export const VISION_ANALYSIS_VERSION = 4;
 
 const VISUAL_EVIDENCE_SIGNAL_IDS: ReadonlySet<VisualEvidenceSignalId> = new Set([
   "human-activity",
@@ -72,6 +74,7 @@ export interface PlaceMatchRequest {
   imageRecordId: string;
   candidateImageDataUrl: string;
   anchorImageDataUrls: string[];
+  placeFrameAssessment?: PlaceFrameAssessment;
 }
 
 export interface PlaceMatchOutcome {
@@ -109,7 +112,7 @@ const PLACE_MATCH_SCORE_CEILING: Record<PlaceMatchClassification, number> = {
  */
 export function parsePlaceMatchOutput(
   outputText: string,
-  context: { placeId: string; imageRecordId: string; provider: string }
+  context: { placeId: string; imageRecordId: string; provider: string; placeFrameAssessment?: PlaceFrameAssessment }
 ): PlaceMatchOutcome {
   let parsed: unknown;
 
@@ -161,6 +164,24 @@ export function parsePlaceMatchOutput(
 
   let finalClassification = classification as PlaceMatchClassification;
 
+  const focus = context.placeFrameAssessment;
+  const hasReliableNamedFocus = focus?.frameType === "focused-place" &&
+    focus.confidence >= 0.85 &&
+    typeof focus.primaryPlaceId === "string" &&
+    Boolean(getPlaceById(focus.primaryPlaceId));
+  const isSecondaryVisiblePlace = Boolean(
+    hasReliableNamedFocus &&
+    focus?.secondaryVisiblePlaceIds?.includes(context.placeId)
+  );
+
+  if (
+    finalClassification === "SAME_PLACE" &&
+    hasReliableNamedFocus &&
+    focus?.primaryPlaceId !== context.placeId
+  ) {
+    finalClassification = "NEARBY_CONTEXT";
+  }
+
   if (finalClassification === "SAME_PLACE" && matchedFeatures.length < MIN_SAME_PLACE_FEATURES) {
     finalClassification = "NEARBY_CONTEXT";
   }
@@ -171,7 +192,9 @@ export function parsePlaceMatchOutput(
     classification: finalClassification,
     matchedFeatures,
     score: Math.min(PLACE_MATCH_SCORE_CEILING[finalClassification], Math.max(0, score)),
-    reason: reason.trim().slice(0, PLACE_MATCH_REASON_MAX_LENGTH),
+    reason: isSecondaryVisiblePlace
+      ? `Visible as secondary context; the focus assessment names ${focus?.primaryPlaceId} as the primary place. ${reason.trim()}`.slice(0, PLACE_MATCH_REASON_MAX_LENGTH)
+      : reason.trim().slice(0, PLACE_MATCH_REASON_MAX_LENGTH),
     provider: context.provider,
     analysisVersion: VISION_ANALYSIS_VERSION,
   };
@@ -336,10 +359,12 @@ export class ProxyVisionProvider implements VisionProvider {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
+        placeId: request.placeId,
         placeName: request.placeName,
         candidateImageDataUrl: request.candidateImageDataUrl,
         anchorImageDataUrls: request.anchorImageDataUrls,
         signature: request.signature,
+        placeFrameAssessment: request.placeFrameAssessment,
       }),
     });
 
@@ -376,6 +401,7 @@ export class ProxyVisionProvider implements VisionProvider {
       placeId: request.placeId,
       imageRecordId: request.imageRecordId,
       provider: this.id,
+      placeFrameAssessment: request.placeFrameAssessment,
       }),
       engineVersion: payload.engineVersion,
     };
@@ -455,6 +481,13 @@ export class ProxyVisionProvider implements VisionProvider {
         };
         reason: string;
       };
+      place_frame_assessment?: {
+        frame_type: string;
+        confidence: number;
+        reason: string;
+        primary_place_id?: string | null;
+        secondary_visible_place_ids?: string[];
+      };
     };
 
     try {
@@ -502,9 +535,39 @@ export class ProxyVisionProvider implements VisionProvider {
       };
     }
 
+    const frameTypes = new Set(["focused-place", "courtyard-overview", "close-up", "multiple-places", "unclear"]);
+    const rawFrame = parsed.place_frame_assessment;
+    const placeFrameAssessment: PlaceFrameAssessment | undefined =
+      rawFrame &&
+      frameTypes.has(rawFrame.frame_type) &&
+      Number.isFinite(rawFrame.confidence) &&
+      rawFrame.confidence >= 0 &&
+      rawFrame.confidence <= 1 &&
+      typeof rawFrame.reason === "string" &&
+      rawFrame.reason.trim().length > 0
+        ? {
+            frameType: rawFrame.frame_type as PlaceFrameAssessment["frameType"],
+            confidence: rawFrame.confidence,
+            reason: rawFrame.reason.trim().slice(0, 280),
+            primaryPlaceId:
+              rawFrame.frame_type === "focused-place" &&
+              rawFrame.confidence >= 0.75 &&
+              typeof rawFrame.primary_place_id === "string" &&
+              Boolean(getPlaceById(rawFrame.primary_place_id))
+                ? rawFrame.primary_place_id
+                : null,
+            secondaryVisiblePlaceIds: Array.isArray(rawFrame.secondary_visible_place_ids)
+              ? [...new Set(rawFrame.secondary_visible_place_ids.filter(
+                  (placeId): placeId is string => typeof placeId === "string" && Boolean(getPlaceById(placeId))
+                ))].filter((placeId) => placeId !== rawFrame.primary_place_id)
+              : [],
+          }
+        : undefined;
+
     return {
       signals: validatedSignals,
       heroAssessment,
+      placeFrameAssessment,
       provider: this.id,
       generatedAt: new Date().toISOString(),
       analysisVersion: VISION_ANALYSIS_VERSION,

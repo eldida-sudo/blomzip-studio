@@ -42,6 +42,8 @@ interface PlaceSortingQueueProps {
   onSetAside: (proposal: SortingProposal) => void;
   onReturnToQueue: (imageRecordId: string) => void;
   visionProvider: VisionProvider;
+  /** Starts one automatic match run for a freshly imported ZIP batch. */
+  autoRunImportedBatchId?: string | null;
 }
 
 const FRESHNESS_LABELS: Record<ResultFreshness, string> = {
@@ -117,6 +119,7 @@ export function PlaceSortingQueue({
   onSetAside,
   onReturnToQueue,
   visionProvider,
+  autoRunImportedBatchId = null,
 }: PlaceSortingQueueProps) {
   const { open: openImagePreview, lightbox } = useImagePreview();
   const [anchorImages, setAnchorImages] = useState<Map<string, StoredAnchorImage>>(new Map());
@@ -133,6 +136,7 @@ export function PlaceSortingQueue({
   const [message, setMessage] = useState<{ tone: "error" | "info"; text: string } | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const cancelRef = useRef(false);
+  const autoRunBatchRef = useRef<string | null>(null);
   const visitRef = useRef(visit);
   visitRef.current = visit;
 
@@ -187,7 +191,7 @@ export function PlaceSortingQueue({
     };
   }, [visit, training, anchorImages]);
 
-  async function handleRun() {
+  async function handleRun(targetImageRecordIds?: readonly string[]) {
     if (!visit || isRunning) {
       return;
     }
@@ -197,27 +201,45 @@ export function PlaceSortingQueue({
     setMessage(null);
 
     try {
-      const summary = await runSortingBatch(visit, {
-        provider: visionProvider,
-        getTraining,
-        commit: onTrainingChange,
-        anchorImages,
-        prepareCandidateImage: async (record: ImageRecord) =>
-          blobToDataUrl(
-            (await createAnalysisImage(await imageUrlToBlob(createThumbnailUrlForRecord(record) as string))).blob
-          ),
-        isCancelled: () => cancelRef.current,
-        getVisit: () => visitRef.current,
-        onProgress: (done, total) => setProgress({ done, total }),
-      });
-      const calls = summary.comparisonCalls + summary.signatureCalls;
+      const totals = { comparisonCalls: 0, signatureCalls: 0, failures: 0, stopped: false, lastError: "" };
+      let keepRunning = true;
 
+      while (keepRunning && !cancelRef.current) {
+        const currentVisit = visitRef.current ?? visit;
+        const summary = await runSortingBatch(currentVisit, {
+          provider: visionProvider,
+          getTraining,
+          commit: onTrainingChange,
+          anchorImages,
+          targetImageRecordIds,
+          prepareCandidateImage: async (record: ImageRecord) =>
+            blobToDataUrl(
+              (await createAnalysisImage(await imageUrlToBlob(createThumbnailUrlForRecord(record) as string))).blob
+            ),
+          isCancelled: () => cancelRef.current,
+          getVisit: () => visitRef.current,
+          onProgress: (done, total) => setProgress({ done, total }),
+        });
+
+        totals.comparisonCalls += summary.comparisonCalls;
+        totals.signatureCalls += summary.signatureCalls;
+        totals.failures += summary.failures;
+        totals.stopped = totals.stopped || summary.stopped;
+        if (summary.lastError) totals.lastError = summary.lastError;
+
+        // Manual runs stay capped. Automatic import runs continue through the imported batch,
+        // but stop on errors or cancellation rather than retrying failed calls indefinitely.
+        keepRunning = Boolean(targetImageRecordIds) && summary.comparisonCalls > 0 &&
+          summary.failures === 0 && !summary.stopped;
+      }
+
+      const calls = totals.comparisonCalls + totals.signatureCalls;
       setMessage(
-        summary.failures > 0
-          ? { tone: "error", text: `${summary.failures} comparison(s) failed: ${summary.lastError}. ${calls} model calls were made.` }
+        totals.failures > 0
+          ? { tone: "error", text: `${totals.failures} comparison(s) failed: ${totals.lastError}. ${calls} model calls were made.` }
           : {
               tone: "info",
-              text: `${summary.stopped ? "Stopped. " : ""}${calls} model calls made (${summary.comparisonCalls} comparisons, ${summary.signatureCalls} signatures).`,
+              text: `${totals.stopped ? "Stopped. " : ""}${calls} model calls made (${totals.comparisonCalls} comparisons, ${totals.signatureCalls} signatures).`,
             }
       );
     } catch (error) {
@@ -227,6 +249,27 @@ export function PlaceSortingQueue({
       setProgress(null);
     }
   }
+
+  useEffect(() => {
+    if (!autoRunImportedBatchId || !anchorsLoaded || !visit || isRunning ||
+        autoRunBatchRef.current === autoRunImportedBatchId) {
+      return;
+    }
+
+    const targetImageRecordIds = (visit.imageRecords ?? [])
+      .filter(
+        (record) =>
+          record.importBatchId === autoRunImportedBatchId &&
+          Boolean(record.placeFrameAssessment) &&
+          !record.overviewClassification
+      )
+      .map((record) => record.id);
+
+    autoRunBatchRef.current = autoRunImportedBatchId;
+    if (targetImageRecordIds.length > 0) {
+      void handleRun(targetImageRecordIds);
+    }
+  }, [autoRunImportedBatchId, anchorsLoaded, visit, isRunning]);
 
   function handleAssign(proposal: SortingProposal, targetPlaceId: string) {
     const error = onAssign(proposal, targetPlaceId);
@@ -292,6 +335,16 @@ export function PlaceSortingQueue({
           <div className="sorting-no-preview">No preview</div>
         )}
         <strong className="sorting-filename" title={record.filename}>{record.filename}</strong>
+        {record.placeFrameAssessment ? (
+          <p className="sorting-focus-assessment" data-testid={`sorting-focus-${record.id}`}>
+            {record.placeFrameAssessment.frameType === "focused-place" && record.placeFrameAssessment.primaryPlaceId
+              ? <>AI sees primary focus: <strong>{placeName(record.placeFrameAssessment.primaryPlaceId)}</strong></>
+              : <>AI framing: {record.placeFrameAssessment.frameType.replace(/-/g, " ")}</>}
+            {record.placeFrameAssessment.secondaryVisiblePlaceIds?.length
+              ? <> · Also visible: {record.placeFrameAssessment.secondaryVisiblePlaceIds.map(placeName).join(", ")}</>
+              : null}
+          </p>
+        ) : null}
         <p data-testid={`sorting-conclusion-${record.id}`} className={`sorting-status sorting-status-${proposal.status}`}>
           {conclusion(proposal)}
         </p>
@@ -530,8 +583,11 @@ export function PlaceSortingQueue({
         {isExpanded ? "▾" : "▸"} Sorting queue ({queue.length})
       </button>
       <p className="result-count" data-testid="sorting-summary" role="status">
-        {queue.length} in queue · {eligiblePlaceIds.length} of {readinessRows.length} places eligible for matching ·{" "}
-        {comparisonCount + signatureCount} expected model calls
+        {queue.length} photos need a place decision · {eligiblePlaceIds.length} of {readinessRows.length} places have enough anchors
+      </p>
+      <p className="sorting-queue-guidance">
+        New ZIP photos are analyzed and matched automatically. Review the proposed primary place here; only approve when it matches
+        the photo’s focus. Other visible places are context. Nothing is assigned until you confirm it.
       </p>
 
       <div id="sorting-queue-body" hidden={!isExpanded}>
@@ -649,7 +705,10 @@ export function PlaceSortingQueue({
       </details>
 
       <details className="place-match-list" data-testid="sorting-compare">
-        <summary>Compare more photographs (model calls)</summary>
+        <summary>Optional: compare older or unmatched photos</summary>
+        <p className="result-count">
+          New ZIP photos start matching automatically. Use this only when you want to compare additional archive photos.
+        </p>
         <p className="result-count" data-testid="sorting-expected-calls" role="status">
           Next batch: {photoCount} {photoCount === 1 ? "photograph" : "photographs"} (maximum {SORTING_BATCH_SIZE}),{" "}
           {comparisonCount} expected image {comparisonCount === 1 ? "comparison" : "comparisons"}

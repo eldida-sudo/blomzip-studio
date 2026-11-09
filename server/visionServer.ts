@@ -63,7 +63,7 @@ app.post("/api/vision/analyze", async (req, res) => {
               type: "input_text",
               text:
                 "Analyze this courtyard photograph specifically for the Blomzip archive. " +
-                "Return JSON only with a signals array. " +
+                "Return JSON only with signals, hero_assessment, and place_frame_assessment. " +
                 "Only report conclusions that are visually supported by this image; do not invent history or context. " +
                 "Use these Blomzip signal types when relevant: " +
                 "place_candidate, plant_or_subject, story_potential, hero_potential, before_after_potential, visual_character. " +
@@ -87,13 +87,19 @@ app.post("/api/vision/analyze", async (req, res) => {
                 "Do not equate conventional beauty with Hero quality. Do not invent emotions, events or history that are not visually supported. " +
                 "A Blomzip Hero should not only show the courtyard well; it should give the viewer a reason to care about it and be visually strong enough to lead. " +
                 "When recommending hero_potential, state whether the visible evidence makes it more suitable as a place hero, story hero, both, or neither, and explain why. Use neither for useful archive, documentation or story images that are not visually strong enough to lead. Reserve both for images that are genuinely strong in both roles. " +
+                "For place_frame_assessment, identify framing AND place focus. Use focused-place only when one distinct canonical location dominates the frame; a recognizable object or place inside a broad scene is not enough. " +
+                "Use courtyard-overview when the image communicates the layout or relationship among several courtyard zones, such as parking, lawn, paths, beds and seating. This remains an overview when a table, bed or other individual feature is recognizable, if no single place dominates the composition. " +
+                "Use multiple-places when two or a few neighbouring locations share the frame without one focus, but the image does not communicate the broader courtyard layout. Use close-up when too little fixed geography is visible; use unclear when uncertain. " +
+                "The canonical places and IDs are: parking (Parking Edge — needs reassignment), raised-bed (The Raised Beds), seating-area (The Seating Area), central-lawn (The Lawn), shade-corner (The Shade Corner), rock-garden (The Rock Garden), garden-border (The Garden Border), house-wall (The Bicycle Trellis Bed), entrance (Under the Pine), parking-trellis (The Parking Trellis), miriams-bed (Miriam's Bed), compost-area (The Compost Area), garden-arch (The Garden Arch), under-maple (Under the Maple), parking-peninsula (The Parking Peninsula), front-gate (The Front Gate), house-gable (The House Gable). " +
+                "Set primary_place_id only when a single listed canonical place is clearly the visual focus; otherwise null. Put other listed places that are visibly present in secondary_visible_place_ids, never as competing primary claims. Do not list places that are only inferred or outside the frame. " +
+                "Give confidence from 0 to 1 and a short visual reason. Only use confidence 0.85 or higher when the framing is unmistakable. " +
                 "For before_after_potential, only recommend it when the image clearly documents spatial structure or change-comparable features. " +
                 "Each signal must contain signal, confidence from 0 to 1, and detail.",
             },
             {
               type: "input_image",
               image_url: imageDataUrl,
-              detail: "low",
+              detail: "high",
             },
           ],
         },
@@ -138,6 +144,32 @@ app.post("/api/vision/analyze", async (req, res) => {
                   required: ["signal", "confidence", "detail"],
                   additionalProperties: false
                 }
+              },
+              place_frame_assessment: {
+                type: "object",
+                properties: {
+                  frame_type: {
+                    type: "string",
+                    enum: ["focused-place", "courtyard-overview", "close-up", "multiple-places", "unclear"]
+                  },
+                  confidence: {
+                    type: "number",
+                    minimum: 0,
+                    maximum: 1
+                  },
+                  reason: {
+                    type: "string"
+                  },
+                  primary_place_id: {
+                    anyOf: [{ type: "string", enum: ["parking", "raised-bed", "seating-area", "central-lawn", "shade-corner", "rock-garden", "garden-border", "house-wall", "entrance", "parking-trellis", "miriams-bed", "compost-area", "garden-arch", "under-maple", "parking-peninsula", "front-gate", "house-gable"] }, { type: "null" }]
+                  },
+                  secondary_visible_place_ids: {
+                    type: "array",
+                    items: { type: "string", enum: ["parking", "raised-bed", "seating-area", "central-lawn", "shade-corner", "rock-garden", "garden-border", "house-wall", "entrance", "parking-trellis", "miriams-bed", "compost-area", "garden-arch", "under-maple", "parking-peninsula", "front-gate", "house-gable"] }
+                  }
+                },
+                required: ["frame_type", "confidence", "reason", "primary_place_id", "secondary_visible_place_ids"],
+                additionalProperties: false
               },
               hero_assessment: {
                 type: "object",
@@ -218,7 +250,7 @@ app.post("/api/vision/analyze", async (req, res) => {
                 additionalProperties: false
               }
             },
-            required: ["signals", "hero_assessment"],
+            required: ["signals", "hero_assessment", "place_frame_assessment"],
             additionalProperties: false
           }
         }
@@ -415,11 +447,42 @@ app.post("/api/vision/place-signature", async (req, res) => {
 
 app.post("/api/vision/match-place", async (req, res) => {
   try {
-    const { placeName, candidateImageDataUrl, anchorImageDataUrls, signature } = req.body ?? {};
+    const { placeId, placeName, candidateImageDataUrl, anchorImageDataUrls, signature, placeFrameAssessment } = req.body ?? {};
 
     if (typeof placeName !== "string" || !placeName.trim()) {
       return res.status(400).json({ error: "placeName is required" });
     }
+
+    const canonicalPlaceIds = new Set([
+      "parking", "raised-bed", "seating-area", "central-lawn", "shade-corner", "rock-garden",
+      "garden-border", "house-wall", "entrance", "parking-trellis", "miriams-bed", "compost-area",
+      "garden-arch", "under-maple", "parking-peninsula", "front-gate", "house-gable",
+    ]);
+    if (placeId != null && (typeof placeId !== "string" || !canonicalPlaceIds.has(placeId))) {
+      return res.status(400).json({ error: "placeId must be a known canonical place ID" });
+    }
+    const targetPlaceId = typeof placeId === "string" ? placeId : undefined;
+
+    const validFrameTypes = new Set(["focused-place", "courtyard-overview", "close-up", "multiple-places", "unclear"]);
+    const focus = placeFrameAssessment && typeof placeFrameAssessment === "object" &&
+      validFrameTypes.has(placeFrameAssessment.frameType) &&
+      typeof placeFrameAssessment.confidence === "number" &&
+      placeFrameAssessment.confidence >= 0 && placeFrameAssessment.confidence <= 1 &&
+      (placeFrameAssessment.primaryPlaceId == null || canonicalPlaceIds.has(placeFrameAssessment.primaryPlaceId)) &&
+      Array.isArray(placeFrameAssessment.secondaryVisiblePlaceIds)
+        ? {
+            frameType: placeFrameAssessment.frameType,
+            confidence: placeFrameAssessment.confidence,
+            primaryPlaceId: placeFrameAssessment.primaryPlaceId ?? null,
+            secondaryVisiblePlaceIds: [
+              ...new Set(
+                placeFrameAssessment.secondaryVisiblePlaceIds.filter(
+                  (id: unknown): id is string => typeof id === "string" && canonicalPlaceIds.has(id)
+                )
+              ),
+            ].filter((id) => id !== placeFrameAssessment.primaryPlaceId),
+          }
+        : undefined;
 
     if (!isImageDataUrl(candidateImageDataUrl)) {
       return res.status(400).json({ error: "candidateImageDataUrl must be a JPEG or PNG data URL" });
@@ -449,7 +512,7 @@ app.post("/api/vision/match-place", async (req, res) => {
     > = [
       {
         type: "input_text",
-        text: buildPlaceMatchInstructions(placeName.trim(), anchorImageDataUrls.length, placeSignature),
+        text: buildPlaceMatchInstructions(placeName.trim(), anchorImageDataUrls.length, placeSignature, targetPlaceId, focus),
       },
       ...anchorImageDataUrls.flatMap((url: string, index: number) => [
         { type: "input_text" as const, text: `REFERENCE ${index + 1}:` },

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { PlaceMatchResult } from "../models/blomzip";
 import {
   buildStoryProposals,
+  getStoryDiscoveryDiagnostics,
   findThenNow,
   type RankedPhoto,
   type StoryDiscoveryPhoto,
@@ -48,7 +49,8 @@ function Figure({ photo, large = false }: { photo: StoryDiscoveryPhoto; large?: 
  * approving never publishes or changes Story selections, the archive, anchors or match history.
  */
 export function StoryDiscovery({ photos, matchResults, onViewStory, onClose }: StoryDiscoveryProps) {
-  const proposals = useMemo(() => buildStoryProposals(photos), [photos]);
+  const proposals = useMemo(() => buildStoryProposals(photos, matchResults), [photos, matchResults]);
+  const diagnostics = useMemo(() => getStoryDiscoveryDiagnostics(photos), [photos]);
   const [status, setStatus] = useState<Record<string, ProposalStatus>>({});
   const [replacements, setReplacements] = useState<Record<string, Record<string, RankedPhoto>>>({});
   const [replacing, setReplacing] = useState<{ proposalId: string; photoId: string } | null>(null);
@@ -189,8 +191,8 @@ export function StoryDiscovery({ photos, matchResults, onViewStory, onClose }: S
           <p className="story-discovery-eyebrow">Story Discovery</p>
           <h1 id="story-discovery-title">What could the Story say next?</h1>
           <p className="story-discovery-note" data-testid="story-discovery-guard">
-            Proposals are drafts built from existing dates, places, stored analysis and your decisions. No photographs were analysed just now.
-            Approving keeps a proposal here for review; it does not publish, and it does not change the published Story or your Story selection.
+            Story Discovery groups photographs from one place across several years. Existing Story selections may appear as context, but every proposal must add at least two new photographs and include a stored visual clue.
+            A reviewed photo match strengthens the connection between years; if none exists, the missing evidence is stated. These are drafts, not decisions. No photographs were analysed just now.
           </p>
           <button type="button" className="story-discovery-link" data-testid="story-discovery-view-story" onClick={onViewStory}>
             View in A Courtyard's Story
@@ -198,9 +200,19 @@ export function StoryDiscovery({ photos, matchResults, onViewStory, onClose }: S
         </header>
 
         {proposals.length === 0 ? (
-          <p className="story-discovery-empty" data-testid="story-discovery-empty">
-            Not enough well-supported photographs yet to propose a story. Assign more photographs to places or select some for Story, then come back.
-          </p>
+          <section className="story-discovery-empty" data-testid="story-discovery-empty" aria-label="Why no Story proposal is available">
+            <h2>No candidate sequence meets the current criteria yet.</h2>
+            <p>Here is what the archive currently contains. Each count is the number of place groups that meet that step:</p>
+            <ul>
+              <li>{diagnostics.datedPlaceGroups} places with usable, dated photographs</li>
+              <li>{diagnostics.groupsAcrossThreeYears} places represented in at least 3 different years</li>
+              <li>{diagnostics.groupsWithNewPhotosAcrossYears} places with at least 2 unselected photographs spanning 2 or more years</li>
+              <li>{diagnostics.groupsMeetingPhotoAndYearCriteria} places that meet both the year-span and new-photo requirements</li>
+              <li>{diagnostics.groupsWithFourPhotos} of those also have at least 4 usable photographs in total</li>
+              <li>{diagnostics.groupsWithStoredVisualClue} of those have a stored visual clue</li>
+            </ul>
+            <p>Rows overlap. A visual clue is an existing analysis signal, not proof that a story is present. Existing Story selections can provide context; they do not count as new photographs. No new image analysis was run.</p>
+          </section>
         ) : (
           proposals.map(renderProposal)
         )}

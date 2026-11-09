@@ -104,7 +104,7 @@ import {
 import { StoryDiscovery } from "./components/StoryDiscovery";
 import type { StoryDiscoveryPhoto } from "./utils/storyDiscovery";
 import { applyStoryRecommendations } from "./utils/storyRecommendations";
-import { createVisionProvider } from "./utils/visionProvider";
+import { createVisionProvider, type VisionProvider } from "./utils/visionProvider";
 import {
   approveMatch,
   createEmptyPlaceTrainingState,
@@ -479,6 +479,141 @@ function appThumbnailDebug(event: string, details: Record<string, unknown>) {
   console.debug("[blomzip-app-thumbnails]", event, details);
 }
 
+const PLACE_MATCH_PROMPT_VERSION = 5;
+
+async function runImportedBatchPreflight(options: {
+  visit: Visit;
+  batchId?: string;
+  recordIds?: string[];
+  provider: VisionProvider;
+  commitVisit: (updater: Visit | null | ((current: Visit | null) => Visit | null)) => void;
+  commitTraining: (updater: (current: PlaceTrainingState) => PlaceTrainingState) => void;
+  setProgress: (progress: { completed: number; total: number; failed: number; running: boolean } | null) => void;
+  setAutoRunBatchId: (batchId: string) => void;
+}): Promise<void> {
+  const { visit, batchId, recordIds, provider, commitVisit, commitTraining, setProgress, setAutoRunBatchId } = options;
+  const targetRecordIds = recordIds ? new Set(recordIds) : null;
+  const targets = (visit.imageRecords ?? []).filter(
+    (record) =>
+      (targetRecordIds ? targetRecordIds.has(record.id) : record.importBatchId === batchId) &&
+      isPlaceMatchEligible(record) &&
+      record.placeFrameAssessment?.matchPromptVersion !== PLACE_MATCH_PROMPT_VERSION
+  );
+  let completed = 0;
+  let failed = 0;
+  const assessedRecordIds = new Set<string>();
+
+  setProgress({ completed, total: targets.length, failed, running: targets.length > 0 });
+
+  for (const imageRecord of targets) {
+    try {
+      const visualAnalysis = await provider.analyzeImage({
+        imageRecordId: imageRecord.id,
+        filename: imageRecord.filename,
+        imageUrl: createThumbnailUrlForRecord(imageRecord),
+      });
+      const rawPlaceFrameAssessment = visualAnalysis.placeFrameAssessment;
+
+      if (!rawPlaceFrameAssessment) {
+        throw new Error("Vision analysis did not return a place-frame assessment.");
+      }
+
+      const placeFrameAssessment = {
+        ...rawPlaceFrameAssessment,
+        matchPromptVersion: PLACE_MATCH_PROMPT_VERSION,
+      };
+
+      assessedRecordIds.add(imageRecord.id);
+      commitVisit((currentVisit) => {
+        if (!currentVisit) {
+          return currentVisit;
+        }
+
+        const currentRecord = currentVisit.imageRecords?.find((record) => record.id === imageRecord.id);
+        if (
+          !currentRecord ||
+          (targetRecordIds ? !targetRecordIds.has(currentRecord.id) : currentRecord.importBatchId !== batchId)
+        ) {
+          return currentVisit;
+        }
+
+        const visiblePlaceCount = new Set([
+          ...(placeFrameAssessment.primaryPlaceId ? [placeFrameAssessment.primaryPlaceId] : []),
+          ...placeFrameAssessment.secondaryVisiblePlaceIds,
+        ]).size;
+        const broadMultiZoneFrame =
+          visiblePlaceCount >= 4 &&
+          (placeFrameAssessment.frameType === "multiple-places" ||
+            placeFrameAssessment.frameType === "focused-place") &&
+          placeFrameAssessment.confidence >= 0.85;
+        const autoMarkOverview =
+          ((placeFrameAssessment.frameType === "courtyard-overview" &&
+            placeFrameAssessment.confidence >= 0.8) ||
+            broadMultiZoneFrame) &&
+          isPlaceMatchEligible(currentRecord);
+
+        const nextVisit: Visit = {
+          ...currentVisit,
+          imageRecords: (currentVisit.imageRecords ?? []).map((record) =>
+            record.id === imageRecord.id
+              ? {
+                  ...record,
+                  placeFrameAssessment,
+                  ...(autoMarkOverview
+                    ? {
+                        overviewClassification: {
+                          classifiedAt: new Date().toISOString(),
+                          source: "ai" as const,
+                        },
+                      }
+                    : {}),
+                }
+              : record
+          ),
+          entries: currentVisit.entries.map((entry) =>
+            entry.imageRecordId === imageRecord.id
+              ? {
+                  ...entry,
+                  visualAnalysis,
+                  updatedAt: new Date().toISOString(),
+                }
+              : entry
+          ),
+        };
+
+        return applyStoryRecommendations(nextVisit);
+      });
+    } catch (error) {
+      failed += 1;
+      console.error(`ZIP place-frame preflight failed for ${imageRecord.filename}`, error);
+    }
+
+    completed += 1;
+    setProgress({
+      completed,
+      total: targets.length,
+      failed,
+      running: completed < targets.length,
+    });
+  }
+
+  if (assessedRecordIds.size > 0) {
+    commitTraining((current) => ({
+      ...current,
+      matchResults: current.matchResults.filter(
+        (result) =>
+          !assessedRecordIds.has(result.imageRecordId) ||
+          result.status !== "pending" ||
+          Boolean(result.review)
+      ),
+    }));
+  }
+
+  if (batchId) {
+    setAutoRunBatchId(batchId);
+  }
+}
+
 function App() {
   const [images, setImages] = useState<ImageItem[]>(initialImages);
   const [search, setSearch] = useState("");
@@ -502,6 +637,7 @@ function App() {
   const [importSummary, setImportSummary] = useState<ZipImportSummary | null>(null);
   const [importVisit, setImportVisit] = useState<Visit | null>(null);
   const [latestImportedBatchIdForVision, setLatestImportedBatchIdForVision] = useState<string | null>(null);
+  const [sortingAutoRunBatchId, setSortingAutoRunBatchId] = useState<string | null>(null);
   const [activeBatchFilterId, setActiveBatchFilterId] = useState<string | null>(null);
   const [isBatchProvenanceExpanded, setIsBatchProvenanceExpanded] = useState<boolean | null>(null);
   const [lastBatchImportFeedback, setLastBatchImportFeedback] = useState<BatchImportFeedback | null>(null);
@@ -530,6 +666,7 @@ function App() {
   const selectedTimelineRef = useRef<HTMLElement | null>(null);
   const managedThumbnailObjectUrlsRef = useRef<Set<string>>(new Set());
   const latestImportVisitRef = useRef<Visit | null>(null);
+  const placeFramePreflightBatchIdsRef = useRef<Set<string>>(new Set());
   const [placeTraining, setPlaceTraining] = useState<PlaceTrainingState>(() => createEmptyPlaceTrainingState());
   const latestPlaceTrainingRef = useRef<PlaceTrainingState>(placeTraining);
   const savedDrafts = draftWorkspace.drafts;
@@ -743,9 +880,19 @@ function App() {
         return currentVisit;
       }
 
+      const analysis = updatedEntry.visualAnalysis;
       return {
         ...currentVisit,
         status: currentVisit.status === "Finalized" ? currentVisit.status : "Review in progress",
+        imageRecords: analysis
+          ? (currentVisit.imageRecords ?? []).map((record) => {
+              if (record.id !== updatedEntry.imageRecordId) return record;
+              const { placeFrameAssessment: _previousAssessment, ...recordWithoutPreviousAssessment } = record;
+              return analysis.placeFrameAssessment
+                ? { ...recordWithoutPreviousAssessment, placeFrameAssessment: analysis.placeFrameAssessment }
+                : recordWithoutPreviousAssessment;
+            })
+          : currentVisit.imageRecords,
         entries: currentVisit.entries.map((entry) =>
           entry.id === updatedEntry.id ? updatedEntry : entry
         ),
@@ -1782,14 +1929,22 @@ function App() {
           imageUrl: createThumbnailUrlForRecord(imageRecord),
         });
 
+        const analyzedAt = new Date().toISOString();
         workingVisit = {
           ...workingVisit,
+          imageRecords: (workingVisit.imageRecords ?? []).map((record) => {
+            if (record.id !== imageRecord.id) return record;
+            const { placeFrameAssessment: _previousAssessment, ...recordWithoutPreviousAssessment } = record;
+            return visualAnalysis.placeFrameAssessment
+              ? { ...recordWithoutPreviousAssessment, placeFrameAssessment: visualAnalysis.placeFrameAssessment }
+              : recordWithoutPreviousAssessment;
+          }),
           entries: workingVisit.entries.map((currentEntry) =>
             currentEntry.id === entry.id
               ? {
                   ...currentEntry,
                   visualAnalysis,
-                  updatedAt: new Date().toISOString(),
+                  updatedAt: analyzedAt,
                 }
               : currentEntry
           ),
@@ -2278,16 +2433,113 @@ function App() {
 
       commitImportVisit(mergedVisit);
       setLatestImportedBatchIdForVision(incomingBatchId);
+      setSortingAutoRunBatchId(null);
       setBatchVisionProgress(null);
 
       const outcome = createBatchImportOutcome(mergedVisit, incomingBatchId);
       if (outcome) {
         setLastBatchImportFeedback(outcome);
+      }
+
+      if (incomingBatchId) {
+        placeFramePreflightBatchIdsRef.current.add(incomingBatchId);
+        await runImportedBatchPreflight({
+          visit: mergedVisit,
+          batchId: incomingBatchId,
+          provider: visionProvider,
+          commitVisit: commitImportVisit,
+          commitTraining: (updater) => {
+            const next = updater(latestPlaceTrainingRef.current);
+            latestPlaceTrainingRef.current = next;
+            setPlaceTraining(next);
+          },
+          setProgress: setBatchVisionProgress,
+          setAutoRunBatchId: setSortingAutoRunBatchId,
+        });
+      }
+
+      if (outcome) {
         return outcome;
       }
     },
-    [overviewObservationEngine]
+    [overviewObservationEngine, visionProvider]
   );
+
+  useEffect(() => {
+    if (!isArchiveHydrated || !importVisit) {
+      return;
+    }
+
+    const latestBatch = importVisit.importBatches?.[importVisit.importBatches.length - 1];
+    if (!latestBatch || placeFramePreflightBatchIdsRef.current.has(latestBatch.id)) {
+      return;
+    }
+
+    const hasUntriagedPhotos = (importVisit.imageRecords ?? []).some(
+      (record) =>
+        record.importBatchId === latestBatch.id &&
+        isPlaceMatchEligible(record) &&
+        record.placeFrameAssessment?.matchPromptVersion !== PLACE_MATCH_PROMPT_VERSION
+    );
+
+    if (hasUntriagedPhotos) {
+      placeFramePreflightBatchIdsRef.current.add(latestBatch.id);
+      setSortingAutoRunBatchId(null);
+      void runImportedBatchPreflight({
+        visit: importVisit,
+        batchId: latestBatch.id,
+        provider: visionProvider,
+        commitVisit: commitImportVisit,
+        commitTraining: (updater) => {
+          const next = updater(latestPlaceTrainingRef.current);
+          latestPlaceTrainingRef.current = next;
+          setPlaceTraining(next);
+        },
+        setProgress: setBatchVisionProgress,
+        setAutoRunBatchId: setSortingAutoRunBatchId,
+      });
+      return;
+    }
+
+    const hasPreflightedMatchCandidates = (importVisit.imageRecords ?? []).some(
+      (record) =>
+        record.importBatchId === latestBatch.id &&
+        isPlaceMatchEligible(record) &&
+        record.placeFrameAssessment?.matchPromptVersion === PLACE_MATCH_PROMPT_VERSION
+    );
+
+    if (hasPreflightedMatchCandidates) {
+      setSortingAutoRunBatchId(latestBatch.id);
+    }
+
+    const olderUntriagedRecordIds = (importVisit.imageRecords ?? [])
+      .filter(
+        (record) =>
+          record.importBatchId !== latestBatch.id &&
+          isPlaceMatchEligible(record) &&
+          record.placeFrameAssessment?.matchPromptVersion !== PLACE_MATCH_PROMPT_VERSION
+      )
+      .map((record) => record.id);
+    const archiveRecheckKey = `archive-place-frame-v${PLACE_MATCH_PROMPT_VERSION}`;
+
+    if (olderUntriagedRecordIds.length > 0 && !placeFramePreflightBatchIdsRef.current.has(archiveRecheckKey)) {
+      placeFramePreflightBatchIdsRef.current.add(archiveRecheckKey);
+      setSortingAutoRunBatchId(null);
+      void runImportedBatchPreflight({
+        visit: importVisit,
+        recordIds: olderUntriagedRecordIds,
+        provider: visionProvider,
+        commitVisit: commitImportVisit,
+        commitTraining: (updater) => {
+          const next = updater(latestPlaceTrainingRef.current);
+          latestPlaceTrainingRef.current = next;
+          setPlaceTraining(next);
+        },
+        setProgress: setBatchVisionProgress,
+        setAutoRunBatchId: setSortingAutoRunBatchId,
+      });
+    }
+  }, [isArchiveHydrated, importVisit, visionProvider]);
 
   const hasLegacyUnhashedRecords = useMemo(() => {
     return (importVisit?.imageRecords ?? []).some((record) => !record.contentHash);
@@ -2877,15 +3129,13 @@ function App() {
             ) : null}
 
             <nav className="studio-workflow" aria-label="Studio workflow" data-testid="studio-workflow">
-              <span>Import images</span>
+              <span>1. Import ZIPs</span>
               <span aria-hidden="true">→</span>
-              <span>Place Discovery</span>
+              <span>2. AI analyzes and matches new photos</span>
               <span aria-hidden="true">→</span>
-              <span>Image Analysis</span>
+              <span>3. Confirm places in Sorting Queue</span>
               <span aria-hidden="true">→</span>
-              <span>Editorial Recommendations</span>
-              <span aria-hidden="true">→</span>
-              <span>Review &amp; Curate</span>
+              <span>4. Curate Story suggestions</span>
             </nav>
 
             <LivingMapPanel
@@ -2905,6 +3155,7 @@ function App() {
                 onSetAside={(proposal) => commitPlaceTraining((current) => setPhotoAside(current, proposal))}
                 onReturnToQueue={(imageRecordId) => commitPlaceTraining((current) => returnPhotoToQueue(current, imageRecordId))}
                 visionProvider={visionProvider}
+                autoRunImportedBatchId={sortingAutoRunBatchId}
               />
             ) : null}
 

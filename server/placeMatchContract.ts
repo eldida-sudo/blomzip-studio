@@ -3,7 +3,7 @@ const MODEL_OUTPUT_KEYS = ["classification", "conflicts", "core_matched", "reaso
 const SIGNATURE_KEYS = ["contextual", "core", "supporting"];
 
 export const MAX_CORE_FEATURES = 4;
-export const PLACE_MATCH_ENGINE_VERSION = "place-match-precision-v2";
+export const PLACE_MATCH_ENGINE_VERSION = "place-match-focus-v3";
 export const MIN_SAME_PLACE_CORE_FEATURES = 2;
 export const MIN_SAME_PLACE_SUPPORTING_FEATURES_WITH_ONE_CORE = 2;
 export const DOWNGRADED_SCORE_CAP = 0.5;

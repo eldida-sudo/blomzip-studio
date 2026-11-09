@@ -68,8 +68,23 @@ export interface ExternalClassification {
 
 export interface OverviewClassification {
   classifiedAt: string;
+  source?: "ai" | "curator";
   // Optional secondary references only; never a primary assignment or a visual anchor.
   visiblePlaceIds?: string[];
+}
+
+export type PlaceFrameType = "focused-place" | "courtyard-overview" | "close-up" | "multiple-places" | "unclear";
+
+export interface PlaceFrameAssessment {
+  frameType: PlaceFrameType;
+  confidence: number;
+  reason: string;
+  /** Canonical place that is visually primary when frameType is focused-place. */
+  primaryPlaceId?: string | null;
+  /** Other canonical places visible in the frame; never primary assignments. */
+  secondaryVisiblePlaceIds?: string[];
+  /** Version of the matching policy applied after this framing assessment. */
+  matchPromptVersion?: number;
 }
 
 export interface PlaceDetailClassification {
@@ -92,6 +107,7 @@ export interface ImageRecord {
   mimeType?: string;
   timelineIndex?: number;
   thumbnailUrl?: string;
+  placeFrameAssessment?: PlaceFrameAssessment;
 
   // Exact content fingerprint and occurrence provenance
   contentHash?: string;
@@ -101,8 +117,8 @@ export interface ImageRecord {
   // Independent of placeId; removing it restores the photograph to the normal archive pool.
   externalClassification?: ExternalClassification;
 
-  // Curator-set only: shows the courtyard as a whole (e.g. a balcony view). Independent of placeId and
-  // externalClassification; removing it restores the photograph to the normal archive pool.
+  // AI may mark only high-confidence broad courtyard overviews; curators can also set or clear it.
+  // Independent of placeId and externalClassification; never a primary assignment or visual anchor.
   overviewClassification?: OverviewClassification;
 
   // Curator-set only: a close-up that belongs to the Canonical Place in `placeId` but has no reliable landmarks.
@@ -278,6 +294,7 @@ export interface HeroAssessment {
 export interface VisualAnalysisResult {
   signals: VisualEvidenceSignal[];
   heroAssessment?: HeroAssessment;
+  placeFrameAssessment?: PlaceFrameAssessment;
   provider: string;
   generatedAt: string;
   analysisVersion: number;
