@@ -479,21 +479,23 @@ function appThumbnailDebug(event: string, details: Record<string, unknown>) {
   console.debug("[blomzip-app-thumbnails]", event, details);
 }
 
-const PLACE_MATCH_PROMPT_VERSION = 4;
+const PLACE_MATCH_PROMPT_VERSION = 5;
 
 async function runImportedBatchPreflight(options: {
   visit: Visit;
-  batchId: string;
+  batchId?: string;
+  recordIds?: string[];
   provider: VisionProvider;
   commitVisit: (updater: Visit | null | ((current: Visit | null) => Visit | null)) => void;
   commitTraining: (updater: (current: PlaceTrainingState) => PlaceTrainingState) => void;
   setProgress: (progress: { completed: number; total: number; failed: number; running: boolean } | null) => void;
   setAutoRunBatchId: (batchId: string) => void;
 }): Promise<void> {
-  const { visit, batchId, provider, commitVisit, commitTraining, setProgress, setAutoRunBatchId } = options;
+  const { visit, batchId, recordIds, provider, commitVisit, commitTraining, setProgress, setAutoRunBatchId } = options;
+  const targetRecordIds = recordIds ? new Set(recordIds) : null;
   const targets = (visit.imageRecords ?? []).filter(
     (record) =>
-      record.importBatchId === batchId &&
+      (targetRecordIds ? targetRecordIds.has(record.id) : record.importBatchId === batchId) &&
       isPlaceMatchEligible(record) &&
       record.placeFrameAssessment?.matchPromptVersion !== PLACE_MATCH_PROMPT_VERSION
   );
@@ -528,13 +530,26 @@ async function runImportedBatchPreflight(options: {
         }
 
         const currentRecord = currentVisit.imageRecords?.find((record) => record.id === imageRecord.id);
-        if (!currentRecord || currentRecord.importBatchId !== batchId) {
+        if (
+          !currentRecord ||
+          (targetRecordIds ? !targetRecordIds.has(currentRecord.id) : currentRecord.importBatchId !== batchId)
+        ) {
           return currentVisit;
         }
 
+        const visiblePlaceCount = new Set([
+          ...(placeFrameAssessment.primaryPlaceId ? [placeFrameAssessment.primaryPlaceId] : []),
+          ...placeFrameAssessment.secondaryVisiblePlaceIds,
+        ]).size;
+        const broadMultiZoneFrame =
+          visiblePlaceCount >= 4 &&
+          (placeFrameAssessment.frameType === "multiple-places" ||
+            placeFrameAssessment.frameType === "focused-place") &&
+          placeFrameAssessment.confidence >= 0.85;
         const autoMarkOverview =
-          placeFrameAssessment.frameType === "courtyard-overview" &&
-          placeFrameAssessment.confidence >= 0.8 &&
+          ((placeFrameAssessment.frameType === "courtyard-overview" &&
+            placeFrameAssessment.confidence >= 0.8) ||
+            broadMultiZoneFrame) &&
           isPlaceMatchEligible(currentRecord);
 
         const nextVisit: Visit = {
@@ -594,7 +609,9 @@ async function runImportedBatchPreflight(options: {
     }));
   }
 
-  setAutoRunBatchId(batchId);
+  if (batchId) {
+    setAutoRunBatchId(batchId);
+  }
 }
 
 function App() {
@@ -2493,6 +2510,34 @@ function App() {
 
     if (hasPreflightedMatchCandidates) {
       setSortingAutoRunBatchId(latestBatch.id);
+    }
+
+    const olderUntriagedRecordIds = (importVisit.imageRecords ?? [])
+      .filter(
+        (record) =>
+          record.importBatchId !== latestBatch.id &&
+          isPlaceMatchEligible(record) &&
+          record.placeFrameAssessment?.matchPromptVersion !== PLACE_MATCH_PROMPT_VERSION
+      )
+      .map((record) => record.id);
+    const archiveRecheckKey = `archive-place-frame-v${PLACE_MATCH_PROMPT_VERSION}`;
+
+    if (olderUntriagedRecordIds.length > 0 && !placeFramePreflightBatchIdsRef.current.has(archiveRecheckKey)) {
+      placeFramePreflightBatchIdsRef.current.add(archiveRecheckKey);
+      setSortingAutoRunBatchId(null);
+      void runImportedBatchPreflight({
+        visit: importVisit,
+        recordIds: olderUntriagedRecordIds,
+        provider: visionProvider,
+        commitVisit: commitImportVisit,
+        commitTraining: (updater) => {
+          const next = updater(latestPlaceTrainingRef.current);
+          latestPlaceTrainingRef.current = next;
+          setPlaceTraining(next);
+        },
+        setProgress: setBatchVisionProgress,
+        setAutoRunBatchId: setSortingAutoRunBatchId,
+      });
     }
   }, [isArchiveHydrated, importVisit, visionProvider]);
 
