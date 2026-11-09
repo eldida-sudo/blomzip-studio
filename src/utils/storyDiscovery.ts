@@ -75,10 +75,8 @@ export function rankPhoto(photo: StoryDiscoveryPhoto): RankedPhoto {
   const reasons: string[] = [];
   let relevance = 0;
 
-  if (photo.storySelected) {
-    relevance += 0.3;
-    reasons.push("Already selected for Story");
-  }
+  // Existing Story selection is not a discovery signal: selected photographs are
+  // excluded from candidate generation so proposals must add new material.
 
   if (photo.hero) {
     relevance += 0.15;
@@ -90,10 +88,8 @@ export function rankPhoto(photo: StoryDiscoveryPhoto): RankedPhoto {
     reasons.push("Marked as favourite");
   }
 
-  if (photo.recommendationScore > 0) {
-    relevance += 0.25 * Math.min(photo.recommendationScore, 1);
-    reasons.push(`Recommended by existing analysis (${Math.round(photo.recommendationScore * 100)}%)`);
-  }
+  // recommendationScore combines several editorial recommendation types and is not
+  // a calibrated Story confidence, so it must not rank Story Discovery candidates.
 
   const signalReasons = photo.signals.filter((signal) => POSITIVE_SIGNALS[signal]).map((signal) => POSITIVE_SIGNALS[signal]);
 
@@ -146,10 +142,9 @@ function pickDiverse(ranked: RankedPhoto[], groupOf: (photo: StoryDiscoveryPhoto
 }
 
 function orderSequence(picks: RankedPhoto[]): RankedPhoto[] {
-  const opening = [...picks].sort(byRelevance)[0];
-  const rest = picks.filter((item) => item !== opening).sort((left, right) => time(left.photo) - time(right.photo) || left.photo.id.localeCompare(right.photo.id));
-
-  return [opening, ...rest];
+  // A place-over-time proposal should read as a timeline, not open with whichever
+  // image happens to have the highest mixed editorial score.
+  return [...picks].sort((left, right) => time(left.photo) - time(right.photo) || left.photo.id.localeCompare(right.photo.id));
 }
 
 function finish(
@@ -179,7 +174,14 @@ function finish(
   };
 }
 
-function placeProposals(pool: RankedPhoto[]): StoryProposal[] {
+const STORY_EVIDENCE_SIGNALS = new Set([
+  "human-activity",
+  "visible-change-cue",
+  "spatial-overview",
+  "place-legibility",
+]);
+
+function placeProposals(pool: RankedPhoto[], matchResults: readonly PlaceMatchResult[]): StoryProposal[] {
   const byPlace = new Map<string, RankedPhoto[]>();
 
   for (const item of pool) {
@@ -193,91 +195,67 @@ function placeProposals(pool: RankedPhoto[]): StoryProposal[] {
   for (const [placeId, items] of byPlace) {
     const years = [...new Set(items.map((item) => yearOf(item.photo) as number))].sort((a, b) => a - b);
 
-    if (years.length < 3) {
+    if (years.length < 3 || items.length < MIN_PROPOSAL_PHOTOS) {
       continue;
     }
 
-    const picks = pickDiverse(items, (photo) => yearOf(photo));
+    // Only make a time-sequence proposal when reviewed matching supports continuity
+    // across years; a date gap or shared place label alone is not enough.
+    const supportedPair = findThenNow(items.map((item) => item.photo), matchResults);
+    if (!supportedPair) {
+      continue;
+    }
+
+    const rankedById = new Map(items.map((item) => [item.photo.id, item]));
+    const pairItems = [rankedById.get(supportedPair.before.id), rankedById.get(supportedPair.after.id)]
+      .filter((item): item is RankedPhoto => Boolean(item));
+    const diverseItems = pickDiverse(items, (photo) => yearOf(photo));
+    const picks = [...pairItems, ...diverseItems.filter((item) => !pairItems.some((pairItem) => pairItem.photo.id === item.photo.id))]
+      .slice(0, MAX_PROPOSAL_PHOTOS);
+
+    const pickedYears = new Set(picks.map((item) => yearOf(item.photo)).filter((year): year is number => year !== null));
+    const hasStoryEvidence = picks.some((item) => item.photo.signals.some((signal) => STORY_EVIDENCE_SIGNALS.has(signal)));
+    const verifiedPairInPicks = findThenNow(picks.map((item) => item.photo), matchResults);
+
+    if (
+      picks.length < MIN_PROPOSAL_PHOTOS ||
+      pickedYears.size < 3 ||
+      !hasStoryEvidence ||
+      !verifiedPairInPicks
+    ) {
+      continue;
+    }
+
     const label = items[0].photo.placeLabel ?? placeId;
     const proposal = finish(
       "place-over-time",
       placeId,
       `${label}, over the years`,
-      `Photographs of ${label} taken in ${years.length} different years, from ${years[0]} to ${years[years.length - 1]}. ` +
-        "Suggested theme: the archive shows what was photographed, not what changed in between.",
+      `New, not-yet-selected photographs from ${label} span ${pickedYears.size} years (${Math.min(...pickedYears)}–${Math.max(...pickedYears)}). An approved comparison links two years through ${verifiedPairInPicks.sharedFeatures.join(", ")}. This supports a place-based sequence; the photographs still need curator review to establish what changed.`,
       picks,
       items
     );
 
     if (proposal) {
-      proposals.push({ ...proposal, score: proposal.score + years.length * 0.05 });
+      proposals.push({ ...proposal, score: proposal.score + pickedYears.size * 0.05 });
     }
   }
 
   return proposals;
-}
-
-function seasonProposals(pool: RankedPhoto[]): StoryProposal[] {
-  const byYear = new Map<number, RankedPhoto[]>();
-
-  for (const item of pool) {
-    const year = yearOf(item.photo);
-
-    if (year !== null) {
-      byYear.set(year, [...(byYear.get(year) ?? []), item]);
-    }
-  }
-
-  const proposals: StoryProposal[] = [];
-
-  for (const [year, items] of byYear) {
-    const seasons = new Set(items.map((item) => seasonOf(item.photo)));
-
-    if (seasons.size < 3) {
-      continue;
-    }
-
-    const proposal = finish(
-      "seasons",
-      String(year),
-      `${year}, season by season`,
-      `Photographs from ${year} spanning ${seasons.size} seasons (by capture date). Suggested theme: seasons are inferred from dates only.`,
-      pickDiverse(items, seasonOf),
-      items
-    );
-
-    if (proposal) {
-      proposals.push({ ...proposal, score: proposal.score + seasons.size * 0.05 });
-    }
-  }
-
-  return proposals;
-}
-
-function highlightProposals(pool: RankedPhoto[]): StoryProposal[] {
-  const strong = pool.filter((item) => item.relevance >= 0.25);
-  const proposal = finish(
-    "highlights",
-    "all",
-    "The strongest photographs",
-    "The photographs the archive already marks or recommends most strongly for Story. Suggested selection: ordering and framing are for the curator to decide.",
-    pickDiverse(strong, (photo) => yearOf(photo)),
-    strong
-  );
-
-  return proposal ? [proposal] : [];
 }
 
 /**
- * Up to three distinct, data-grounded story proposals. Reuses stored recommendations and curator decisions;
- * makes no model calls. A photograph appears in at most one proposal.
+ * Proposals must surface additional material, not repeat the current Story selection.
  */
-export function buildStoryProposals(photos: readonly StoryDiscoveryPhoto[]): StoryProposal[] {
-  let pool = photos.filter(usable).map(rankPhoto);
+export function buildStoryProposals(
+  photos: readonly StoryDiscoveryPhoto[],
+  matchResults: readonly PlaceMatchResult[] = []
+): StoryProposal[] {
+  let pool = photos.filter((photo) => usable(photo) && !photo.storySelected).map(rankPhoto);
   const proposals: StoryProposal[] = [];
 
   while (proposals.length < MAX_PROPOSALS) {
-    const candidates = [...placeProposals(pool), ...seasonProposals(pool), ...highlightProposals(pool)].sort(
+    const candidates = placeProposals(pool, matchResults).sort(
       (left, right) => right.score - left.score || left.id.localeCompare(right.id)
     );
     const best = candidates[0];
