@@ -189,8 +189,8 @@ export function StoryDiscovery({ photos, matchResults, onViewStory, onClose }: S
           <p className="story-discovery-eyebrow">Story Discovery</p>
           <h1 id="story-discovery-title">What could the Story say next?</h1>
           <p className="story-discovery-note" data-testid="story-discovery-guard">
-            Story means a sequence of additional photographs from one place across several years. A proposal appears only when reviewed place matching links photographs across years and stored visual analysis gives a story-relevant clue.
-            These are drafts, not decisions: nothing is added to Story or published unless you choose it. No photographs were analysed just now.
+            Story Discovery groups photographs from one place across several years. Existing Story selections may appear as context, but every proposal must add at least two new photographs and include a stored visual clue.
+            A reviewed photo match strengthens the connection between years; if none exists, the missing evidence is stated. These are drafts, not decisions. No photographs were analysed just now.
           </p>
           <button type="button" className="story-discovery-link" data-testid="story-discovery-view-story" onClick={onViewStory}>
             View in A Courtyard's Story
@@ -199,7 +199,7 @@ export function StoryDiscovery({ photos, matchResults, onViewStory, onClose }: S
 
         {proposals.length === 0 ? (
           <p className="story-discovery-empty" data-testid="story-discovery-empty">
-            No supported new place-over-time proposal is available yet. Existing Story selections are not repeated here. The archive needs unselected photographs from one assigned place across several years, a reviewed match linking years, and at least one stored visual clue.
+            No candidate sequence meets the current criteria yet. A proposal needs at least two unselected photographs from one assigned place across multiple years, three or more years overall, and a stored visual clue. Existing Story selections can provide context.
           </p>
         ) : (
           proposals.map(renderProposal)
