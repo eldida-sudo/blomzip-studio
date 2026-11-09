@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { PlaceMatchResult } from "../models/blomzip";
 import {
   buildStoryProposals,
+  getStoryDiscoveryDiagnostics,
   findThenNow,
   type RankedPhoto,
   type StoryDiscoveryPhoto,
@@ -49,6 +50,7 @@ function Figure({ photo, large = false }: { photo: StoryDiscoveryPhoto; large?: 
  */
 export function StoryDiscovery({ photos, matchResults, onViewStory, onClose }: StoryDiscoveryProps) {
   const proposals = useMemo(() => buildStoryProposals(photos, matchResults), [photos, matchResults]);
+  const diagnostics = useMemo(() => getStoryDiscoveryDiagnostics(photos), [photos]);
   const [status, setStatus] = useState<Record<string, ProposalStatus>>({});
   const [replacements, setReplacements] = useState<Record<string, Record<string, RankedPhoto>>>({});
   const [replacing, setReplacing] = useState<{ proposalId: string; photoId: string } | null>(null);
@@ -198,9 +200,19 @@ export function StoryDiscovery({ photos, matchResults, onViewStory, onClose }: S
         </header>
 
         {proposals.length === 0 ? (
-          <p className="story-discovery-empty" data-testid="story-discovery-empty">
-            No candidate sequence meets the current criteria yet. A proposal needs at least two unselected photographs from one assigned place across multiple years, three or more years overall, and a stored visual clue. Existing Story selections can provide context.
-          </p>
+          <section className="story-discovery-empty" data-testid="story-discovery-empty" aria-label="Why no Story proposal is available">
+            <h2>No candidate sequence meets the current criteria yet.</h2>
+            <p>Here is what the archive currently contains. Each count is the number of place groups that meet that step:</p>
+            <ul>
+              <li>{diagnostics.datedPlaceGroups} places with usable, dated photographs</li>
+              <li>{diagnostics.groupsAcrossThreeYears} places represented in at least 3 different years</li>
+              <li>{diagnostics.groupsWithNewPhotosAcrossYears} places with at least 2 unselected photographs spanning 2 or more years</li>
+              <li>{diagnostics.groupsMeetingPhotoAndYearCriteria} places that meet both the year-span and new-photo requirements</li>
+              <li>{diagnostics.groupsWithFourPhotos} of those also have at least 4 usable photographs in total</li>
+              <li>{diagnostics.groupsWithStoredVisualClue} of those have a stored visual clue</li>
+            </ul>
+            <p>Rows overlap. A visual clue is an existing analysis signal, not proof that a story is present. Existing Story selections can provide context; they do not count as new photographs. No new image analysis was run.</p>
+          </section>
         ) : (
           proposals.map(renderProposal)
         )}
