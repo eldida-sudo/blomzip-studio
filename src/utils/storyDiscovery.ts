@@ -283,6 +283,62 @@ export function buildStoryProposals(
   return proposals;
 }
 
+export interface StoryDiscoveryDiagnostics {
+  datedPlaceGroups: number;
+  groupsAcrossThreeYears: number;
+  groupsWithNewPhotosAcrossYears: number;
+  groupsMeetingPhotoAndYearCriteria: number;
+  groupsWithFourPhotos: number;
+  groupsWithStoredVisualClue: number;
+}
+
+/**
+ * Summarizes why place groups may not reach a Story proposal.
+ * Counts are based only on usable archive data already in memory; no analysis is run.
+ */
+export function getStoryDiscoveryDiagnostics(
+  photos: readonly StoryDiscoveryPhoto[]
+): StoryDiscoveryDiagnostics {
+  const byPlace = new Map<string, StoryDiscoveryPhoto[]>();
+
+  for (const photo of photos.filter(usable)) {
+    if (photo.placeId && yearOf(photo) !== null) {
+      byPlace.set(photo.placeId, [...(byPlace.get(photo.placeId) ?? []), photo]);
+    }
+  }
+
+  const groups = [...byPlace.values()];
+  const groupsAcrossThreeYears = groups.filter(
+    (items) => new Set(items.map(yearOf).filter((year): year is number => year !== null)).size >= 3
+  );
+  const groupsWithNewPhotosAcrossYears = groups.filter((items) => {
+    const newPhotos = items.filter((photo) => !photo.storySelected);
+    return newPhotos.length >= 2 &&
+      new Set(newPhotos.map(yearOf).filter((year): year is number => year !== null)).size >= 2;
+  });
+  const groupsMeetingPhotoAndYearCriteria = groups.filter((items) => {
+    const years = new Set(items.map(yearOf).filter((year): year is number => year !== null));
+    const newPhotos = items.filter((photo) => !photo.storySelected);
+    const newYears = new Set(newPhotos.map(yearOf).filter((year): year is number => year !== null));
+    return years.size >= 3 && newPhotos.length >= 2 && newYears.size >= 2;
+  });
+  const groupsWithFourPhotos = groupsMeetingPhotoAndYearCriteria.filter(
+    (items) => items.length >= MIN_PROPOSAL_PHOTOS
+  );
+  const groupsWithStoredVisualClue = groupsWithFourPhotos.filter((items) =>
+    items.some((photo) => photo.signals.some((signal) => STORY_EVIDENCE_SIGNALS.has(signal)))
+  );
+
+  return {
+    datedPlaceGroups: groups.length,
+    groupsAcrossThreeYears: groupsAcrossThreeYears.length,
+    groupsWithNewPhotosAcrossYears: groupsWithNewPhotosAcrossYears.length,
+    groupsMeetingPhotoAndYearCriteria: groupsMeetingPhotoAndYearCriteria.length,
+    groupsWithFourPhotos: groupsWithFourPhotos.length,
+    groupsWithStoredVisualClue: groupsWithStoredVisualClue.length,
+  };
+}
+
 function normalizeFeature(value: string): string {
   return value.trim().toLowerCase();
 }
