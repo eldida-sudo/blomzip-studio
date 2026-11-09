@@ -75,8 +75,7 @@ export function rankPhoto(photo: StoryDiscoveryPhoto): RankedPhoto {
   const reasons: string[] = [];
   let relevance = 0;
 
-  // Existing Story selection is not a discovery signal: selected photographs are
-  // excluded from candidate generation so proposals must add new material.
+  reasons.push(photo.storySelected ? "Already selected for Story" : "New Story candidate");
 
   if (photo.hero) {
     relevance += 0.15;
@@ -194,44 +193,56 @@ function placeProposals(pool: RankedPhoto[], matchResults: readonly PlaceMatchRe
 
   for (const [placeId, items] of byPlace) {
     const years = [...new Set(items.map((item) => yearOf(item.photo) as number))].sort((a, b) => a - b);
+    const newItems = items.filter((item) => !item.photo.storySelected);
+    const newYears = new Set(newItems.map((item) => yearOf(item.photo)).filter((year): year is number => year !== null));
 
-    if (years.length < 3 || items.length < MIN_PROPOSAL_PHOTOS) {
+    // Story selections can provide context, but a proposal must add at least two
+    // unselected photographs across more than one year.
+    if (years.length < 3 || newItems.length < 2 || newYears.size < 2) {
       continue;
     }
 
-    // Only make a time-sequence proposal when reviewed matching supports continuity
-    // across years; a date gap or shared place label alone is not enough.
     const supportedPair = findThenNow(items.map((item) => item.photo), matchResults);
-    if (!supportedPair) {
-      continue;
-    }
-
     const rankedById = new Map(items.map((item) => [item.photo.id, item]));
-    const pairItems = [rankedById.get(supportedPair.before.id), rankedById.get(supportedPair.after.id)]
-      .filter((item): item is RankedPhoto => Boolean(item));
-    const diverseItems = pickDiverse(items, (photo) => yearOf(photo));
-    const picks = [...pairItems, ...diverseItems.filter((item) => !pairItems.some((pairItem) => pairItem.photo.id === item.photo.id))]
-      .slice(0, MAX_PROPOSAL_PHOTOS);
+    const pairItems = supportedPair
+      ? [rankedById.get(supportedPair.before.id), rankedById.get(supportedPair.after.id)]
+          .filter((item): item is RankedPhoto => Boolean(item))
+      : [];
+    const newPicks = pickDiverse(newItems, (photo) => yearOf(photo));
+    const selectedContext = pickDiverse(items.filter((item) => item.photo.storySelected), (photo) => yearOf(photo)).slice(0, 2);
+    const orderedCandidates = [...pairItems, ...selectedContext, ...newPicks];
+    const seen = new Set<string>();
+    const picks = orderedCandidates.filter((item) => {
+      if (seen.has(item.photo.id)) return false;
+      seen.add(item.photo.id);
+      return true;
+    }).slice(0, MAX_PROPOSAL_PHOTOS);
 
     const pickedYears = new Set(picks.map((item) => yearOf(item.photo)).filter((year): year is number => year !== null));
+    const newPhotosInPicks = picks.filter((item) => !item.photo.storySelected);
+    const pickedNewYears = new Set(newPhotosInPicks.map((item) => yearOf(item.photo)).filter((year): year is number => year !== null));
     const hasStoryEvidence = picks.some((item) => item.photo.signals.some((signal) => STORY_EVIDENCE_SIGNALS.has(signal)));
     const verifiedPairInPicks = findThenNow(picks.map((item) => item.photo), matchResults);
 
     if (
       picks.length < MIN_PROPOSAL_PHOTOS ||
+      newPhotosInPicks.length < 2 ||
+      pickedNewYears.size < 2 ||
       pickedYears.size < 3 ||
-      !hasStoryEvidence ||
-      !verifiedPairInPicks
+      !hasStoryEvidence
     ) {
       continue;
     }
 
     const label = items[0].photo.placeLabel ?? placeId;
+    const continuityNote = verifiedPairInPicks
+      ? `A reviewed comparison links two years through ${verifiedPairInPicks.sharedFeatures.join(", ")}.`
+      : "No reviewed photo-to-photo match links the years yet, so check the framing and fixed landmarks before treating this as a continuous sequence.";
     const proposal = finish(
       "place-over-time",
       placeId,
       `${label}, over the years`,
-      `New, not-yet-selected photographs from ${label} span ${pickedYears.size} years (${Math.min(...pickedYears)}–${Math.max(...pickedYears)}). An approved comparison links two years through ${verifiedPairInPicks.sharedFeatures.join(", ")}. This supports a place-based sequence; the photographs still need curator review to establish what changed.`,
+      `A candidate sequence for ${label}: ${newPhotosInPicks.length} new photographs across ${pickedNewYears.size} years, with existing Story selections shown only as context. ${continuityNote} A stored visual clue is present, but the photographs still need curator review to establish what changed.`,
       picks,
       items
     );
@@ -245,13 +256,13 @@ function placeProposals(pool: RankedPhoto[], matchResults: readonly PlaceMatchRe
 }
 
 /**
- * Proposals must surface additional material, not repeat the current Story selection.
+ * Uses existing Story selections as context, but every proposal must add new photographs.
  */
 export function buildStoryProposals(
   photos: readonly StoryDiscoveryPhoto[],
   matchResults: readonly PlaceMatchResult[] = []
 ): StoryProposal[] {
-  let pool = photos.filter((photo) => usable(photo) && !photo.storySelected).map(rankPhoto);
+  let pool = photos.filter(usable).map(rankPhoto);
   const proposals: StoryProposal[] = [];
 
   while (proposals.length < MAX_PROPOSALS) {
