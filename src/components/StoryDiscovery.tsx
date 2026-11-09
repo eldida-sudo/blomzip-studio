@@ -48,7 +48,7 @@ function Figure({ photo, large = false }: { photo: StoryDiscoveryPhoto; large?: 
  * approving never publishes or changes Story selections, the archive, anchors or match history.
  */
 export function StoryDiscovery({ photos, matchResults, onViewStory, onClose }: StoryDiscoveryProps) {
-  const proposals = useMemo(() => buildStoryProposals(photos), [photos]);
+  const proposals = useMemo(() => buildStoryProposals(photos, matchResults), [photos, matchResults]);
   const [status, setStatus] = useState<Record<string, ProposalStatus>>({});
   const [replacements, setReplacements] = useState<Record<string, Record<string, RankedPhoto>>>({});
   const [replacing, setReplacing] = useState<{ proposalId: string; photoId: string } | null>(null);
@@ -189,8 +189,8 @@ export function StoryDiscovery({ photos, matchResults, onViewStory, onClose }: S
           <p className="story-discovery-eyebrow">Story Discovery</p>
           <h1 id="story-discovery-title">What could the Story say next?</h1>
           <p className="story-discovery-note" data-testid="story-discovery-guard">
-            Proposals are drafts built from existing dates, places, stored analysis and your decisions. No photographs were analysed just now.
-            Approving keeps a proposal here for review; it does not publish, and it does not change the published Story or your Story selection.
+            Story means a sequence of additional photographs from one place across several years. A proposal appears only when reviewed place matching links photographs across years and stored visual analysis gives a story-relevant clue.
+            These are drafts, not decisions: nothing is added to Story or published unless you choose it. No photographs were analysed just now.
           </p>
           <button type="button" className="story-discovery-link" data-testid="story-discovery-view-story" onClick={onViewStory}>
             View in A Courtyard's Story
@@ -199,7 +199,7 @@ export function StoryDiscovery({ photos, matchResults, onViewStory, onClose }: S
 
         {proposals.length === 0 ? (
           <p className="story-discovery-empty" data-testid="story-discovery-empty">
-            Not enough well-supported photographs yet to propose a story. Assign more photographs to places or select some for Story, then come back.
+            No supported new place-over-time proposal is available yet. Existing Story selections are not repeated here. The archive needs unselected photographs from one assigned place across several years, a reviewed match linking years, and at least one stored visual clue.
           </p>
         ) : (
           proposals.map(renderProposal)
